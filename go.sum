@@ -249,6 +249,8 @@ github.com/getsentry/sentry-go v0.41.0 h1:q/dQZOlEIb4lhxQSjJhQqtRr3vwrJ6Ahe1C9zv
 github.com/getsentry/sentry-go v0.41.0/go.mod h1:eRXCoh3uvmjQLY6qu63BjUZnaBu5L5WhMV1RwYO8W5s=
 github.com/getsentry/sentry-go/otel v0.40.0 h1:MQpeFpAzTHs9sdFs1ayYEKrBNiPHsQGkqW2iDfCdbkc=
 github.com/getsentry/sentry-go/otel v0.40.0/go.mod h1:oV6U2QGPyLiTqtLqJsHpk1tTlyMv5kfWISz4dSIC3Og=
+github.com/getsentry/sentry-go/otel v0.41.0 h1:pCsYlrN+4RueotBCAarrXp8aUGVS16MQc0f8HdSsRWQ=
+github.com/getsentry/sentry-go/otel v0.41.0/go.mod h1:FHxQ59UCp5c4yIteEOHMa0d0tx1ldOZqz22v/oNVAvE=
 github.com/ghostiam/protogetter v0.3.18 h1:yEpghRGtP9PjKvVXtEzGpYfQj1Wl/ZehAfU6fr62Lfo=
 github.com/ghostiam/protogetter v0.3.18/go.mod h1:FjIu5Yfs6FT391m+Fjp3fbAYJ6rkL/J6ySpZBfnODuI=
 github.com/go-chi/chi/v5 v5.2.3 h1:WQIt9uxdsAbgIYgid+BpYc+liqQZGMHRaUwp0JUcvdE=
