@@ -31,5 +31,5 @@ func HandleError(_ context.Context, w http.ResponseWriter, span trace.Span, errM
 		}
 	}
 
-	http.Error(w, err.Error(), status)
+	http.Error(w, http.StatusText(status), status)
 }
