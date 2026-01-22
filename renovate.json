@@ -1,11 +1,18 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "postUpdateOptions": ["gomodTidy"],
+  "postUpdateOptions": ["gomodTidy", "pnpmDedupe"],
   "packageRules": [
     {
       "matchManagers": ["gomod"],
       "postUpgradeTasks": {
-        "commands": ["go mod tidy && go tool golangci-lint run ./... --fix", "go mod tidy && go generate ./..."],
+        "commands": ["go mod tidy", "go generate ./...", "go tool golangci-lint run ./... --fix"],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "matchManagers": ["npm"],
+      "postUpgradeTasks": {
+        "commands": ["pnpm i", "pnpm format"],
         "executionMode": "branch"
       }
     }
