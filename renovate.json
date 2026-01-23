@@ -12,7 +12,7 @@
     {
       "matchManagers": ["npm"],
       "postUpgradeTasks": {
-        "commands": ["CI=true pnpm i", "pnpm format"],
+        "commands": ["pnpm format"],
         "executionMode": "branch"
       }
     }
