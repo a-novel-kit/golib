@@ -19,7 +19,7 @@ import (
 var _ logging.HttpConfig = (*HttpGcloud)(nil)
 
 type HttpGcloud struct {
-	BaseLogger LogGcloud
+	BaseLogger *LogGcloud
 }
 
 func (logger *HttpGcloud) Logger() func(http.Handler) http.Handler {

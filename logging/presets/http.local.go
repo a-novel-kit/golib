@@ -13,7 +13,7 @@ import (
 var _ logging.HttpConfig = (*HttpLocal)(nil)
 
 type HttpLocal struct {
-	BaseLogger LogLocal
+	BaseLogger *LogLocal
 }
 
 func (logger *HttpLocal) Logger() func(http.Handler) http.Handler {

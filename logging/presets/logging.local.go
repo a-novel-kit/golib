@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
-	"os"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -28,16 +26,6 @@ func (logger *LogLocal) Err(_ context.Context, msg string, fields ...any) {
 }
 
 func (logger *LogLocal) log(level LogLevel, msg string, fields ...any) {
-	if logger.Renderer == nil {
-		logger.Renderer = lipgloss.DefaultRenderer()
-	}
-
-	if logger.Out == nil {
-		log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
-
-		logger.Out = os.Stdout
-	}
-
 	lstyle := logger.Renderer.NewStyle()
 
 	switch level {
