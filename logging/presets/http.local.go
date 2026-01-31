@@ -68,7 +68,7 @@ func (logger *HttpLocal) Logger() func(http.Handler) http.Handler {
 
 			message := lstyle.Render(fmt.Sprintf("%s %s %s", prefix, r.Method, r.URL.Path)) // Path
 			message += lstyleExtra.Render(fmt.Sprintf(" (%s)", latency))                    // Latency
-			message = lstyleExtra.Render(start.Format(time.StampNano)) + message            // Start time
+			message = lstyleExtra.Render(start.Format(time.StampNano)) + " " + message      // Start time
 
 			if body != "" {
 				message += lstyle.Render("\n\t" + strings.ReplaceAll(body, "\n", "\n\t"))
