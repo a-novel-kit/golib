@@ -1,7 +1,6 @@
 package loggingpresets
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -30,38 +29,39 @@ func (logger *HttpLocal) Logger() func(http.Handler) http.Handler {
 
 			status := wrapped.Status()
 
+			lstyle := logger.BaseLogger.Renderer.NewStyle()
+
 			var (
 				prefix string
 				body   string
-				logFn  func(ctx context.Context, msg string, fields ...any)
 			)
 
 			switch {
 			case status >= http.StatusInternalServerError:
-				logFn = logger.BaseLogger.Err
+				lstyle = lstyle.Foreground(LipColorError)
 				prefix = "🗙 "
 				body = string(wrapped.Response())
 			case status >= http.StatusBadRequest:
-				logFn = logger.BaseLogger.Warn
+				lstyle = lstyle.Foreground(LipColorWarn)
 				prefix = "⚠ "
 				body = string(wrapped.Response())
 			default:
-				logFn = logger.BaseLogger.Info
+				lstyle = lstyle.Foreground(LipColorInfo)
 				prefix = "✓ "
 				// Don't print body to keep logs clean.
 			}
 
 			lstyleExtra := logger.BaseLogger.Renderer.NewStyle().Faint(true)
 
-			message := fmt.Sprintf("%s %s %s", prefix, r.Method, r.URL.Path)           // Path
-			message += lstyleExtra.Render(fmt.Sprintf(" (%s)", latency))               // Latency
-			message = lstyleExtra.Render(start.Format(time.StampNano)) + " " + message // Start time
+			message := lstyle.Render(fmt.Sprintf("%s %s %s", prefix, r.Method, r.URL.Path)) // Path
+			message += lstyleExtra.Render(fmt.Sprintf(" (%s)", latency))                    // Latency
+			message = lstyleExtra.Render(start.Format(time.StampNano)) + " " + message      // Start time
 
 			if body != "" {
-				message += "\n\t" + strings.ReplaceAll(body, "\n", "\n\t")
+				message += lstyle.Render("\n\t" + strings.ReplaceAll(body, "\n", "\n\t"))
 			}
 
-			logFn(r.Context(), strings.TrimSpace(message))
+			_, _ = fmt.Fprint(logger.BaseLogger.Out, strings.TrimSpace(message)+"\n")
 		})
 	}
 }
