@@ -7,12 +7,15 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
 )
 
 type ErrMap map[error]int
 
-func HandleError(_ context.Context, w http.ResponseWriter, span trace.Span, errMap ErrMap, err error) {
+func HandleError(
+	ctx context.Context, logger logging.Log, w http.ResponseWriter, span trace.Span, errMap ErrMap, err error,
+) {
 	err = otel.ReportError(span, err)
 	status := http.StatusInternalServerError
 
@@ -31,5 +34,6 @@ func HandleError(_ context.Context, w http.ResponseWriter, span trace.Span, errM
 		}
 	}
 
+	logger.Err(ctx, err.Error())
 	http.Error(w, http.StatusText(status), status)
 }

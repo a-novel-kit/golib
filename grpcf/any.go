@@ -10,7 +10,7 @@ import (
 
 // Found here: https://ravina01997.medium.com/converting-interface-to-any-proto-and-vice-versa-in-golang-27badc3e23f1
 
-func InterfaceToProtoAny(v interface{}) (*anypb.Any, error) {
+func InterfaceToProtoAny(v any) (*anypb.Any, error) {
 	anyValue := &anypb.Any{}
 
 	bytes, err := json.Marshal(v)
@@ -23,8 +23,8 @@ func InterfaceToProtoAny(v interface{}) (*anypb.Any, error) {
 	return anyValue, anypb.MarshalFrom(anyValue, bytesValue, proto.MarshalOptions{})
 }
 
-func ProtoAnyToInterface(anyValue *anypb.Any) (interface{}, error) {
-	var value interface{}
+func ProtoAnyToInterface(anyValue *anypb.Any) (any, error) {
+	var value any
 
 	bytesValue := &wrapperspb.BytesValue{}
 
