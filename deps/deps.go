@@ -14,7 +14,7 @@ func printDepsGraph[Mod comparable](deps map[Mod]map[Mod]bool) string {
 	var output strings.Builder
 
 	for mod, localDeps := range deps {
-		output.WriteString(fmt.Sprintf("\n\t%v -> %v", mod, lo.Keys(localDeps)))
+		fmt.Fprintf(&output, "\n\t%v -> %v", mod, lo.Keys(localDeps))
 	}
 
 	return output.String()
