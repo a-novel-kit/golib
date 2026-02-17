@@ -9,13 +9,14 @@ import (
 )
 
 type ProdSender struct {
-	Addr     string `json:"addr"     yaml:"addr"`
-	Name     string `json:"name"     yaml:"name"`
-	Email    string `json:"email"    yaml:"email"`
-	Password string `json:"password" yaml:"password"`
-	Domain   string `json:"domain"   yaml:"domain"`
+	Addr   string `json:"addr"   yaml:"addr"`
+	Name   string `json:"name"   yaml:"name"`
+	Email  string `json:"email"  yaml:"email"`
+	Domain string `json:"domain" yaml:"domain"`
 
-	// Dangerous setting, only use for local development.
+	Password string `json:"-" yaml:"-"`
+
+	// Dangerous setting, only use it for local development.
 	ForceUnencryptedTls bool `json:"forceUnencryptedTLS" yaml:"forceUnencryptedTLS"`
 }
 
@@ -54,6 +55,10 @@ func (sender *ProdSender) Ping() error {
 	if err != nil {
 		return fmt.Errorf("dial SMTP server: %w", err)
 	}
+
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	err = conn.Auth(auth)
 	if err != nil {
