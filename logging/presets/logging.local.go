@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 type LogLocal struct {
-	Out      io.Writer
-	Renderer *lipgloss.Renderer
+	Out io.Writer
 }
 
 func (logger *LogLocal) Info(_ context.Context, msg string, fields ...any) {
@@ -26,8 +25,7 @@ func (logger *LogLocal) Err(_ context.Context, msg string, fields ...any) {
 }
 
 func (logger *LogLocal) log(level LogLevel, msg string, fields ...any) {
-	lstyle := logger.Renderer.NewStyle()
-
+	lstyle := lipgloss.NewStyle()
 	switch level {
 	case LogLevelInfo:
 		lstyle = lstyle.Foreground(LipColorInfo)
@@ -37,5 +35,5 @@ func (logger *LogLocal) log(level LogLevel, msg string, fields ...any) {
 		lstyle = lstyle.Foreground(LipColorError)
 	}
 
-	_, _ = fmt.Fprint(logger.Out, lstyle.Render(fmt.Sprintf(msg, fields...))+"\n")
+	_, _ = lipgloss.Fprint(logger.Out, lstyle.Render(fmt.Sprintf(msg, fields...))+"\n")
 }
