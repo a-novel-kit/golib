@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.31.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.55.0
-	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/lipgloss/v2 v2.0.0
 	github.com/fatih/color v1.18.0
 	github.com/getsentry/sentry-go v0.43.0
 	github.com/getsentry/sentry-go/otel v0.43.0
