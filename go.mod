@@ -10,7 +10,7 @@ require (
 	github.com/getsentry/sentry-go v0.43.0
 	github.com/getsentry/sentry-go/otel v0.43.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
-	github.com/samber/lo v1.52.0
+	github.com/samber/lo v1.53.0
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18
