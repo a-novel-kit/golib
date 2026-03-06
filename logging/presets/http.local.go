@@ -62,7 +62,7 @@ func (logger *HttpLocal) Logger() func(http.Handler) http.Handler {
 			}
 
 			// Local development only, so mitigated security risk.
-			//nolint:gosec
+
 			_, _ = fmt.Fprint(logger.BaseLogger.Out, strings.TrimSpace(message)+"\n")
 		})
 	}
