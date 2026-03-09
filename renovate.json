@@ -4,11 +4,7 @@
   "packageRules": [
     {
       "matchCategories": ["golang"],
-      "managerFilePatterns": [
-        "/(^|/)go\\.mod$/",
-        "/(^|/)golangci-lint\\.mod$/",
-        "/(^|/)gotestsum\\.mod$/"
-      ]
+      "managerFilePatterns": ["/(^|/)go\\.mod$/", "/(^|/)golangci-lint\\.mod$/", "/(^|/)gotestsum\\.mod$/"]
     },
     {
       "matchManagers": ["gomod"],
