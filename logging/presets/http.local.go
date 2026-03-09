@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel/utils"
 )
@@ -29,7 +31,7 @@ func (logger *HttpLocal) Logger() func(http.Handler) http.Handler {
 
 			status := wrapped.Status()
 
-			lstyle := logger.BaseLogger.Renderer.NewStyle()
+			lstyle := lipgloss.NewStyle()
 
 			var (
 				prefix string
@@ -51,7 +53,7 @@ func (logger *HttpLocal) Logger() func(http.Handler) http.Handler {
 				// Don't print body to keep logs clean.
 			}
 
-			lstyleExtra := logger.BaseLogger.Renderer.NewStyle().Faint(true)
+			lstyleExtra := lipgloss.NewStyle().Faint(true)
 
 			message := lstyle.Render(fmt.Sprintf("%s %s %s", prefix, r.Method, r.URL.Path)) // Path
 			message += lstyleExtra.Render(fmt.Sprintf(" (%s)", latency))                    // Latency
