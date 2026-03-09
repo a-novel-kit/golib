@@ -25,7 +25,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.42.0
 	go.opentelemetry.io/otel/sdk/log v0.18.0
 	go.opentelemetry.io/otel/trace v1.42.0
-	google.golang.org/api v0.269.0
+	google.golang.org/api v0.270.0
 	google.golang.org/grpc v1.79.2
 	google.golang.org/protobuf v1.36.11
 )
@@ -164,7 +164,7 @@ require (
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.12 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/gordonklaus/ineffassign v0.2.0 // indirect
 	github.com/gostaticanalysis/analysisutil v0.7.1 // indirect
