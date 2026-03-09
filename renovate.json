@@ -1,10 +1,15 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "postUpdateOptions": ["gomodTidy", "pnpmDedupe"],
-  "golang": {
-    "managerFilePatterns": ["/(^|/)go\\.mod$/", "/(^|/)golangci-lint\\.mod$/", "/(^|/)gotestsum\\.mod$/"]
-  },
   "packageRules": [
+    {
+      "matchCategories": ["golang"],
+      "managerFilePatterns": [
+        "/(^|/)go\\.mod$/",
+        "/(^|/)golangci-lint\\.mod$/",
+        "/(^|/)gotestsum\\.mod$/"
+      ]
+    },
     {
       "matchManagers": ["gomod"],
       "postUpgradeTasks": {
