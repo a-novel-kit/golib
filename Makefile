@@ -4,7 +4,7 @@ test:
 
 # Check code quality.
 lint:
-	go tool golangci-lint run
+	go tool -modfile=golangci-lint.mod golangci-lint run
 	go tool buf lint
 	pnpm lint
 
@@ -17,7 +17,9 @@ generate: generate-go
 # Reformat code so it passes the code style lint checks.
 format:
 	go mod tidy
-	go tool golangci-lint run --fix
+	go mod tidy -modfile=golangci-lint.mod
+	go mod tidy -modfile=gotestsum.mod
+	go tool -modfile=golangci-lint.mod golangci-lint run --fix
 	go tool buf format -w
 	go tool buf dep update
 	pnpm format
