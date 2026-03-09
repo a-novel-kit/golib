@@ -58,6 +58,8 @@ jobs:
       contents: read
     steps:
       - uses: a-novel-kit/workflows/go-actions/test-go@master
+        with:
+          modfile: gotestsum.mod
 
   report-grc:
     runs-on: ubuntu-latest
