@@ -1,12 +1,18 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "postUpdateOptions": ["gomodTidy", "pnpmDedupe"],
-  "golang": ["go.mod", "golangci-lint.mod", "gotestsum.mod"],
+  "golang": {
+    "managerFilePatterns": ["/(^|/)go\\.mod$/", "/(^|/)golangci-lint\\.mod$/", "/(^|/)gotestsum\\.mod$/"]
+  },
   "packageRules": [
     {
       "matchManagers": ["gomod"],
       "postUpgradeTasks": {
-        "commands": ["go mod download", "go generate ./...", "go tool golangci-lint run ./... --fix"],
+        "commands": [
+          "go mod download",
+          "go generate ./...",
+          "go tool -modfile=golangci-lint.mod golangci-lint run ./... --fix"
+        ],
         "executionMode": "branch"
       }
     },
