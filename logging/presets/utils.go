@@ -1,6 +1,6 @@
 package loggingpresets
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 var (
 	LipColorError = lipgloss.Color("#ff3232")

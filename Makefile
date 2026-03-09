@@ -17,8 +17,6 @@ generate: generate-go
 # Reformat code so it passes the code style lint checks.
 format:
 	go mod tidy
-	go mod tidy -modfile=golangci-lint.mod
-	go mod tidy -modfile=gotestsum.mod
 	go tool -modfile=golangci-lint.mod golangci-lint run --fix
 	go tool buf format -w
 	go tool buf dep update
