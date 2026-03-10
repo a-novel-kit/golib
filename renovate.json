@@ -29,16 +29,21 @@
     },
     {
       "matchFileNames": ["go.mod"],
-      "postUpdateOptions": ["gomodTidy"],
+      "matchPackageNames": ["github.com/bufbuild/buf/cmd/buf"],
       "postUpgradeTasks": {
         "commands": [
           "go mod download",
-          "go generate ./...",
-          "go mod download -modfile=golangci-lint.mod",
-          "go tool -modfile=golangci-lint.mod golangci-lint run ./... --fix"
+          "rm -rf internal/handlers/protogen",
+          "go tool buf generate",
+          "go tool buf format -w",
+          "go tool buf dep update"
         ],
         "executionMode": "branch"
       }
+    },
+    {
+      "matchFileNames": ["go.mod"],
+      "postUpdateOptions": ["gomodTidy"]
     },
     {
       "matchManagers": ["npm"],
