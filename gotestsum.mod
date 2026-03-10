@@ -1,4 +1,4 @@
-module github.com/a-novel-kit/golib/golangci-lint
+module github.com/a-novel-kit/golib/gotestsum
 
 go 1.26.1
 
