@@ -23,6 +23,7 @@ jobs:
           allowed_commands: |
             [
               "^pnpm format$", 
+              "^rm ([a-zA-Z0-9_-]\\+)\\.sum$",
               "^go mod download$", 
               "^go mod download .*", 
               "^go generate .*", 

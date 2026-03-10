@@ -14,12 +14,26 @@
       "goGetDirs": ["."]
     },
     {
+      "matchFileNames": ["golangci-lint.mod"],
+      "postUpgradeTasks": {
+        "commands": ["rm -f golangci-lint.sum", "go mod download -modfile=golangci-lint.mod"],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "matchFileNames": ["gotestsum.mod"],
+      "postUpgradeTasks": {
+        "commands": ["rm -f gotestsum.sum", "go mod download -modfile=gotestsum.mod"],
+        "executionMode": "branch"
+      }
+    },
+    {
       "matchManagers": ["gomod"],
       "postUpgradeTasks": {
         "commands": [
           "go mod download",
-          "go mod download -modfile=golangci-lint.mod",
           "go generate ./...",
+          "go mod download -modfile=golangci-lint.mod",
           "go tool -modfile=golangci-lint.mod golangci-lint run ./... --fix"
         ],
         "executionMode": "branch"
