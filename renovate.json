@@ -10,9 +10,15 @@
     },
     {
       "matchManagers": ["gomod"],
+      "matchFileNames": ["!go.mod"],
+      "goGetDirs": ["."]
+    },
+    {
+      "matchManagers": ["gomod"],
       "postUpgradeTasks": {
         "commands": [
           "go mod download",
+          "go mod download -modfile=golangci-lint.mod",
           "go generate ./...",
           "go tool -modfile=golangci-lint.mod golangci-lint run ./... --fix"
         ],
