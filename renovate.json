@@ -16,19 +16,23 @@
     {
       "matchFileNames": ["golangci-lint.mod"],
       "postUpgradeTasks": {
-        "commands": ["rm -f golangci-lint.sum", "go mod download -modfile=golangci-lint.mod"],
+        "commands": [
+          "rm -f golangci-lint.sum",
+          "go get -modfile=golangci-lint.mod -tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
+          "go tool -modfile=golangci-lint.mod golangci-lint run ./... --fix"
+        ],
         "executionMode": "branch"
       }
     },
     {
       "matchFileNames": ["gotestsum.mod"],
       "postUpgradeTasks": {
-        "commands": ["rm -f gotestsum.sum", "go mod download -modfile=gotestsum.mod"],
+        "commands": ["rm -f gotestsum.sum", "go get -modfile=gotestsum.mod -tool gotest.tools/gotestsum"],
         "executionMode": "branch"
       }
     },
     {
-      "matchManagers": ["gomod"],
+      "matchFileNames": ["go.mod"],
       "postUpgradeTasks": {
         "commands": [
           "go mod download",
