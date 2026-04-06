@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	charm.land/lipgloss/v2 v2.0.2
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.31.0
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.32.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.55.0
 	github.com/fatih/color v1.19.0
 	github.com/getsentry/sentry-go v0.44.1
@@ -51,7 +51,7 @@ require (
 	cloud.google.com/go/trace v1.11.6 // indirect
 	connectrpc.com/connect v1.19.1 // indirect
 	connectrpc.com/otelconnect v0.9.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.55.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.56.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/bufbuild/buf v1.67.0 // indirect
