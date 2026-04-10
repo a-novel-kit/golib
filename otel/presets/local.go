@@ -11,7 +11,6 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	otellib "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/log"
@@ -28,6 +27,9 @@ var _ otel.Config = (*Local)(nil)
 // Local configures OTEL to log traces & logs to stdout.
 type Local struct {
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
+
+	tp *sdktrace.TracerProvider
+	lp *sdklog.LoggerProvider
 }
 
 // Init just prints a banner for local dev mode.
@@ -51,12 +53,12 @@ func (config *Local) GetTraceProvider() (trace.TracerProvider, error) {
 		return nil, err
 	}
 
-	tp := sdktrace.NewTracerProvider(
+	config.tp = sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(traceExporter),
 	)
 
-	return tp, nil
+	return config.tp, nil
 }
 
 func (config *Local) GetLogger() (log.LoggerProvider, error) {
@@ -68,19 +70,34 @@ func (config *Local) GetLogger() (log.LoggerProvider, error) {
 		return nil, err
 	}
 
-	return sdklog.NewLoggerProvider(
+	config.lp = sdklog.NewLoggerProvider(
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
-	), nil
+	)
+
+	return config.lp, nil
 }
 
 func (config *Local) Flush() {
-	provider := otellib.GetTracerProvider()
+	ctx := context.Background()
 
-	tp, ok := provider.(*sdktrace.TracerProvider)
-	if ok {
-		err := tp.Shutdown(context.Background())
+	if config.FlushTimeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, config.FlushTimeout)
+		defer cancel()
+	}
+
+	if config.tp != nil {
+		err := config.tp.Shutdown(ctx)
 		if err != nil {
-			stdlog.Fatalf("Failed to shutdown tracer provider: %v\n", err)
+			stdlog.Printf("failed to shutdown tracer provider: %v\n", err)
+		}
+	}
+
+	if config.lp != nil {
+		err := config.lp.Shutdown(ctx)
+		if err != nil {
+			stdlog.Printf("failed to shutdown logger provider: %v\n", err)
 		}
 	}
 }
