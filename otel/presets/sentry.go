@@ -1,6 +1,7 @@
 package otelpresets
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"time"
@@ -30,6 +31,9 @@ type Sentry struct {
 	Environment  string        `json:"environment"  yaml:"environment"`
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 	Debug        bool          `json:"debug"        yaml:"debug"`
+
+	tp *sdktrace.TracerProvider
+	lp *sdklog.LoggerProvider
 }
 
 func (config *Sentry) Init() error {
@@ -43,6 +47,9 @@ func (config *Sentry) Init() error {
 		ServerName:       config.ServerName,
 		Release:          config.Release,
 		Environment:      config.Environment,
+		Integrations: func(integrations []sentry.Integration) []sentry.Integration {
+			return append(integrations, sentryotel.NewOtelIntegration())
+		},
 		BeforeSend: func(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 			if hint == nil || hint.Context == nil {
 				return event
@@ -59,11 +66,17 @@ func (config *Sentry) Init() error {
 }
 
 func (config *Sentry) GetPropagators() (propagation.TextMapPropagator, error) {
-	return sentryotel.NewSentryPropagator(), nil
+	return propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	), nil
 }
 
 func (config *Sentry) GetTraceProvider() (trace.TracerProvider, error) {
-	return sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sentryotel.NewSentrySpanProcessor())), nil
+	//nolint:staticcheck // sentryotlp.NewTraceExporter not yet available; migrate when sentry-go/otel/otlp is released
+	config.tp = sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sentryotel.NewSentrySpanProcessor()))
+
+	return config.tp, nil
 }
 
 func (config *Sentry) GetLogger() (log.LoggerProvider, error) {
@@ -73,12 +86,31 @@ func (config *Sentry) GetLogger() (log.LoggerProvider, error) {
 		return nil, err
 	}
 
-	return sdklog.NewLoggerProvider(
+	config.lp = sdklog.NewLoggerProvider(
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
-	), nil
+	)
+
+	return config.lp, nil
 }
 
 func (config *Sentry) Flush() {
+	ctx := context.Background()
+
+	if config.FlushTimeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, config.FlushTimeout)
+		defer cancel()
+	}
+
+	if config.tp != nil {
+		_ = config.tp.Shutdown(ctx)
+	}
+
+	if config.lp != nil {
+		_ = config.lp.Shutdown(ctx)
+	}
+
 	sentry.Flush(config.FlushTimeout)
 }
 

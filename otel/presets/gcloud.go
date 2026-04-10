@@ -15,7 +15,6 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	otellib "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/propagation"
@@ -31,6 +30,9 @@ var _ otel.Config = (*Gcloud)(nil)
 type Gcloud struct {
 	ProjectID    string        `json:"projectID"    yaml:"projectID"`
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
+
+	tp *sdktrace.TracerProvider
+	lp *sdklog.LoggerProvider
 }
 
 func (config *Gcloud) Init() error {
@@ -61,12 +63,12 @@ func (config *Gcloud) GetTraceProvider() (trace.TracerProvider, error) {
 		return nil, fmt.Errorf("failed to create GCP trace exporter: %w", err)
 	}
 
-	tp := sdktrace.NewTracerProvider(
+	config.tp = sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(exporter),
 	)
 
-	return tp, nil
+	return config.tp, nil
 }
 
 // GetLogger sets up a structured JSON logger that GCP can parse and link to traces.
@@ -78,20 +80,35 @@ func (config *Gcloud) GetLogger() (log.LoggerProvider, error) {
 		return nil, err
 	}
 
-	return sdklog.NewLoggerProvider(
+	config.lp = sdklog.NewLoggerProvider(
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
-	), nil
+	)
+
+	return config.lp, nil
 }
 
 // Flush shuts down tracer and logger providers.
 func (config *Gcloud) Flush() {
-	provider := otellib.GetTracerProvider()
+	ctx := context.Background()
 
-	tp, ok := provider.(*sdktrace.TracerProvider)
-	if ok {
-		err := tp.Shutdown(context.Background())
+	if config.FlushTimeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, config.FlushTimeout)
+		defer cancel()
+	}
+
+	if config.tp != nil {
+		err := config.tp.Shutdown(ctx)
 		if err != nil {
-			stdlog.Fatalf("Failed to shutdown tracer provider: %v\n", err)
+			stdlog.Printf("failed to shutdown tracer provider: %v\n", err)
+		}
+	}
+
+	if config.lp != nil {
+		err := config.lp.Shutdown(ctx)
+		if err != nil {
+			stdlog.Printf("failed to shutdown logger provider: %v\n", err)
 		}
 	}
 }
