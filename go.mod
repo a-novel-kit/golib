@@ -55,8 +55,8 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.56.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
-	github.com/bufbuild/buf v1.68.3 // indirect
-	github.com/bufbuild/protocompile v0.14.2-0.20260420203553-9e5399662822 // indirect
+	github.com/bufbuild/buf v1.68.4 // indirect
+	github.com/bufbuild/protocompile v0.14.2-0.20260422150859-0395838fcd3c // indirect
 	github.com/bufbuild/protoplugin v0.0.0-20260414125817-25d1d281b46b // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
