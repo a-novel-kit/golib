@@ -2,7 +2,6 @@ package smtp
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"net/smtp"
 	"text/template"
@@ -62,12 +61,12 @@ func (sender *ProdSender) Ping() error {
 
 	err = conn.Auth(auth)
 	if err != nil {
-		return errors.Join(fmt.Errorf("authenticate with SMTP server: %w", err), conn.Close())
+		return fmt.Errorf("authenticate with SMTP server: %w", err)
 	}
 
 	err = conn.Quit()
 	if err != nil {
-		return errors.Join(fmt.Errorf("quit SMTP connection: %w", err), conn.Close())
+		return fmt.Errorf("quit SMTP connection: %w", err)
 	}
 
 	return nil
