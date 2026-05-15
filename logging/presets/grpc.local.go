@@ -51,10 +51,3 @@ func (logger *GRPCLocal) init() {
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
 	logger.l = log.With("service", "gRPC/server", "component", logger.Component)
 }
-
-// GrpcLocal is the legacy spelling of GRPCLocal.
-//
-// Deprecated: use GRPCLocal. The renamed alias matches the project's
-// acronym-casing convention (`gRPC`/`GRPC`, not `Grpc`); behaviour is
-// unchanged.
-type GrpcLocal = GRPCLocal

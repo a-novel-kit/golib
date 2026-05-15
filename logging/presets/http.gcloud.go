@@ -89,9 +89,3 @@ func (logger *HTTPGcloud) Logger() func(http.Handler) http.Handler {
 		})
 	}
 }
-
-// HttpGcloud is the legacy spelling of HTTPGcloud.
-//
-// Deprecated: use HTTPGcloud. The renamed alias matches the project's
-// acronym-casing convention (`HTTP`, not `Http`); behaviour is unchanged.
-type HttpGcloud = HTTPGcloud
