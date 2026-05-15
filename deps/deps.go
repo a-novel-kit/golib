@@ -32,6 +32,12 @@ func printDepsGraph[Mod comparable](deps map[Mod]map[Mod]bool) string {
 //
 //	mod1 -> dep1, dep2
 //	mod2 -> dep3, dep1, dep2
+//
+// Deprecated: this helper has only a single consumer across the a-novel /
+// a-novel-kit org, which falls below the "several services would otherwise
+// copy it verbatim" bar for inclusion in golib. Inline it into the consumer
+// (currently service-authentication's `pkg/go/auth.go`) and the package will
+// be removed in a future release. See write-go-kit, "golib stays minimal".
 func ResolveDependants[Mod comparable, Deps any](mods map[Mod][]Deps, deps map[Mod][]Mod) (map[Mod][]Deps, error) {
 	// https://dnaeon.github.io/dependency-graph-resolution-algorithm-in-go/
 	// Convert dependencies to a map. The algorithm performs better using maps behavior.
