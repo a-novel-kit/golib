@@ -39,7 +39,7 @@ repo (the [`jwt`](https://github.com/a-novel-kit/jwt) package is the precedent).
 | `grpcf`    | `BaseContext*Interceptor` for per-call context shaping, a `CredentialsProvider` interface with local / GCP implementations, and a built-in echo + health-check demo service. |
 | `logging`  | The shared `Log` / `HTTPConfig` / `RPCConfig` interfaces; concrete implementations live in `logging/presets/*` (local and GCP variants for both HTTP and gRPC).              |
 | `postgres` | `bun.IDB`-on-context plumbing (`NewContext`, `GetContext`, `RunInTx`), the migrations runner, the `PassthroughTx` test wrapper, and `RunTransactionalTest` / -`Isolated`.    |
-| `smtp`     | `Sender` interface with `ProdSender` (real SMTP) and `DebugSender` (writes to a `io.Writer`); the in-memory test helper now lives in `smtp/smtptest`.                        |
+| `smtp`     | `Sender` interface with `ProdSender` (real SMTP) and `DebugSender` (writes to an `io.Writer`); the in-memory test helper now lives in `smtp/smtptest`.                       |
 
 The full API reference is on
 [**pkg.go.dev**](https://pkg.go.dev/github.com/a-novel-kit/golib) — godoc is the
