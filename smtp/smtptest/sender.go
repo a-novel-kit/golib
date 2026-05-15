@@ -3,13 +3,14 @@
 // so a test can substitute *smtptest.Sender wherever an smtp.Sender is
 // expected.
 //
-// This package supersedes the legacy `smtp.TestSender` / `smtp.TestMail` /
-// `smtp.NewTestSender` / `smtp.ErrPingTestSender` symbols, which were defined
-// in `smtp/sender.test.go`. The dot-suffixed filename was misleading — Go's
+// Historically these helpers lived in the parent `smtp` package as
+// `smtp.TestSender` / `smtp.TestMail` / `smtp.NewTestSender` /
+// `smtp.ErrPingTestSender`, defined in a file named `smtp/sender.test.go`. The
+// dot-suffixed filename looked like a test-only signal but was not — Go's
 // build tooling only excludes files ending in `_test.go` (underscore) from
-// production builds, so the legacy symbols ship in every consumer binary
-// regardless of whether they are used. Keeping the test helpers in a dedicated
-// sub-package makes the boundary explicit.
+// production builds, so the legacy symbols shipped in every consumer binary
+// regardless of whether they were used. The dedicated sub-package makes the
+// boundary explicit; the legacy symbols were removed in the v1.0 cleanup.
 package smtptest
 
 import (
