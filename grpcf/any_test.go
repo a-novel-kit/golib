@@ -8,18 +8,18 @@ import (
 	"github.com/a-novel-kit/golib/grpcf"
 )
 
-func TestProtoAnyConversion(t *testing.T) {
+func TestMarshalJSONAsAny_roundtrip(t *testing.T) {
 	t.Parallel()
 
-	anyValue := map[string]any{
+	original := map[string]any{
 		"message": "hello world",
 	}
 
-	toProto, err := grpcf.InterfaceToProtoAny(anyValue)
+	anyValue, err := grpcf.MarshalJSONAsAny(original)
 	require.NoError(t, err)
 
-	fromProto, err := grpcf.ProtoAnyToInterface(toProto)
+	decoded, err := grpcf.UnmarshalJSONFromAny(anyValue)
 	require.NoError(t, err)
 
-	require.Equal(t, anyValue, fromProto)
+	require.Equal(t, original, decoded)
 }
