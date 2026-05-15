@@ -21,14 +21,31 @@ func (handler *echo) UnaryEcho(context.Context, *golibproto.UnaryEchoRequest) (*
 	}, nil
 }
 
+// SetEchoServers registers the built-in echo + health-check services on the
+// given gRPC server and starts a background goroutine that toggles the
+// SERVING/NOT_SERVING status every healthPing tick.
+//
+// Deprecated: the started goroutine has no stop signal and outlives the
+// caller. Use SetEchoServersContext instead — it accepts a context and the
+// goroutine exits cleanly when the context is canceled (e.g. during graceful
+// shutdown).
 func SetEchoServers(server *grpc.Server, healthPing time.Duration) {
+	SetEchoServersContext(context.Background(), server, healthPing)
+}
+
+// SetEchoServersContext is the ctx-aware variant of SetEchoServers: the
+// background health-toggle goroutine returns when ctx is canceled, instead of
+// running for the lifetime of the process.
+func SetEchoServersContext(ctx context.Context, server *grpc.Server, healthPing time.Duration) {
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(server, healthcheck)
 
-	golibproto.RegisterEchoServiceServer(server, new(echo))
+	golibproto.RegisterEchoServiceServer(server, &echo{})
 
 	go func() {
-		// asynchronously inspect dependencies and toggle serving status as needed
+		ticker := time.NewTicker(healthPing)
+		defer ticker.Stop()
+
 		next := healthpb.HealthCheckResponse_SERVING
 
 		for {
@@ -40,7 +57,11 @@ func SetEchoServers(server *grpc.Server, healthPing time.Duration) {
 				next = healthpb.HealthCheckResponse_SERVING
 			}
 
-			time.Sleep(healthPing)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
 }
