@@ -37,7 +37,7 @@ type Local struct {
 // Init just prints a banner for local dev mode.
 func (config *Local) Init() error {
 	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	fmt.Println(banner.Render("🚀 OpenTelemetry Local Mode: All traces and logs to stdout"))
+	_, _ = fmt.Fprintln(os.Stdout, banner.Render("🚀 OpenTelemetry Local Mode: All traces and logs to stdout"))
 
 	return nil
 }

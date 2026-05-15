@@ -37,7 +37,7 @@ type Gcloud struct {
 
 func (config *Gcloud) Init() error {
 	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	fmt.Println(banner.Render(fmt.Sprintf(
+	_, _ = fmt.Fprintln(os.Stdout, banner.Render(fmt.Sprintf(
 		"☁️ OpenTelemetry GCP Mode: exporting traces to Cloud Trace (project=%s)", config.ProjectID,
 	)))
 
