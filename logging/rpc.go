@@ -2,9 +2,18 @@ package logging
 
 import "google.golang.org/grpc"
 
-type RpcConfig interface {
+// RPCConfig is implemented by anything that produces gRPC interceptors —
+// both for emitting structured access logs (Unary/Stream Interceptor) and
+// for recovering from handler panics (PanicUnary/PanicStream Interceptor).
+type RPCConfig interface {
 	UnaryInterceptor() grpc.UnaryServerInterceptor
 	StreamInterceptor() grpc.StreamServerInterceptor
 	PanicUnaryInterceptor() grpc.UnaryServerInterceptor
 	PanicStreamInterceptor() grpc.StreamServerInterceptor
 }
+
+// RpcConfig is the legacy spelling of RPCConfig.
+//
+// Deprecated: use RPCConfig. The renamed alias matches the project's
+// acronym-casing convention (`RPC`, not `Rpc`); behaviour is unchanged.
+type RpcConfig = RPCConfig

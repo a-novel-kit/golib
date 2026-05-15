@@ -11,39 +11,39 @@ import (
 	"github.com/a-novel-kit/golib/logging"
 )
 
-var _ logging.RpcConfig = (*GrpcLocal)(nil)
+var _ logging.RPCConfig = (*GRPCLocal)(nil)
 
-type GrpcLocal struct {
+type GRPCLocal struct {
 	Component string `json:"component" yaml:"component"`
 
 	l *slog.Logger
 }
 
-func (logger *GrpcLocal) UnaryInterceptor() grpc.UnaryServerInterceptor {
+func (logger *GRPCLocal) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	logger.init()
 
 	return grpclog.UnaryServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceId))
 }
 
-func (logger *GrpcLocal) StreamInterceptor() grpc.StreamServerInterceptor {
+func (logger *GRPCLocal) StreamInterceptor() grpc.StreamServerInterceptor {
 	logger.init()
 
 	return grpclog.StreamServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceId))
 }
 
-func (logger *GrpcLocal) PanicUnaryInterceptor() grpc.UnaryServerInterceptor {
+func (logger *GRPCLocal) PanicUnaryInterceptor() grpc.UnaryServerInterceptor {
 	logger.init()
 
 	return recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(panicInterceptor(logger.l)))
 }
 
-func (logger *GrpcLocal) PanicStreamInterceptor() grpc.StreamServerInterceptor {
+func (logger *GRPCLocal) PanicStreamInterceptor() grpc.StreamServerInterceptor {
 	logger.init()
 
 	return recovery.StreamServerInterceptor(recovery.WithRecoveryHandler(panicInterceptor(logger.l)))
 }
 
-func (logger *GrpcLocal) init() {
+func (logger *GRPCLocal) init() {
 	if logger.l != nil {
 		return
 	}
@@ -51,3 +51,10 @@ func (logger *GrpcLocal) init() {
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
 	logger.l = log.With("service", "gRPC/server", "component", logger.Component)
 }
+
+// GrpcLocal is the legacy spelling of GRPCLocal.
+//
+// Deprecated: use GRPCLocal. The renamed alias matches the project's
+// acronym-casing convention (`gRPC`/`GRPC`, not `Grpc`); behaviour is
+// unchanged.
+type GrpcLocal = GRPCLocal

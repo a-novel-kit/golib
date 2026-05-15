@@ -16,13 +16,13 @@ import (
 	"github.com/a-novel-kit/golib/otel/utils"
 )
 
-var _ logging.HttpConfig = (*HttpGcloud)(nil)
+var _ logging.HTTPConfig = (*HTTPGcloud)(nil)
 
-type HttpGcloud struct {
+type HTTPGcloud struct {
 	BaseLogger *LogGcloud
 }
 
-func (logger *HttpGcloud) Logger() func(http.Handler) http.Handler {
+func (logger *HTTPGcloud) Logger() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx, span := libotel.Tracer().Start(r.Context(), fmt.Sprintf("[%s] %s.%s", r.Method, r.Host, r.URL.Path))
@@ -89,3 +89,9 @@ func (logger *HttpGcloud) Logger() func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// HttpGcloud is the legacy spelling of HTTPGcloud.
+//
+// Deprecated: use HTTPGcloud. The renamed alias matches the project's
+// acronym-casing convention (`HTTP`, not `Http`); behaviour is unchanged.
+type HttpGcloud = HTTPGcloud
