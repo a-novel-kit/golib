@@ -37,10 +37,9 @@ repo (the [`jwt`](https://github.com/a-novel-kit/jwt) package is the precedent).
 | `otel`     | `Tracer` / `Logger` accessors keyed on a shared `AppName`, the `ReportError` / `ReportSuccess` span helpers, and a `Config` interface implemented by `otel/presets/*`.       |
 | `httpf`    | `HandleError(errMap)` for mapping sentinels onto HTTP status codes (and reporting them on the request span); `SendJSON` for the success path.                                |
 | `grpcf`    | `BaseContext*Interceptor` for per-call context shaping, a `CredentialsProvider` interface with local / GCP implementations, and a built-in echo + health-check demo service. |
-| `logging`  | The shared `Log` / `HttpConfig` / `RpcConfig` interfaces; concrete implementations live in `logging/presets/*` (local and GCP variants for both HTTP and gRPC).              |
+| `logging`  | The shared `Log` / `HTTPConfig` / `RPCConfig` interfaces; concrete implementations live in `logging/presets/*` (local and GCP variants for both HTTP and gRPC).              |
 | `postgres` | `bun.IDB`-on-context plumbing (`NewContext`, `GetContext`, `RunInTx`), the migrations runner, the `PassthroughTx` test wrapper, and `RunTransactionalTest` / -`Isolated`.    |
-| `smtp`     | `Sender` interface with `ProdSender` (real SMTP), `DebugSender` (writes to a `io.Writer`) and `TestSender` (in-memory capture).                                              |
-| `deps`     | `ResolveDependants` — topological-sort over a module-dep map. Deprecated; due to be inlined into its sole consumer.                                                          |
+| `smtp`     | `Sender` interface with `ProdSender` (real SMTP) and `DebugSender` (writes to an `io.Writer`); the in-memory test helper now lives in `smtp/smtptest`.                       |
 
 The full API reference is on
 [**pkg.go.dev**](https://pkg.go.dev/github.com/a-novel-kit/golib) — godoc is the

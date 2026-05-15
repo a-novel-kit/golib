@@ -51,10 +51,3 @@ func (logger *GRPCGcloud) init() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
 	logger.l = log.With("service", "gRPC/server", "component", logger.Component)
 }
-
-// GrpcGcloud is the legacy spelling of GRPCGcloud.
-//
-// Deprecated: use GRPCGcloud. The renamed alias matches the project's
-// acronym-casing convention (`gRPC`/`GRPC`, not `Grpc`); behaviour is
-// unchanged.
-type GrpcGcloud = GRPCGcloud

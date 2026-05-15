@@ -11,9 +11,3 @@ type RPCConfig interface {
 	PanicUnaryInterceptor() grpc.UnaryServerInterceptor
 	PanicStreamInterceptor() grpc.StreamServerInterceptor
 }
-
-// RpcConfig is the legacy spelling of RPCConfig.
-//
-// Deprecated: use RPCConfig. The renamed alias matches the project's
-// acronym-casing convention (`RPC`, not `Rpc`); behaviour is unchanged.
-type RpcConfig = RPCConfig

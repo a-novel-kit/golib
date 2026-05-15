@@ -69,9 +69,3 @@ func (logger *HTTPLocal) Logger() func(http.Handler) http.Handler {
 		})
 	}
 }
-
-// HttpLocal is the legacy spelling of HTTPLocal.
-//
-// Deprecated: use HTTPLocal. The renamed alias matches the project's
-// acronym-casing convention (`HTTP`, not `Http`); behaviour is unchanged.
-type HttpLocal = HTTPLocal
