@@ -47,21 +47,3 @@ func UnmarshalJSONFromAny(anyValue *anypb.Any) (any, error) {
 
 	return value, nil
 }
-
-// InterfaceToProtoAny serialises an arbitrary Go value to JSON, packs the
-// bytes into a google.protobuf.Any wrapping a google.protobuf.BytesValue,
-// and returns it.
-//
-// Deprecated: use MarshalJSONAsAny — same behaviour, but the name surfaces
-// the JSON-over-Any nature of the helper rather than implying a generic
-// "interface to Any" conversion.
-func InterfaceToProtoAny(v any) (*anypb.Any, error) {
-	return MarshalJSONAsAny(v)
-}
-
-// ProtoAnyToInterface is the inverse of InterfaceToProtoAny.
-//
-// Deprecated: use UnmarshalJSONFromAny.
-func ProtoAnyToInterface(anyValue *anypb.Any) (any, error) {
-	return UnmarshalJSONFromAny(anyValue)
-}
