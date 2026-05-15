@@ -39,7 +39,9 @@ func UnmarshalJSONFromAny(anyValue *anypb.Any) (any, error) {
 	}
 
 	var value any
-	if err := json.Unmarshal(bytesValue.Value, &value); err != nil {
+
+	err = json.Unmarshal(bytesValue.Value, &value)
+	if err != nil {
 		return nil, err
 	}
 
