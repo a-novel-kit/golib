@@ -17,3 +17,39 @@
 ```bash
 go get github.com/a-novel-kit/golib
 ```
+
+## What this is
+
+`golib` collects the small amount of cross-cutting glue that the a-novel backend
+services would otherwise copy from one repo to the next — env-variable parsing,
+OpenTelemetry plumbing, Postgres + bun helpers, REST and gRPC boundary utilities,
+shared logging interfaces, and an SMTP sender. It is **not** a framework and is
+explicitly kept as small as possible: anything that a well-maintained library
+already covers belongs in that library, not here. When a sub-package outgrows
+the "boilerplate" bar and earns a broader public API, it graduates into its own
+repo (the [`jwt`](https://github.com/a-novel-kit/jwt) package is the precedent).
+
+## Sub-packages
+
+| Path       | What it covers                                                                                                                                                               |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config`   | `LoadEnv[T]` + a set of `strconv`-shaped parsers for environment variables; `Must` / `MustUnmarshal` panic-on-error helpers for one-shot startup wiring.                     |
+| `otel`     | `Tracer` / `Logger` accessors keyed on a shared `AppName`, the `ReportError` / `ReportSuccess` span helpers, and a `Config` interface implemented by `otel/presets/*`.       |
+| `httpf`    | `HandleError(errMap)` for mapping sentinels onto HTTP status codes (and reporting them on the request span); `SendJSON` for the success path.                                |
+| `grpcf`    | `BaseContext*Interceptor` for per-call context shaping, a `CredentialsProvider` interface with local / GCP implementations, and a built-in echo + health-check demo service. |
+| `logging`  | The shared `Log` / `HttpConfig` / `RpcConfig` interfaces; concrete implementations live in `logging/presets/*` (local and GCP variants for both HTTP and gRPC).              |
+| `postgres` | `bun.IDB`-on-context plumbing (`NewContext`, `GetContext`, `RunInTx`), the migrations runner, the `PassthroughTx` test wrapper, and `RunTransactionalTest` / -`Isolated`.    |
+| `smtp`     | `Sender` interface with `ProdSender` (real SMTP), `DebugSender` (writes to a `io.Writer`) and `TestSender` (in-memory capture).                                              |
+| `deps`     | `ResolveDependants` — topological-sort over a module-dep map. Deprecated; due to be inlined into its sole consumer.                                                          |
+
+The full API reference is on
+[**pkg.go.dev**](https://pkg.go.dev/github.com/a-novel-kit/golib) — godoc is the
+canonical documentation; this README only points at it.
+
+## Contributing
+
+See the org-wide guide at
+[`a-novel-kit/.github`](https://github.com/a-novel-kit/.github/blob/master/contributing/readme.md).
+The bar for additions to `golib` is deliberately high — convenience wrappers
+around well-maintained dependencies, and one-off helpers that only one service
+needs, do not belong here.
