@@ -21,26 +21,15 @@ func (handler *echo) UnaryEcho(context.Context, *golibproto.UnaryEchoRequest) (*
 	}, nil
 }
 
-// SetEchoServers registers the built-in echo + health-check services on the
-// given gRPC server and starts a background goroutine that toggles the
-// SERVING/NOT_SERVING status every healthPing tick.
-//
-// Deprecated: the started goroutine has no stop signal and outlives the
-// caller. Use SetEchoServersContext instead — it accepts a context and the
-// goroutine exits cleanly when the context is canceled (e.g. during graceful
-// shutdown).
-func SetEchoServers(server *grpc.Server, healthPing time.Duration) {
-	SetEchoServersContext(context.Background(), server, healthPing)
-}
-
-// SetEchoServersContext is the ctx-aware variant of SetEchoServers: the
-// background health-toggle goroutine returns when ctx is canceled, instead of
-// running for the lifetime of the process.
+// SetEchoServersContext registers the built-in echo + health-check services
+// on the given gRPC server and starts a background goroutine that toggles the
+// SERVING/NOT_SERVING status every healthPing tick. The goroutine returns
+// when ctx is canceled, so the caller can tie its lifetime to graceful
+// shutdown.
 //
 // A non-positive healthPing degrades to a tight toggle loop that still
-// honours ctx cancellation — matching the original time.Sleep-based
-// behaviour, which returned immediately on a zero or negative duration
-// rather than panicking like time.NewTicker would.
+// honours ctx cancellation — `time.NewTicker` would panic on a zero or
+// negative duration, so the wait is built around `time.After` instead.
 func SetEchoServersContext(ctx context.Context, server *grpc.Server, healthPing time.Duration) {
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(server, healthcheck)
