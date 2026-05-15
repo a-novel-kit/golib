@@ -11,39 +11,39 @@ import (
 	"github.com/a-novel-kit/golib/logging"
 )
 
-var _ logging.RpcConfig = (*GrpcGcloud)(nil)
+var _ logging.RPCConfig = (*GRPCGcloud)(nil)
 
-type GrpcGcloud struct {
+type GRPCGcloud struct {
 	Component string `json:"component" yaml:"component"`
 
 	l *slog.Logger
 }
 
-func (logger *GrpcGcloud) UnaryInterceptor() grpc.UnaryServerInterceptor {
+func (logger *GRPCGcloud) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	logger.init()
 
 	return grpclog.UnaryServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceId))
 }
 
-func (logger *GrpcGcloud) StreamInterceptor() grpc.StreamServerInterceptor {
+func (logger *GRPCGcloud) StreamInterceptor() grpc.StreamServerInterceptor {
 	logger.init()
 
 	return grpclog.StreamServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceId))
 }
 
-func (logger *GrpcGcloud) PanicUnaryInterceptor() grpc.UnaryServerInterceptor {
+func (logger *GRPCGcloud) PanicUnaryInterceptor() grpc.UnaryServerInterceptor {
 	logger.init()
 
 	return recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(panicInterceptor(logger.l)))
 }
 
-func (logger *GrpcGcloud) PanicStreamInterceptor() grpc.StreamServerInterceptor {
+func (logger *GRPCGcloud) PanicStreamInterceptor() grpc.StreamServerInterceptor {
 	logger.init()
 
 	return recovery.StreamServerInterceptor(recovery.WithRecoveryHandler(panicInterceptor(logger.l)))
 }
 
-func (logger *GrpcGcloud) init() {
+func (logger *GRPCGcloud) init() {
 	if logger.l != nil {
 		return
 	}
@@ -51,3 +51,10 @@ func (logger *GrpcGcloud) init() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
 	logger.l = log.With("service", "gRPC/server", "component", logger.Component)
 }
+
+// GrpcGcloud is the legacy spelling of GRPCGcloud.
+//
+// Deprecated: use GRPCGcloud. The renamed alias matches the project's
+// acronym-casing convention (`gRPC`/`GRPC`, not `Grpc`); behaviour is
+// unchanged.
+type GrpcGcloud = GRPCGcloud

@@ -12,13 +12,13 @@ import (
 	"github.com/a-novel-kit/golib/otel/utils"
 )
 
-var _ logging.HttpConfig = (*HttpLocal)(nil)
+var _ logging.HTTPConfig = (*HTTPLocal)(nil)
 
-type HttpLocal struct {
+type HTTPLocal struct {
 	BaseLogger *LogLocal
 }
 
-func (logger *HttpLocal) Logger() func(http.Handler) http.Handler {
+func (logger *HTTPLocal) Logger() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: w}
@@ -69,3 +69,9 @@ func (logger *HttpLocal) Logger() func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// HttpLocal is the legacy spelling of HTTPLocal.
+//
+// Deprecated: use HTTPLocal. The renamed alias matches the project's
+// acronym-casing convention (`HTTP`, not `Http`); behaviour is unchanged.
+type HttpLocal = HTTPLocal
