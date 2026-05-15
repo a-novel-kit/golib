@@ -1,9 +1,10 @@
 package otelpresets
 
 import (
+	"fmt"
 	"net/http"
 
-	"github.com/fatih/color"
+	"charm.land/lipgloss/v2"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -24,8 +25,8 @@ type Disabled struct{}
 
 // Init just prints a banner for local dev mode.
 func (config *Disabled) Init() error {
-	green := color.New(color.FgGreen).Add(color.Bold)
-	_, _ = green.Println("🚀 OpenTelemetry Disabled Mode: no tracing")
+	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+	fmt.Println(banner.Render("🚀 OpenTelemetry Disabled Mode: no tracing"))
 
 	return nil
 }

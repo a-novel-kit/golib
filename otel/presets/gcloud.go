@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace"
 	gcppropagator "github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator"
-	"github.com/fatih/color"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -36,8 +36,10 @@ type Gcloud struct {
 }
 
 func (config *Gcloud) Init() error {
-	blue := color.New(color.FgBlue).Add(color.Bold)
-	_, _ = blue.Printf("☁️ OpenTelemetry GCP Mode: exporting traces to Cloud Trace (project=%s)\n", config.ProjectID)
+	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
+	fmt.Println(banner.Render(fmt.Sprintf(
+		"☁️ OpenTelemetry GCP Mode: exporting traces to Cloud Trace (project=%s)", config.ProjectID,
+	)))
 
 	return nil
 }

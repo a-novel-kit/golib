@@ -6,7 +6,6 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.32.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.56.0
-	github.com/fatih/color v1.19.0
 	github.com/getsentry/sentry-go v0.46.2
 	github.com/getsentry/sentry-go/otel v0.46.2
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3

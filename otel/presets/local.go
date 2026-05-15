@@ -2,11 +2,13 @@ package otelpresets
 
 import (
 	"context"
+	"fmt"
 	stdlog "log"
 	"net/http"
+	"os"
 	"time"
 
-	"github.com/fatih/color"
+	"charm.land/lipgloss/v2"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -34,8 +36,8 @@ type Local struct {
 
 // Init just prints a banner for local dev mode.
 func (config *Local) Init() error {
-	green := color.New(color.FgGreen).Add(color.Bold)
-	_, _ = green.Println("🚀 OpenTelemetry Local Mode: All traces and logs to stdout")
+	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+	fmt.Println(banner.Render("🚀 OpenTelemetry Local Mode: All traces and logs to stdout"))
 
 	return nil
 }
@@ -47,7 +49,7 @@ func (config *Local) GetPropagators() (propagation.TextMapPropagator, error) {
 func (config *Local) GetTraceProvider() (trace.TracerProvider, error) {
 	traceExporter, err := stdouttrace.New(
 		stdouttrace.WithPrettyPrint(),
-		stdouttrace.WithWriter(color.Output), // writes with color support
+		stdouttrace.WithWriter(os.Stdout),
 	)
 	if err != nil {
 		return nil, err
@@ -64,7 +66,7 @@ func (config *Local) GetTraceProvider() (trace.TracerProvider, error) {
 func (config *Local) GetLogger() (log.LoggerProvider, error) {
 	logExporter, err := stdoutlog.New(
 		stdoutlog.WithPrettyPrint(),
-		stdoutlog.WithWriter(color.Output),
+		stdoutlog.WithWriter(os.Stdout),
 	)
 	if err != nil {
 		return nil, err

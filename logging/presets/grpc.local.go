@@ -2,8 +2,8 @@ package loggingpresets
 
 import (
 	"log/slog"
+	"os"
 
-	"github.com/fatih/color"
 	grpclog "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"google.golang.org/grpc"
@@ -48,6 +48,6 @@ func (logger *GrpcLocal) init() {
 		return
 	}
 
-	log := slog.New(slog.NewTextHandler(color.Output, &slog.HandlerOptions{}))
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
 	logger.l = log.With("service", "gRPC/server", "component", logger.Component)
 }
