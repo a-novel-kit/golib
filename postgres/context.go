@@ -13,6 +13,12 @@ type ContextKey struct{}
 
 const NameLen = 31
 
+// ErrNoIDBInContext is returned by GetContext when the supplied context does
+// not carry a bun.IDB value (it was never seeded via NewContext / one of its
+// variants). It is sibling to ErrNoDbInContext in migrator.go, which signals
+// the stricter "found an IDB but it isn't a *bun.DB" case.
+var ErrNoIDBInContext = errors.New("context does not contain a bun.IDB")
+
 func NewContext(ctx context.Context, config Config) (context.Context, error) {
 	db, err := config.DB(ctx)
 	if err != nil {
@@ -34,7 +40,7 @@ func NewContextSchema(ctx context.Context, config Config, schema string, create 
 func GetContext(ctx context.Context) (bun.IDB, error) {
 	db, ok := ctx.Value(ContextKey{}).(bun.IDB)
 	if !ok {
-		return nil, errors.New("context does not contain a bun.IDB")
+		return nil, ErrNoIDBInContext
 	}
 
 	return db, nil
