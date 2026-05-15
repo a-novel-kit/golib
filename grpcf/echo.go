@@ -36,6 +36,11 @@ func SetEchoServers(server *grpc.Server, healthPing time.Duration) {
 // SetEchoServersContext is the ctx-aware variant of SetEchoServers: the
 // background health-toggle goroutine returns when ctx is canceled, instead of
 // running for the lifetime of the process.
+//
+// A non-positive healthPing degrades to a tight toggle loop that still
+// honours ctx cancellation — matching the original time.Sleep-based
+// behaviour, which returned immediately on a zero or negative duration
+// rather than panicking like time.NewTicker would.
 func SetEchoServersContext(ctx context.Context, server *grpc.Server, healthPing time.Duration) {
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(server, healthcheck)
@@ -43,9 +48,6 @@ func SetEchoServersContext(ctx context.Context, server *grpc.Server, healthPing 
 	golibproto.RegisterEchoServiceServer(server, &echo{})
 
 	go func() {
-		ticker := time.NewTicker(healthPing)
-		defer ticker.Stop()
-
 		next := healthpb.HealthCheckResponse_SERVING
 
 		for {
@@ -57,10 +59,18 @@ func SetEchoServersContext(ctx context.Context, server *grpc.Server, healthPing 
 				next = healthpb.HealthCheckResponse_SERVING
 			}
 
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
+			if healthPing > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(healthPing):
+				}
+			} else {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 			}
 		}
 	}()
