@@ -94,33 +94,24 @@ func Int64Parser(value string) (int64, error) {
 // For more information about supported value, refer to the documentation of strconv.ParseInt.
 func Int32Parser(value string) (int32, error) {
 	parsedValue, err := strconv.ParseInt(value, 0, 32)
-	if err != nil {
-		return 0, err
-	}
 
-	return int32(parsedValue), nil
+	return int32(parsedValue), err
 }
 
 // Int16Parser is a parsing function for LoadEnv, that returns the int16 representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseInt.
 func Int16Parser(value string) (int16, error) {
 	parsedValue, err := strconv.ParseInt(value, 0, 16)
-	if err != nil {
-		return 0, err
-	}
 
-	return int16(parsedValue), nil
+	return int16(parsedValue), err
 }
 
 // Int8Parser is a parsing function for LoadEnv, that returns the int8 representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseInt.
 func Int8Parser(value string) (int8, error) {
 	parsedValue, err := strconv.ParseInt(value, 0, 8)
-	if err != nil {
-		return 0, err
-	}
 
-	return int8(parsedValue), nil
+	return int8(parsedValue), err
 }
 
 // IntParser is a parsing function for LoadEnv, that returns the int representation of the variable.
@@ -132,112 +123,72 @@ func IntParser(value string) (int, error) {
 // Uint64Parser is a parsing function for LoadEnv, that returns the uint64 representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseUint.
 func Uint64Parser(value string) (uint64, error) {
-	parsedValue, err := strconv.ParseUint(value, 0, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return parsedValue, nil
+	return strconv.ParseUint(value, 0, 64)
 }
 
 // Uint32Parser is a parsing function for LoadEnv, that returns the uint32 representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseUint.
 func Uint32Parser(value string) (uint32, error) {
 	parsedValue, err := strconv.ParseUint(value, 0, 32)
-	if err != nil {
-		return 0, err
-	}
 
-	return uint32(parsedValue), nil
+	return uint32(parsedValue), err
 }
 
 // Uint16Parser is a parsing function for LoadEnv, that returns the uint16 representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseUint.
 func Uint16Parser(value string) (uint16, error) {
 	parsedValue, err := strconv.ParseUint(value, 0, 16)
-	if err != nil {
-		return 0, err
-	}
 
-	return uint16(parsedValue), nil
+	return uint16(parsedValue), err
 }
 
 // Uint8Parser is a parsing function for LoadEnv, that returns the uint8 representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseUint.
 func Uint8Parser(value string) (uint8, error) {
 	parsedValue, err := strconv.ParseUint(value, 0, 8)
-	if err != nil {
-		return 0, err
-	}
 
-	return uint8(parsedValue), nil
+	return uint8(parsedValue), err
 }
 
 // UintParser is a parsing function for LoadEnv, that returns the uint representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseUint.
 func UintParser(value string) (uint, error) {
 	parsedValue, err := strconv.ParseUint(value, 0, 0)
-	if err != nil {
-		return 0, err
-	}
 
-	return uint(parsedValue), nil
+	return uint(parsedValue), err
 }
 
 // BoolParser is a parsing function for LoadEnv, that returns the boolean equivalent of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseBool.
 func BoolParser(value string) (bool, error) {
-	parsedValue, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, err
-	}
-
-	return parsedValue, nil
+	return strconv.ParseBool(value)
 }
 
 // Float64Parser is a parsing function for LoadEnv, that returns the float64 representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseFloat.
 func Float64Parser(value string) (float64, error) {
-	parsedValue, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return parsedValue, nil
+	return strconv.ParseFloat(value, 64)
 }
 
 // Float32Parser is a parsing function for LoadEnv, that returns the float32 representation of the variable.
 // For more information about supported value, refer to the documentation of strconv.ParseFloat.
 func Float32Parser(value string) (float32, error) {
 	parsedValue, err := strconv.ParseFloat(value, 32)
-	if err != nil {
-		return 0, err
-	}
 
-	return float32(parsedValue), nil
+	return float32(parsedValue), err
 }
 
 // DurationParser is a parsing function for LoadEnv, that returns the time.Duration representation of the variable.
 // For more information about supported value, refer to the documentation of time.ParseDuration.
 func DurationParser(value string) (time.Duration, error) {
-	parsedValue, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, err
-	}
-
-	return parsedValue, nil
+	return time.ParseDuration(value)
 }
 
 // TimeParser is a parsing function for LoadEnv, that returns the time.Time representation of the variable.
 // The parser expects the time to be in time.RFC3339 format. For more information about supported value,
 // refer to the documentation of time.Parse.
 func TimeParser(value string) (time.Time, error) {
-	parsedValue, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	return parsedValue, nil
+	return time.Parse(time.RFC3339, value)
 }
 
 // JSONMapParser is a parsing function for LoadEnv, that returns the map[string]any representation of the variable.
