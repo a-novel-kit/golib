@@ -119,18 +119,31 @@ type dbTestOptionsConfig interface {
 }
 
 // dbTestTemplated guards one-time template creation within a process. The first
-// RunDBTest call for a given template name runs the migrations (every other
-// call blocks on dbTestMu meanwhile); subsequent calls find the name flagged
-// and return immediately, so only the first test pays the migration cost and
-// the rest clone in parallel. Cross-process safety (several `go test` package
-// binaries sharing one Postgres) is handled separately by the Postgres
-// advisory lock in dbTestCreateTemplate; this map only deduplicates work
-// inside a single binary. A failed creation is intentionally not recorded, so
-// a transient failure is retried by the next test rather than poisoning the
-// whole package run.
+// RunDBTest call for a given (migrations, target-cluster) pair runs the
+// migrations (every other call blocks on dbTestMu meanwhile); subsequent calls
+// find it flagged and return immediately, so only the first test pays the
+// migration cost and the rest clone in parallel. The key includes the resolved
+// connection identity (see dbTestConnKey), not just the migration hash, so the
+// same migrations applied against two different clusters/roles in one process
+// do not alias onto a template that exists only in the first cluster.
+//
+// Cross-process safety (several `go test` package binaries sharing one
+// Postgres) is handled separately by the Postgres advisory lock in
+// dbTestCreateTemplate; this map only deduplicates work inside a single binary.
+// A failed creation is intentionally not recorded, so a transient failure is
+// retried by the next test rather than poisoning the whole package run.
 var (
 	dbTestMu        sync.Mutex
 	dbTestTemplated = map[string]bool{}
+
+	// dbTestCloneMu serialises CREATE DATABASE … TEMPLATE within a process.
+	// PostgreSQL serialises CREATE DATABASE globally on the server anyway, so
+	// firing N parallel clones only produces N contending statements and a
+	// retry storm; taking them one at a time client-side matches what the
+	// server does regardless and removes the contention entirely. The bounded
+	// retry in dbTestCreateInstance then only has to absorb *cross-process*
+	// contention, not in-process self-contention.
+	dbTestCloneMu sync.Mutex
 )
 
 // RunDBTest runs callback against its own freshly created PostgreSQL database,
@@ -167,14 +180,13 @@ func RunDBTest(t *testing.T, config Config, migrations fs.FS, callback Transacti
 	require.NoError(t, err)
 
 	err = dbTestCreateInstance(t.Context(), maintenance, instance, template)
-	// Close the maintenance pool before the callback runs: it is only needed
-	// for the CREATE, and a lingering idle connection to the maintenance
-	// database is pure waste for the duration of the test.
-	require.NoError(t, maintenance.Close())
 	require.NoError(t, err)
 
-	// Registered before the per-test pool is opened so it runs last (t.Cleanup
-	// is LIFO): the pool is closed first, then the database is dropped.
+	// Register the drop the instant the database exists — before the
+	// maintenance pool is closed — so a Close error (which fails the test via
+	// the require below) cannot strand the per-test database. It runs last
+	// (t.Cleanup is LIFO): the per-test pool opened further down is closed
+	// first, then the database is dropped.
 	t.Cleanup(func() {
 		// t.Context() is already cancelled by the time cleanups run, so use a
 		// fresh background context for teardown.
@@ -186,12 +198,12 @@ func RunDBTest(t *testing.T, config Config, migrations fs.FS, callback Transacti
 		}
 		defer func() { _ = cleanup.Close() }()
 
-		// WITH (FORCE) terminates any backend still attached to the database
-		// (PostgreSQL 13+), so a leaked connection cannot block the drop.
-		_, _ = cleanup.NewRaw(
-			fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbTestQuoteIdent(instance)),
-		).Exec(ctx)
+		_ = dbTestDropDatabase(ctx, cleanup, instance)
 	})
+
+	// The maintenance pool is only needed for the CREATE; close it so it does
+	// not idle for the lifetime of the test.
+	require.NoError(t, maintenance.Close())
 
 	db, err := dbTestOpen(t.Context(), options, instance)
 	require.NoError(t, err)
@@ -212,10 +224,15 @@ func dbTestEnsureTemplate(ctx context.Context, options []pgdriver.Option, migrat
 		return "", err
 	}
 
+	// Key by template name *and* resolved connection identity: the same
+	// migrations against a different cluster/role is a different template that
+	// this process has not necessarily created yet.
+	cacheKey := name + "\x00" + dbTestConnKey(options)
+
 	dbTestMu.Lock()
 	defer dbTestMu.Unlock()
 
-	if dbTestTemplated[name] {
+	if dbTestTemplated[cacheKey] {
 		return name, nil
 	}
 
@@ -224,9 +241,19 @@ func dbTestEnsureTemplate(ctx context.Context, options []pgdriver.Option, migrat
 		return "", err
 	}
 
-	dbTestTemplated[name] = true
+	dbTestTemplated[cacheKey] = true
 
 	return name, nil
+}
+
+// dbTestConnKey returns a stable identifier for the Postgres target that
+// options resolve to (address, user, base database). It keys the in-process
+// template cache so the same migrations applied against two different clusters
+// in one process are not aliased onto a single cache entry.
+func dbTestConnKey(options []pgdriver.Option) string {
+	config := pgdriver.NewConnector(options...).Config()
+
+	return config.Addr + "\x00" + config.User + "\x00" + config.Database
 }
 
 // dbTestCreateTemplate creates and migrates the template database called name,
@@ -281,23 +308,47 @@ func dbTestCreateTemplate(
 		return fmt.Errorf("create template database: %w", err)
 	}
 
+	// The template database now exists but is empty/unmigrated. Any failure
+	// from here must drop it: otherwise the existence probe in a later call
+	// (this binary or another) would adopt the empty/partial database as a
+	// valid template and run every test against a broken schema.
 	templateDB, err := dbTestOpen(ctx, options, name)
 	if err != nil {
+		_ = dbTestDropDatabase(ctx, maintenance, name)
+
 		return err
 	}
 
 	err = RunMigrations(ctx, templateDB, migrations)
 	if err != nil {
 		_ = templateDB.Close()
+		_ = dbTestDropDatabase(ctx, maintenance, name)
 
 		return fmt.Errorf("migrate template database: %w", err)
 	}
 
 	// Must succeed: an open connection to the template makes every subsequent
-	// CREATE … TEMPLATE fail with "source database is being accessed".
+	// CREATE … TEMPLATE fail with "source database is being accessed". A
+	// half-open template is unusable as a clone source, so drop it too.
 	err = templateDB.Close()
 	if err != nil {
+		_ = dbTestDropDatabase(ctx, maintenance, name)
+
 		return fmt.Errorf("close template connection: %w", err)
+	}
+
+	return nil
+}
+
+// dbTestDropDatabase drops database name using the supplied maintenance
+// connection. WITH (FORCE) (PostgreSQL 13+) terminates any backend still
+// attached so a leaked connection cannot block the drop.
+func dbTestDropDatabase(ctx context.Context, maintenance *bun.DB, name string) error {
+	_, err := maintenance.NewRaw(
+		"DROP DATABASE IF EXISTS " + dbTestQuoteIdent(name) + " WITH (FORCE)",
+	).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("drop database %q: %w", name, err)
 	}
 
 	return nil
@@ -311,6 +362,12 @@ func dbTestCreateInstance(ctx context.Context, maintenance *bun.DB, instance, te
 		"CREATE DATABASE %s TEMPLATE %s",
 		dbTestQuoteIdent(instance), dbTestQuoteIdent(template),
 	)
+
+	// Serialise clones in-process: PostgreSQL serialises CREATE DATABASE
+	// globally anyway, so taking them one at a time here matches the server
+	// and leaves the retry below to handle only cross-process contention.
+	dbTestCloneMu.Lock()
+	defer dbTestCloneMu.Unlock()
 
 	var err error
 
@@ -368,20 +425,37 @@ func dbTestTemplateName(migrations fs.FS) (string, error) {
 			return nil
 		}
 
-		// fs.WalkDir visits entries in lexical order, so the digest is stable
-		// across runs without an explicit sort.
-		_, _ = digest.Write([]byte(path))
-
 		file, err := migrations.Open(path)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = file.Close() }()
 
-		_, err = io.Copy(digest, file)
+		fileDigest := sha256.New()
+
+		_, err = io.Copy(fileDigest, file)
+		// Close immediately rather than via defer: defer here would hold every
+		// migration file open until WalkDir finished, risking fd exhaustion on
+		// large OS-backed migration sets.
+		_ = file.Close()
+
 		if err != nil {
 			return err
 		}
+
+		// Frame each entry unambiguously: a length-prefixed path followed by a
+		// fixed-size (32-byte) content digest. Writing path and content
+		// back-to-back without framing would let a path/content boundary move
+		// (e.g. file "ab"/content "c" vs file "a"/content "bc") produce an
+		// identical byte stream for distinct migration sets, defeating the
+		// "a migration change always yields a fresh template" guarantee.
+		// fs.WalkDir visits entries in lexical order, so the digest is stable
+		// across runs without an explicit sort.
+		var pathLen [8]byte
+
+		binary.BigEndian.PutUint64(pathLen[:], uint64(len(path)))
+		_, _ = digest.Write(pathLen[:])
+		_, _ = digest.Write([]byte(path))
+		_, _ = digest.Write(fileDigest.Sum(nil))
 
 		return nil
 	})
