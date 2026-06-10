@@ -4,13 +4,13 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "format": "pnpm run format:prettier",
+    "format": "pnpm format:go && pnpm format:proto && pnpm format:prettier",
     "format:go": "go mod tidy && go tool -modfile=golangci-lint.mod golangci-lint run ./... --fix",
     "format:prettier": "prettier --write . --config prettier.config.js",
     "format:proto": "go tool buf format -w && go tool buf dep update",
     "generate": "pnpm run generate:go",
     "generate:go": "go generate ./...",
-    "lint": "pnpm run lint:prettier",
+    "lint": "pnpm lint:go && pnpm lint:proto && pnpm lint:prettier",
     "lint:go": "go tool -modfile=golangci-lint.mod golangci-lint run ./...",
     "lint:prettier": "prettier --check . --config prettier.config.js",
     "lint:proto": "go tool buf lint"
