@@ -47,6 +47,10 @@ jobs:
     steps:
       - uses: a-novel-kit/workflows/node-actions/lint-node@master
         with:
+          # `lint` is now the local umbrella (go + proto + prettier); the
+          # node CI runner has no Go/buf toolchain, so it runs the node-only
+          # lane. Functionally identical to the old bare `lint`.
+          lint_action: "lint:prettier"
           github_token: ${{ secrets.GITHUB_TOKEN }}
           app_private_key: ${{ secrets.DEPENDENCY_BOT_PRIVATE_KEY }}
           app_id: ${{ vars.DEPENDENCY_BOT_ID }}
