@@ -3,7 +3,7 @@ module github.com/a-novel-kit/golib
 go 1.26.4
 
 require (
-	charm.land/lipgloss/v2 v2.0.3
+	charm.land/lipgloss/v2 v2.0.4
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.33.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.57.0
 	github.com/getsentry/sentry-go v0.46.2
