@@ -9,6 +9,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	sentryhttp "github.com/getsentry/sentry-go/http"
 	sentryotel "github.com/getsentry/sentry-go/otel"
+	sentryotlp "github.com/getsentry/sentry-go/otel/otlp"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -40,7 +41,6 @@ func (config *Sentry) Init() error {
 	return sentry.Init(sentry.ClientOptions{
 		Dsn:              config.DSN,
 		EnableTracing:    true,
-		EnableLogs:       true,
 		TracesSampleRate: 1.0,
 		Debug:            config.Debug,
 		DebugWriter:      os.Stderr,
@@ -73,8 +73,14 @@ func (config *Sentry) GetPropagators() (propagation.TextMapPropagator, error) {
 }
 
 func (config *Sentry) GetTraceProvider() (trace.TracerProvider, error) {
-	//nolint:staticcheck // sentryotlp.NewTraceExporter not yet available; migrate when sentry-go/otel/otlp is released
-	config.tp = sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sentryotel.NewSentrySpanProcessor()))
+	// sentry-go v0.47 dropped the span processor in favour of an OTLP span exporter.
+	// The batch processor buffers spans and is drained by Flush -> tp.Shutdown.
+	exporter, err := sentryotlp.NewTraceExporter(context.Background(), config.DSN)
+	if err != nil {
+		return nil, err
+	}
+
+	config.tp = sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
 
 	return config.tp, nil
 }
