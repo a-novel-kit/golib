@@ -14,15 +14,17 @@ The minimal shared Go library for A-Novel backend services — the cross-cutting
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/a-novel-kit/golib/main.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/a-novel-kit/golib)](https://goreportcard.com/report/github.com/a-novel-kit/golib)
 
-```bash
-go get github.com/a-novel-kit/golib
-```
-
 ## What this is
 
 `golib` collects the small amount of cross-cutting glue that the A-Novel backend services would otherwise copy from one repo to the next — env-variable parsing, OpenTelemetry plumbing, Postgres + bun helpers, REST and gRPC boundary utilities, shared logging interfaces, and an SMTP sender. It is **not** a framework and is deliberately kept as small as possible: anything a well-maintained library already covers belongs in that library, not here. When a sub-package outgrows the "boilerplate" bar and earns a broader public API, it graduates into its own repo — the [`jwt`](https://github.com/a-novel-kit/jwt) package is the precedent.
 
 The full API reference lives on [**pkg.go.dev**](https://pkg.go.dev/github.com/a-novel-kit/golib); godoc is canonical and this README only points at it.
+
+## Installation
+
+```bash
+go get github.com/a-novel-kit/golib
+```
 
 ## Sub-packages
 
