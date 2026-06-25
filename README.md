@@ -1,6 +1,6 @@
 # Go lib
 
-The minimal shared Go library for A-Novel backend services — the cross-cutting glue (env parsing, OpenTelemetry, Postgres, REST/gRPC helpers) that would otherwise be copied repo to repo.
+The minimal shared Go library for A-Novel backend services — the cross-cutting glue they would otherwise copy between repos.
 
 [![X (formerly Twitter) Follow](https://img.shields.io/twitter/follow/agorastoryverse)](https://twitter.com/agorastoryverse)
 [![Discord](https://img.shields.io/discord/1315240114691248138?logo=discord)](https://discord.gg/rp4Qr8cA)
@@ -16,7 +16,7 @@ The minimal shared Go library for A-Novel backend services — the cross-cutting
 
 ## What this is
 
-`golib` collects the small amount of cross-cutting glue that the A-Novel backend services would otherwise copy from one repo to the next — env-variable parsing, OpenTelemetry plumbing, Postgres + bun helpers, REST and gRPC boundary utilities, shared logging interfaces, and an SMTP sender. It is **not** a framework and is deliberately kept as small as possible: anything a well-maintained library already covers belongs in that library, not here. When a sub-package outgrows the "boilerplate" bar and earns a broader public API, it graduates into its own repo — the [`jwt`](https://github.com/a-novel-kit/jwt) package is the precedent.
+`golib` collects the cross-cutting glue that the A-Novel backend services would otherwise copy from one repo to the next. It is **not** a framework and is kept deliberately small: anything a well-maintained library already covers belongs there, not here. When a sub-package grows a broad public API of its own, it graduates into its own repo — [`jwt`](https://github.com/a-novel-kit/jwt) is the precedent.
 
 The full API reference lives on [**pkg.go.dev**](https://pkg.go.dev/github.com/a-novel-kit/golib); godoc is canonical and this README only points at it.
 
@@ -40,4 +40,4 @@ go get github.com/a-novel-kit/golib
 
 ## Contributing
 
-Platform setup and the day-to-day commands live in the [developer onboarding guide](https://github.com/a-novel-kit/.github/blob/master/README.md); `golib`-specific notes are in [CONTRIBUTING.md](./CONTRIBUTING.md). The bar for additions is deliberately high — convenience wrappers around well-maintained dependencies, and one-off helpers only one service needs, do not belong here.
+Platform setup and the day-to-day commands live in the [developer onboarding guide](https://github.com/a-novel-kit/.github/blob/master/README.md); `golib`-specific notes are in [CONTRIBUTING.md](./CONTRIBUTING.md).

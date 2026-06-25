@@ -4,13 +4,13 @@ For platform-wide setup (Go, Node, Podman, the `a-novel` CLI) and the day-to-day
 
 ## The bar for additions
 
-`golib` is intentionally minimal — it holds only the cross-cutting glue that the backend services would otherwise copy between repos. Before adding to it, weigh the addition against this bar:
+`golib` stays small on purpose — it holds only the glue two or more services would otherwise copy between repos. Weigh any addition against three questions:
 
-- **A well-maintained library already does it?** Use that library directly; do not wrap it here.
-- **Only one service needs it?** Keep it in that service until a second one does.
-- **It has grown a broad public API of its own?** It should graduate into its own repo rather than live as a `golib` sub-package — the [`jwt`](https://github.com/a-novel-kit/jwt) package is the precedent.
+- Does a well-maintained library already do it? Use that library; don't wrap it here.
+- Does only one service need it? Keep it there until a second one does.
+- Has it grown a broad public API of its own? Graduate it into its own repo, like [`jwt`](https://github.com/a-novel-kit/jwt) did.
 
-Good additions are small, dependency-light helpers that at least two services share and that no upstream library covers cleanly.
+The sweet spot is a small, dependency-light helper that several services share and nothing upstream covers cleanly.
 
 ## Questions?
 
