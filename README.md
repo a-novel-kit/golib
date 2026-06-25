@@ -18,7 +18,7 @@ Shared Go library for the A-Novel backend services — the glue they'd otherwise
 
 Not a framework, and small on purpose: if a well-maintained library already covers it, it doesn't live here. A sub-package that grows a broad API of its own graduates to its own repo, as [`jwt`](https://github.com/a-novel-kit/jwt) did.
 
-godoc on [pkg.go.dev](https://pkg.go.dev/github.com/a-novel-kit/golib) is the full reference.
+Full reference: godoc on [pkg.go.dev](https://pkg.go.dev/github.com/a-novel-kit/golib).
 
 ## Installation
 
