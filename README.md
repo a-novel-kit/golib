@@ -1,6 +1,6 @@
 # Go lib
 
-The minimal shared Go library for A-Novel backend services — the cross-cutting glue they would otherwise copy between repos.
+Shared Go library for the A-Novel backend services — the glue they'd otherwise copy between repos.
 
 [![X (formerly Twitter) Follow](https://img.shields.io/twitter/follow/agorastoryverse)](https://twitter.com/agorastoryverse)
 [![Discord](https://img.shields.io/discord/1315240114691248138?logo=discord)](https://discord.gg/rp4Qr8cA)
@@ -16,9 +16,9 @@ The minimal shared Go library for A-Novel backend services — the cross-cutting
 
 ## What this is
 
-`golib` collects the cross-cutting glue that the A-Novel backend services would otherwise copy from one repo to the next. It is **not** a framework and is kept deliberately small: anything a well-maintained library already covers belongs there, not here. When a sub-package grows a broad public API of its own, it graduates into its own repo — [`jwt`](https://github.com/a-novel-kit/jwt) is the precedent.
+Not a framework, and small on purpose: if a well-maintained library already covers it, it doesn't live here. A sub-package that grows a broad API of its own graduates to its own repo, as [`jwt`](https://github.com/a-novel-kit/jwt) did.
 
-The full API reference lives on [**pkg.go.dev**](https://pkg.go.dev/github.com/a-novel-kit/golib); godoc is canonical and this README only points at it.
+godoc on [pkg.go.dev](https://pkg.go.dev/github.com/a-novel-kit/golib) is the full reference.
 
 ## Installation
 
@@ -28,16 +28,16 @@ go get github.com/a-novel-kit/golib
 
 ## Sub-packages
 
-| Path       | What it covers                                                                                                                                                               |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config`   | `LoadEnv[T]` + a set of `strconv`-shaped parsers for environment variables; `Must` / `MustUnmarshal` panic-on-error helpers for one-shot startup wiring.                     |
-| `otel`     | `Tracer` / `Logger` accessors keyed on a shared `AppName`, the `ReportError` / `ReportSuccess` span helpers, and a `Config` interface implemented by `otel/presets/*`.       |
-| `httpf`    | `HandleError(errMap)` for mapping sentinels onto HTTP status codes (and reporting them on the request span); `SendJSON` for the success path.                                |
-| `grpcf`    | `BaseContext*Interceptor` for per-call context shaping, a `CredentialsProvider` interface with local / GCP implementations, and a built-in echo + health-check demo service. |
-| `logging`  | The shared `Log` / `HTTPConfig` / `RPCConfig` interfaces; concrete implementations live in `logging/presets/*` (local and GCP variants for both HTTP and gRPC).              |
-| `postgres` | `bun.IDB`-on-context plumbing (`NewContext`, `GetContext`, `RunInTx`), the migrations runner, the `PassthroughTx` test wrapper, and `RunTransactionalTest` / -`Isolated`.    |
-| `smtp`     | `Sender` interface with `ProdSender` (real SMTP) and `DebugSender` (writes to an `io.Writer`); the in-memory test helper lives in `smtp/smtptest`.                           |
+| Path       | What it covers                                                                          |
+| ---------- | --------------------------------------------------------------------------------------- |
+| `config`   | Typed env-var loading (`LoadEnv[T]`) and panic-on-error startup helpers.                |
+| `otel`     | OpenTelemetry tracer/logger access and span error reporting; local and GCP presets.     |
+| `httpf`    | REST boundary: map error sentinels to HTTP statuses, send JSON.                         |
+| `grpcf`    | gRPC boundary: context interceptors, local/GCP credentials, a demo echo/health service. |
+| `logging`  | Shared logging interfaces, with local and GCP presets for HTTP and gRPC.                |
+| `postgres` | Context-scoped `bun` DB, transactions, a migrations runner, and test harnesses.         |
+| `smtp`     | An SMTP `Sender` (prod and debug) and an in-memory test helper.                         |
 
 ## Contributing
 
-Platform setup and the day-to-day commands live in the [developer onboarding guide](https://github.com/a-novel-kit/.github/blob/master/README.md); `golib`-specific notes are in [CONTRIBUTING.md](./CONTRIBUTING.md).
+Setup and day-to-day commands are in the [developer onboarding guide](https://github.com/a-novel-kit/.github/blob/master/README.md); golib-specific notes are in [CONTRIBUTING.md](./CONTRIBUTING.md).
