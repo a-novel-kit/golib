@@ -28,15 +28,15 @@ go get github.com/a-novel-kit/golib
 
 ## Sub-packages
 
-| Path       | What it covers                                                                          |
-| ---------- | --------------------------------------------------------------------------------------- |
-| `config`   | Typed env-var loading (`LoadEnv[T]`) and panic-on-error startup helpers.                |
-| `otel`     | OpenTelemetry tracer/logger access and span error reporting; local and GCP presets.     |
-| `httpf`    | REST boundary: map error sentinels to HTTP statuses, send JSON.                         |
-| `grpcf`    | gRPC boundary: context interceptors, local/GCP credentials, a demo echo/health service. |
-| `logging`  | Shared logging interfaces, with local and GCP presets for HTTP and gRPC.                |
-| `postgres` | Context-scoped `bun` DB, transactions, a migrations runner, and test harnesses.         |
-| `smtp`     | An SMTP `Sender` (prod and debug) and an in-memory test helper.                         |
+| Path       | What it's for                                                                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config`   | Loads environment variables into typed config structs and fails fast at startup when one is missing or malformed, so a service never boots half-configured.                        |
+| `otel`     | Wires OpenTelemetry tracing and logging under a shared app identity and reports each operation's outcome on its span. Exporters ship for local development and Google Cloud.       |
+| `httpf`    | Holds the REST boundary logic a handler leans on — mapping domain error sentinels to HTTP status codes and writing JSON — so every service answers errors the same way.            |
+| `grpcf`    | The gRPC equivalent of `httpf`: it shapes per-call context, supplies client and server credentials (local or GCP), and bundles a health/echo service for tests.                    |
+| `logging`  | Defines the interfaces the platform logs through, so a service can swap its log backend without touching call sites. Presets cover local and Google Cloud, for both HTTP and gRPC. |
+| `postgres` | Carries the database handle on the request context and scopes work into transactions, and ships a migration runner plus harnesses that give each test an isolated database.        |
+| `smtp`     | Sends transactional mail behind one `Sender` interface, with a real SMTP sender for production and a debug sender for local runs and tests.                                        |
 
 ## Contributing
 
