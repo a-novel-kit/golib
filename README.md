@@ -28,6 +28,8 @@ go get github.com/a-novel-kit/golib
 
 ## Sub-packages
 
+Each **sub-package** is a directory-scoped, independently importable helper — focused, dependency-light, and shared across services. One that grows a broad API of its own graduates to its own repo (see [What this is](#what-this-is)).
+
 | Path       | What it's for                                                                                                                                                                      |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `config`   | Loads environment variables into typed config structs and fails fast at startup when one is missing or malformed, so a service never boots half-configured.                        |
