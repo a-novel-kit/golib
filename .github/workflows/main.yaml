@@ -55,7 +55,7 @@ jobs:
           app_private_key: ${{ secrets.DEPENDENCY_BOT_PRIVATE_KEY }}
           client_id: ${{ vars.DEPENDENCY_BOT_CLIENT_ID }}
 
-  test:
+  test-go:
     needs: [lint-go]
     runs-on: ubuntu-latest
     permissions:
@@ -68,7 +68,7 @@ jobs:
   report-grc:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master' && success()
-    needs: [test, lint-go]
+    needs: [test-go, lint-go]
     permissions:
       contents: read
     steps:
