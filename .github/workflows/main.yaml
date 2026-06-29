@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: bufbuild/buf-action@v1
 
-  lint-node:
+  lint-js:
     runs-on: ubuntu-latest
     permissions:
       contents: read
