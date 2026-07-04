@@ -12,7 +12,7 @@ import (
 	"github.com/samber/lo"
 )
 
-// A MailUser is a single mail participant, pairing a display name with its
+// MailUser is a single mail participant, pairing a display name with its
 // email address.
 type MailUser struct {
 	Name  string

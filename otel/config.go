@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// A Config wires one OpenTelemetry backend into the process. Each implementation
+// Config wires one OpenTelemetry backend into the process. Each implementation
 // targets a single destination for traces and logs; the presets subpackage ships
 // the ready-made ones (standard output, Google Cloud, Sentry, and a disabled
 // no-op). Pass a Config to Init to install its providers as the global state.

@@ -21,7 +21,7 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
-// A TransactionalTestFunc is the body of a database-backed test, run with a
+// TransactionalTestFunc is the body of a database-backed test, run with a
 // context carrying the connection isolated for that test.
 type TransactionalTestFunc func(context.Context, *testing.T)
 

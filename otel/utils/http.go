@@ -4,7 +4,7 @@ import (
 	"net/http"
 )
 
-// A CaptureHTTPResponseWriter wraps an http.ResponseWriter and records the status
+// CaptureHTTPResponseWriter wraps an http.ResponseWriter and records the status
 // code, byte count, and full body as the handler writes them, so middleware can
 // inspect the response after the handler returns.
 type CaptureHTTPResponseWriter struct {
