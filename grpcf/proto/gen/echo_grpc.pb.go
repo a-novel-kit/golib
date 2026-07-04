@@ -28,6 +28,9 @@ const (
 // EchoServiceClient is the client API for EchoService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// EchoService is a minimal reference service for probing gRPC connectivity,
+// exercising each streaming mode, and backing liveness checks.
 type EchoServiceClient interface {
 	UnaryEcho(ctx context.Context, in *UnaryEchoRequest, opts ...grpc.CallOption) (*UnaryEchoResponse, error)
 	ServerStreamingEcho(ctx context.Context, in *ServerStreamingEchoRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ServerStreamingEchoResponse], error)
@@ -101,6 +104,9 @@ type EchoService_BidirectionalStreamingEchoClient = grpc.BidiStreamingClient[Bid
 // EchoServiceServer is the server API for EchoService service.
 // All implementations must embed UnimplementedEchoServiceServer
 // for forward compatibility.
+//
+// EchoService is a minimal reference service for probing gRPC connectivity,
+// exercising each streaming mode, and backing liveness checks.
 type EchoServiceServer interface {
 	UnaryEcho(context.Context, *UnaryEchoRequest) (*UnaryEchoResponse, error)
 	ServerStreamingEcho(*ServerStreamingEchoRequest, grpc.ServerStreamingServer[ServerStreamingEchoResponse]) error

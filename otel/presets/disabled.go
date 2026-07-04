@@ -21,7 +21,8 @@ import (
 
 var _ otel.Config = (*Disabled)(nil)
 
-// Disabled configures Otel to disable traces & logs.
+// Disabled is a Config whose providers are no-ops, so no traces or logs are
+// exported.
 type Disabled struct{}
 
 // Init prints a startup banner announcing that OpenTelemetry tracing and

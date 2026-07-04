@@ -8,6 +8,9 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// LogLocal implements the logging.Log interface for local development,
+// rendering each entry in a severity color to Out. It carries no trace
+// context, since the output is meant to be read directly in a terminal.
 type LogLocal struct {
 	Out io.Writer
 }

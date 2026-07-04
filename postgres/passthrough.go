@@ -21,6 +21,8 @@ type PassthroughTx struct {
 	bun.Tx
 }
 
+// NewPassthroughTx wraps tx so that nested transaction calls resolve to tx
+// itself rather than opening savepoints.
 func NewPassthroughTx(tx bun.Tx) *PassthroughTx {
 	return &PassthroughTx{Tx: tx}
 }
@@ -36,12 +38,12 @@ func (tx *PassthroughTx) Rollback() error {
 }
 
 func (tx *PassthroughTx) Begin() (bun.Tx, error) {
-	// no-op, return the same transaction.
+	// no-op.
 	return tx.Tx, nil
 }
 
 func (tx *PassthroughTx) BeginTx(_ context.Context, _ *sql.TxOptions) (bun.Tx, error) {
-	// no-op, return the same transaction.
+	// no-op.
 	return tx.Tx, nil
 }
 

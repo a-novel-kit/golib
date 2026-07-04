@@ -13,6 +13,9 @@ import (
 
 var _ logging.RPCConfig = (*GRPCLocal)(nil)
 
+// GRPCLocal implements [logging.RPCConfig] for local development, producing
+// gRPC interceptors that emit human-readable text to stdout and recover from
+// handler panics. Component labels every entry with the emitting subsystem.
 type GRPCLocal struct {
 	Component string `json:"component" yaml:"component"`
 

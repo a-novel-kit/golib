@@ -17,7 +17,7 @@ const (
 )
 
 // Ping a database connection until it succeeds or the timeout is reached.
-// Honours ctx cancellation both for the PingContext call and for the wait
+// Honors ctx cancellation both for the PingContext call and for the wait
 // between retries.
 func Ping(ctx context.Context, client *bun.DB) error {
 	start := time.Now()

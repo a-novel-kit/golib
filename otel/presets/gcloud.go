@@ -27,8 +27,14 @@ import (
 
 var _ otel.Config = (*Gcloud)(nil)
 
+// Gcloud is a Config that exports traces to Google Cloud Trace and writes
+// structured logs to stderr for Cloud Logging to collect.
 type Gcloud struct {
-	ProjectID    string        `json:"projectID"    yaml:"projectID"`
+	// ProjectID is the Google Cloud project traces are sent to. When empty, the
+	// exporter detects it from the ambient credentials.
+	ProjectID string `json:"projectID" yaml:"projectID"`
+	// FlushTimeout bounds how long Flush waits for buffered data to drain; zero
+	// waits indefinitely.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 
 	tp *sdktrace.TracerProvider
@@ -46,8 +52,9 @@ func (config *Gcloud) Init() error {
 
 func (config *Gcloud) GetPropagators() (propagation.TextMapPropagator, error) {
 	return propagation.NewCompositeTextMapPropagator(
-		// Putting the CloudTraceOneWayPropagator first means the TraceContext propagator
-		// takes precedence if both the traceparent and the XCTC headers exist.
+		// On extraction the later propagator wins, so listing CloudTrace first lets a
+		// standard traceparent header take precedence over the X-Cloud-Trace-Context
+		// header when a request carries both.
 		gcppropagator.CloudTraceOneWayPropagator{},
 		propagation.TraceContext{},
 		propagation.Baggage{},
@@ -73,7 +80,8 @@ func (config *Gcloud) GetTraceProvider() (trace.TracerProvider, error) {
 	return config.tp, nil
 }
 
-// GetLogger sets up a structured JSON logger that GCP can parse and link to traces.
+// GetLogger returns a logger provider that writes structured JSON to stderr, which
+// Cloud Logging collects and correlates with traces.
 func (config *Gcloud) GetLogger() (log.LoggerProvider, error) {
 	logExporter, err := stdoutlog.New(
 		stdoutlog.WithWriter(os.Stderr),
@@ -115,7 +123,6 @@ func (config *Gcloud) Flush() {
 	}
 }
 
-// HttpHandler is kept for interface compatibility but doesn't wrap anything in GCP mode.
 func (config *Gcloud) HttpHandler() func(http.Handler) http.Handler {
 	return otelhttp.NewMiddleware("")
 }

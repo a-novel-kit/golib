@@ -7,10 +7,15 @@ import (
 	"text/template"
 )
 
+// DebugSender is a Sender that renders the mail template to an io.Writer
+// instead of delivering it, for local development where no SMTP server is
+// available. Recipients are ignored and Ping always succeeds.
 type DebugSender struct {
 	writer io.Writer
 }
 
+// NewDebugSender returns a DebugSender writing to writer, defaulting to
+// os.Stdout when writer is nil.
 func NewDebugSender(writer io.Writer) *DebugSender {
 	if writer == nil {
 		writer = os.Stdout

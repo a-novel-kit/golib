@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+// EchoService is a minimal reference service for probing gRPC connectivity,
+// exercising each streaming mode, and backing liveness checks.
 service EchoService {
   rpc UnaryEcho(UnaryEchoRequest) returns (UnaryEchoResponse) {}
   rpc ServerStreamingEcho(ServerStreamingEchoRequest) returns (stream ServerStreamingEchoResponse) {}

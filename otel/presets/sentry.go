@@ -25,11 +25,17 @@ import (
 
 var _ otel.Config = (*Sentry)(nil)
 
+// Sentry is a Config that reports traces to Sentry over OTLP and forwards captured
+// errors through the Sentry SDK.
 type Sentry struct {
-	DSN          string        `json:"dsn"          yaml:"dsn"`
-	ServerName   string        `json:"serverName"   yaml:"serverName"`
-	Release      string        `json:"release"      yaml:"release"`
-	Environment  string        `json:"environment"  yaml:"environment"`
+	// DSN is the Sentry project's ingest URL, which selects the project events are
+	// sent to.
+	DSN         string `json:"dsn"         yaml:"dsn"`
+	ServerName  string `json:"serverName"  yaml:"serverName"`
+	Release     string `json:"release"     yaml:"release"`
+	Environment string `json:"environment" yaml:"environment"`
+	// FlushTimeout bounds how long Flush waits for buffered data to drain; zero
+	// waits indefinitely.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 	Debug        bool          `json:"debug"        yaml:"debug"`
 

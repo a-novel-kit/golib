@@ -13,6 +13,9 @@ import (
 
 var _ logging.RPCConfig = (*GRPCGcloud)(nil)
 
+// GRPCGcloud implements [logging.RPCConfig] for Google Cloud, producing gRPC
+// interceptors that emit structured JSON to stderr and recover from handler
+// panics. Component labels every entry with the emitting subsystem.
 type GRPCGcloud struct {
 	Component string `json:"component" yaml:"component"`
 
