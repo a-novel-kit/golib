@@ -9,16 +9,22 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// ContextKey is the context value key under which the package stores the active
+// bun.IDB connection.
 type ContextKey struct{}
 
+// NameLen caps the length of a generated schema or database name, keeping it
+// within PostgreSQL's 63-byte identifier limit with room for prefixes.
 const NameLen = 31
 
-// ErrNoIDBInContext is returned by GetContext when the supplied context does
-// not carry a bun.IDB value (it was never seeded via NewContext / one of its
-// variants). It is sibling to ErrNoDbInContext in migrator.go, which signals
-// the stricter "found an IDB but it isn't a *bun.DB" case.
+// ErrNoIDBInContext is returned by GetContext when the context carries no
+// bun.IDB, meaning it was never seeded by NewContext or one of its variants.
+// [ErrNoDbInContext] covers the stricter case where a connection is present but
+// is not a full *bun.DB.
 var ErrNoIDBInContext = errors.New("context does not contain a bun.IDB")
 
+// NewContext derives a context carrying a connection to the primary database,
+// for later retrieval with GetContext.
 func NewContext(ctx context.Context, config Config) (context.Context, error) {
 	db, err := config.DB(ctx)
 	if err != nil {
@@ -28,6 +34,8 @@ func NewContext(ctx context.Context, config Config) (context.Context, error) {
 	return context.WithValue(ctx, ContextKey{}, db), nil
 }
 
+// NewContextSchema derives a context carrying a connection scoped to the named
+// schema, creating the schema first when create is true.
 func NewContextSchema(ctx context.Context, config Config, schema string, create bool) (context.Context, error) {
 	db, err := config.DBSchema(ctx, schema, create)
 	if err != nil {
@@ -37,6 +45,8 @@ func NewContextSchema(ctx context.Context, config Config, schema string, create 
 	return context.WithValue(ctx, ContextKey{}, db), nil
 }
 
+// GetContext returns the bun.IDB stored in ctx by NewContext or one of its
+// variants, or ErrNoIDBInContext when none is present.
 func GetContext(ctx context.Context) (bun.IDB, error) {
 	db, ok := ctx.Value(ContextKey{}).(bun.IDB)
 	if !ok {
@@ -46,6 +56,8 @@ func GetContext(ctx context.Context) (bun.IDB, error) {
 	return db, nil
 }
 
+// RunInTx runs callback within a transaction opened on the connection carried
+// by ctx. The callback receives the transaction as a bun.IDB.
 func RunInTx(ctx context.Context, opts *sql.TxOptions, callback func(ctx context.Context, tx bun.IDB) error) error {
 	db, err := GetContext(ctx)
 	if err != nil {

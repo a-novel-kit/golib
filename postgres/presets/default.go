@@ -14,24 +14,27 @@ import (
 )
 
 const (
-	// CreateSchema is the SQL statement used to create a schema in PostgreSQL.
-	//
-	// We use fmt rather than query arguments because sanitization
-	// does not expect schema names to be passed as arguments.
+	// CreateSchema is the format string for the statement that creates a schema.
+	// Schema names cannot be passed as query parameters, so the name is
+	// interpolated into the statement rather than bound.
 	CreateSchema = "CREATE SCHEMA IF NOT EXISTS %s;"
 )
 
+// Default is the standard postgres.Config implementation, backed by pgdriver.
+// It opens connections lazily and caches them: one for the primary database and
+// one per requested schema, all guarded by a single mutex.
 type Default struct {
 	options []pgdriver.Option
 
-	// Main database connection.
+	// Cached connection to the primary database, opened on first use.
 	db *bun.DB
-	// Maintain separate connections for each schema.
+	// Cached connection per schema name.
 	schemas map[string]*bun.DB
 
 	mu sync.RWMutex
 }
 
+// NewDefault returns a Default that connects using the given pgdriver options.
 func NewDefault(options ...pgdriver.Option) *Default {
 	return &Default{
 		options: options,
@@ -104,6 +107,9 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 	return db, nil
 }
 
+// Options returns a copy of the driver options the config was built with.
+// postgres.RunDBTest reads them to derive sibling connections to other
+// databases in the same cluster.
 func (config *Default) Options() []pgdriver.Option {
 	config.mu.RLock()
 	defer config.mu.RUnlock()

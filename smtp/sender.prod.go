@@ -7,6 +7,9 @@ import (
 	"text/template"
 )
 
+// ProdSender delivers mail through a real SMTP server using net/smtp. Its
+// fields are populated from configuration; the password is never serialized
+// back out.
 type ProdSender struct {
 	Addr   string `json:"addr"   yaml:"addr"`
 	Name   string `json:"name"   yaml:"name"`
@@ -15,7 +18,9 @@ type ProdSender struct {
 
 	Password string `json:"-" yaml:"-"`
 
-	// Dangerous setting, only use it for local development.
+	// ForceUnencryptedTls allows plaintext authentication over a connection the
+	// server has not secured with TLS, sending credentials in the clear. Use it
+	// only against a local test SMTP server; never enable it in production.
 	ForceUnencryptedTls bool `json:"forceUnencryptedTLS" yaml:"forceUnencryptedTLS"`
 }
 
@@ -72,6 +77,9 @@ func (sender *ProdSender) Ping() error {
 	return nil
 }
 
+// unencryptedAuth wraps an smtp.Auth to report the connection as TLS-secured,
+// bypassing net/smtp's refusal to send plaintext credentials over an
+// unencrypted link. Reached only through ProdSender.ForceUnencryptedTls.
 type unencryptedAuth struct {
 	smtp.Auth
 }

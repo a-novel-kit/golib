@@ -8,14 +8,14 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-// MarshalJSONAsAny serialises an arbitrary Go value to JSON and packs the
+// MarshalJSONAsAny serializes an arbitrary Go value to JSON and packs the
 // resulting bytes into a google.protobuf.Any whose contained message type is
 // google.protobuf.BytesValue. Use it only when an RPC field is typed as Any
 // and you actually want to carry an opaque JSON payload — Any is normally
 // reserved for genuine protobuf messages, so this is a deliberate escape
 // hatch, not the default way to transit data.
 //
-// The inverse is UnmarshalJSONFromAny.
+// The inverse is [UnmarshalJSONFromAny].
 func MarshalJSONAsAny(v any) (*anypb.Any, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -27,7 +27,7 @@ func MarshalJSONAsAny(v any) (*anypb.Any, error) {
 	return out, anypb.MarshalFrom(out, &wrapperspb.BytesValue{Value: data}, proto.MarshalOptions{})
 }
 
-// UnmarshalJSONFromAny is the inverse of MarshalJSONAsAny: it extracts the
+// UnmarshalJSONFromAny is the inverse of [MarshalJSONAsAny]: it extracts the
 // JSON payload from a google.protobuf.Any (assumed to wrap a
 // google.protobuf.BytesValue) and decodes it into an `any` Go value.
 func UnmarshalJSONFromAny(anyValue *anypb.Any) (any, error) {

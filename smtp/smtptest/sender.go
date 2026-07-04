@@ -1,16 +1,7 @@
-// Package smtptest provides an in-memory implementation of smtp.Sender for use
-// in unit and integration tests. Its types satisfy the smtp.Sender interface,
-// so a test can substitute *smtptest.Sender wherever an smtp.Sender is
-// expected.
-//
-// Historically these helpers lived in the parent `smtp` package as
-// `smtp.TestSender` / `smtp.TestMail` / `smtp.NewTestSender` /
-// `smtp.ErrPingTestSender`, defined in a file named `smtp/sender.test.go`. The
-// dot-suffixed filename looked like a test-only signal but was not — Go's
-// build tooling only excludes files ending in `_test.go` (underscore) from
-// production builds, so the legacy symbols shipped in every consumer binary
-// regardless of whether they were used. The dedicated sub-package makes the
-// boundary explicit; the legacy symbols were removed in the v1.0 cleanup.
+// Package smtptest provides an in-memory smtp.Sender for unit and integration
+// tests. Its Sender records every SendMail call instead of reaching a network,
+// so a test can substitute *smtptest.Sender wherever an smtp.Sender is expected
+// and later assert on what was sent.
 package smtptest
 
 import (
@@ -65,14 +56,13 @@ func (sender *Sender) Ping() error {
 }
 
 // FindMail returns the first captured Mail for which cmp returns true, or
-// (nil, false) if no captured Mail matched.
+// (nil, false) if none matched.
 //
-// The lock is released before cmp is invoked: snapshotting the pointer slice
-// under the lock and iterating afterwards prevents a deadlock if cmp
-// re-enters the Sender (e.g. by calling SendMail or FindMail again), and
-// avoids unnecessarily blocking concurrent SendMail callers for the duration
-// of a slow comparator. The returned *Mail aliases the captured entry —
-// callers must not mutate it.
+// cmp runs after the lock is released, against a snapshot of the captured
+// pointers: this keeps a slow comparator from blocking concurrent SendMail
+// callers, and a re-entrant one (that calls back into SendMail) from
+// deadlocking. The returned *Mail aliases the captured entry — callers must
+// not mutate it.
 func (sender *Sender) FindMail(cmp func(*Mail) bool) (*Mail, bool) {
 	sender.mu.RLock()
 	snapshot := append([]*Mail(nil), sender.mails...)

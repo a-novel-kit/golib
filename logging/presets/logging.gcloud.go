@@ -6,6 +6,10 @@ import (
 	"os"
 )
 
+// LogGcloud implements the logging.Log interface for Google Cloud, writing
+// entries as structured JSON to stderr with a severity field that Cloud Logging
+// understands. ProjectId names the Google Cloud project, and scopes the trace
+// resource names the HTTP preset attaches to access logs.
 type LogGcloud struct {
 	ProjectId string `json:"projectID" yaml:"projectID"`
 	l         *slog.Logger

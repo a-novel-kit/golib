@@ -18,6 +18,10 @@ import (
 
 var _ logging.HTTPConfig = (*HTTPGcloud)(nil)
 
+// HTTPGcloud implements [logging.HTTPConfig] for Google Cloud. Its middleware
+// times each request, records a trace span, and emits a structured access log
+// whose fields Cloud Logging correlates with that trace. It logs through
+// BaseLogger.
 type HTTPGcloud struct {
 	BaseLogger *LogGcloud
 }
@@ -55,16 +59,17 @@ func (logger *HTTPGcloud) Logger() func(http.Handler) http.Handler {
 				logFn = logger.BaseLogger.Info
 			}
 
-			// Extract trace info for GCP
 			spanCtx := span.SpanContext()
 			traceID := spanCtx.TraceID().String()
 			spanID := spanCtx.SpanID().String()
 			traceSampled := spanCtx.IsSampled()
 
-			// GCP trace field format
+			// Cloud Logging links a log to its trace only when the trace is
+			// given as this full project-scoped resource name.
 			traceResource := fmt.Sprintf("projects/%s/traces/%s", logger.BaseLogger.ProjectId, traceID)
 
-			// Build structured log entry
+			// The magic field names below are the contract Cloud Logging reads
+			// to correlate the entry with its trace and to unpack the request.
 			// https://docs.cloud.google.com/logging/docs/structured-logging
 			logFn(
 				r.Context(),

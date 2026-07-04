@@ -21,8 +21,12 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
+// TransactionalTestFunc is the body of a database-backed test, run with a
+// context carrying the connection isolated for that test.
 type TransactionalTestFunc func(context.Context, *testing.T)
 
+// NewContextTest derives a context bound to a fresh, randomly named schema
+// created through config, isolating the test from others sharing the database.
 func NewContextTest(ctx context.Context, config Config) (context.Context, error) {
 	schemaName := "ta_" + strings.ToLower(rand.Text())
 	schemaName = fmt.Sprintf("%.*s", NameLen, schemaName)
@@ -136,8 +140,8 @@ var (
 	dbTestMu        sync.Mutex
 	dbTestTemplated = map[string]bool{}
 
-	// dbTestCloneMu serialises CREATE DATABASE … TEMPLATE within a process.
-	// PostgreSQL serialises CREATE DATABASE globally on the server anyway, so
+	// dbTestCloneMu serializes CREATE DATABASE … TEMPLATE within a process.
+	// PostgreSQL serializes CREATE DATABASE globally on the server anyway, so
 	// firing N parallel clones only produces N contending statements and a
 	// retry storm; taking them one at a time client-side matches what the
 	// server does regardless and removes the contention entirely. The bounded
@@ -215,7 +219,7 @@ func RunDBTest(t *testing.T, config Config, migrations fs.FS, callback Transacti
 }
 
 // dbTestEnsureTemplate returns the name of a migrated template database for the
-// given migration set, creating and migrating it on first use. It serialises
+// given migration set, creating and migrating it on first use. It serializes
 // in-process callers on dbTestMu so the migrations run exactly once per
 // process; cross-process duplication is prevented inside dbTestCreateTemplate.
 func dbTestEnsureTemplate(ctx context.Context, options []pgdriver.Option, migrations fs.FS) (string, error) {
@@ -363,7 +367,7 @@ func dbTestCreateInstance(ctx context.Context, maintenance *bun.DB, instance, te
 		dbTestQuoteIdent(instance), dbTestQuoteIdent(template),
 	)
 
-	// Serialise clones in-process: PostgreSQL serialises CREATE DATABASE
+	// Serialize clones in-process: PostgreSQL serializes CREATE DATABASE
 	// globally anyway, so taking them one at a time here matches the server
 	// and leaves the retry below to handle only cross-process contention.
 	dbTestCloneMu.Lock()
@@ -469,7 +473,7 @@ func dbTestTemplateName(migrations fs.FS) (string, error) {
 }
 
 // dbTestAdvisoryKey maps a database name to the int64 key used with
-// pg_advisory_lock, so concurrent test binaries serialise template creation on
+// pg_advisory_lock, so concurrent test binaries serialize template creation on
 // the same value.
 func dbTestAdvisoryKey(name string) int64 {
 	sum := sha256.Sum256([]byte(name))

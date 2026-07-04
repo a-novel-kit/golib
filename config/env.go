@@ -1,3 +1,5 @@
+// Package config reads service configuration from environment variables, mapping raw strings to
+// native Go types through composable parser functions.
 package config
 
 import (
@@ -8,8 +10,8 @@ import (
 	"time"
 )
 
-// LoadEnv cast an environment variable to a native Go type, using the provided Parser function.
-// If parsing fails, the fallback value is returned.
+// LoadEnv parses the raw environment value into T using parser, returning fallback when the value
+// is empty or the parser reports an error.
 func LoadEnv[T any](value string, fallback T, parser func(string) (T, error)) T {
 	if value == "" {
 		return fallback
@@ -27,33 +29,31 @@ func LoadEnv[T any](value string, fallback T, parser func(string) (T, error)) T 
 // The parser accepts a sub-parser to define the type of T.
 func SliceParser[T any](parser func(string) (T, error)) func(string) ([]T, error) {
 	return func(value string) ([]T, error) {
-		// To force an empty slice if the value is empty.
+		// The literal "[]" selects an empty result, overriding any fallback.
 		if value == "[]" {
 			return nil, nil
 		}
 
-		// Split source on commas.
 		parts := strings.Split(value, ",")
 
-		// Parse each part using the provided parser.
 		parsedValues := make([]T, 0, len(parts))
 
 		for _, part := range parts {
 			trimmedPart := strings.TrimSpace(part)
 			if trimmedPart == "" {
-				continue // Skip empty parts.
+				continue
 			}
 
 			parsedValue, err := parser(trimmedPart)
 			if err != nil {
-				// If any parsing fails, deem the whole slice invalid and return the fallback.
+				// One bad element invalidates the whole slice.
 				return nil, err
 			}
 
 			parsedValues = append(parsedValues, parsedValue)
 		}
 
-		// If no parts were parsed, return the fallback.
+		// A non-empty value that resolves to no elements is treated as invalid.
 		if len(parsedValues) == 0 {
 			return nil, fmt.Errorf(`value "%s" is empty`, value)
 		}
@@ -67,6 +67,7 @@ func StringParser(value string) (string, error) {
 	return value, nil
 }
 
+// EnumParser wraps another parser and rejects any parsed value absent from the allow list.
 func EnumParser[T comparable](parser func(string) (T, error), allow ...T) func(string) (T, error) {
 	return func(value string) (T, error) {
 		raw, err := parser(value)

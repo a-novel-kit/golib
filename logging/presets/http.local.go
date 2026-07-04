@@ -14,6 +14,9 @@ import (
 
 var _ logging.HTTPConfig = (*HTTPLocal)(nil)
 
+// HTTPLocal implements [logging.HTTPConfig] for local development, printing a
+// one-line, color-coded summary of each request to the terminal. It logs
+// through BaseLogger.
 type HTTPLocal struct {
 	BaseLogger *LogLocal
 }
@@ -55,16 +58,16 @@ func (logger *HTTPLocal) Logger() func(http.Handler) http.Handler {
 
 			lstyleExtra := lipgloss.NewStyle().Faint(true)
 
-			message := lstyle.Render(fmt.Sprintf("%s %s %s", prefix, r.Method, r.URL.Path)) // Path
-			message += lstyleExtra.Render(fmt.Sprintf(" (%s)", latency))                    // Latency
-			message = lstyleExtra.Render(start.Format(time.StampNano)) + " " + message      // Start time
+			message := lstyle.Render(fmt.Sprintf("%s %s %s", prefix, r.Method, r.URL.Path))
+			message += lstyleExtra.Render(fmt.Sprintf(" (%s)", latency))
+			message = lstyleExtra.Render(start.Format(time.StampNano)) + " " + message
 
 			if body != "" {
 				message += lstyle.Render("\n\t" + strings.ReplaceAll(body, "\n", "\n\t"))
 			}
 
-			// Local development only, so mitigated security risk.
-
+			// Dumping the raw response body would leak sensitive data in
+			// production, but this preset only ever runs in local development.
 			_, _ = fmt.Fprint(logger.BaseLogger.Out, strings.TrimSpace(message)+"\n")
 		})
 	}

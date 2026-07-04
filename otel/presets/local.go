@@ -26,15 +26,18 @@ import (
 
 var _ otel.Config = (*Local)(nil)
 
-// Local configures OTEL to log traces & logs to stdout.
+// Local is a Config that writes traces and logs to standard output, for local
+// development.
 type Local struct {
+	// FlushTimeout bounds how long Flush waits for buffered data to drain; zero
+	// waits indefinitely.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 
 	tp *sdktrace.TracerProvider
 	lp *sdklog.LoggerProvider
 }
 
-// Init just prints a banner for local dev mode.
+// Init prints the local development banner.
 func (config *Local) Init() error {
 	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 	_, _ = fmt.Fprintln(os.Stdout, banner.Render("🚀 OpenTelemetry Local Mode: All traces and logs to stdout"))
