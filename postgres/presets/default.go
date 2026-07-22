@@ -19,6 +19,11 @@ const (
 	// interpolated into the statement.
 	CreateSchema = "CREATE SCHEMA IF NOT EXISTS %s;"
 
+	// dropSchemaStmt is the counterpart for DropSchema. CASCADE takes the objects
+	// created inside the schema with it, so a migrated test schema drops in one
+	// statement.
+	dropSchemaStmt = "DROP SCHEMA IF EXISTS %s CASCADE;"
+
 	// MaxIdleConnsDefault is the number of idle connections a pool keeps when the
 	// caller expresses no preference.
 	//
@@ -78,10 +83,13 @@ func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 		db := bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())
 		db.SetMaxIdleConns(config.maxIdleConns())
 		db.SetMaxOpenConns(config.MaxOpenConns)
-		db.SetMaxOpenConns(config.MaxOpenConns)
 
 		err := postgres.Ping(ctx, db)
 		if err != nil {
+			// The pool is not cached on this path, so nothing else will close it. Its
+			// idle connections would otherwise outlive the failed call.
+			_ = db.Close()
+
 			return nil, fmt.Errorf("ping database: %w", err)
 		}
 
@@ -127,12 +135,48 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 
 	err = postgres.Ping(ctx, db)
 	if err != nil {
+		// Not yet cached in config.schemas, so this call owns the only reference.
+		_ = db.Close()
+
 		return nil, fmt.Errorf("ping database schema %s: %w", schema, err)
 	}
 
 	config.schemas[schema] = db
 
 	return db, nil
+}
+
+// DropSchema removes a schema created through DBSchema and releases the pool cached for
+// it. It is a test-support operation — production schemas are not dropped — and pairs
+// with the throwaway schema RunIsolatedTransactionalTest stands up.
+//
+// Without it, a randomly named schema and its pool are both kept forever: the schema
+// accumulates in the database, and the pool holds idle connections against a schema
+// nothing will query again.
+func (config *Default) DropSchema(ctx context.Context, schema string) error {
+	config.mu.Lock()
+
+	if pool, exists := config.schemas[schema]; exists {
+		// Close before dropping, so no session is left holding the schema in its
+		// search_path.
+		_ = pool.Close()
+
+		delete(config.schemas, schema)
+	}
+
+	config.mu.Unlock()
+
+	db, err := config.DB(ctx)
+	if err != nil {
+		return fmt.Errorf("get main db: %w", err)
+	}
+
+	_, err = db.NewRaw(fmt.Sprintf(dropSchemaStmt, schema)).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("drop schema %s: %w", schema, err)
+	}
+
+	return nil
 }
 
 // Options returns a copy of the driver options the config was built with.

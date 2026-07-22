@@ -2,6 +2,7 @@ package otelpresets
 
 import (
 	"context"
+	stdlog "log"
 	"net/http"
 	"os"
 	"time"
@@ -114,12 +115,21 @@ func (config *Sentry) Flush() {
 		defer cancel()
 	}
 
+	// A failed drain drops whatever spans or logs were still buffered. On this
+	// backend that is the production telemetry, and dropping it silently is what the
+	// local and gcloud presets already log against.
 	if config.tp != nil {
-		_ = config.tp.Shutdown(ctx)
+		err := config.tp.Shutdown(ctx)
+		if err != nil {
+			stdlog.Printf("failed to shutdown tracer provider: %v\n", err)
+		}
 	}
 
 	if config.lp != nil {
-		_ = config.lp.Shutdown(ctx)
+		err := config.lp.Shutdown(ctx)
+		if err != nil {
+			stdlog.Printf("failed to shutdown logger provider: %v\n", err)
+		}
 	}
 
 	sentry.Flush(config.FlushTimeout)
