@@ -45,9 +45,11 @@ type Default struct {
 	// unlimited, matching database/sql.
 	//
 	// No default: the right number depends on how many replicas share the database,
-	// which a library cannot know. It lives here rather than being set on the pool
-	// afterwards because the handle is cached — setting it late applies it to
-	// nothing, and nothing reports that.
+	// which a library cannot know.
+	//
+	// The limit applies as a pool opens. Setting it on the handle afterwards stops
+	// working once anything has taken a connection, because the handle is cached;
+	// past that point it applies to nothing and reports nothing.
 	MaxOpenConns int
 
 	// Cached connection to the primary database, opened on first use.
