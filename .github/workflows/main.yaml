@@ -20,7 +20,7 @@ jobs:
       - name: go generate
         shell: bash
         run: go generate ./...
-      - uses: a-novel-kit/workflows/generic-actions/check-changes@v1.20.3
+      - uses: a-novel-kit/workflows/generic-actions/check-changes@v1.22.0
         with:
           fail_message: go generate definitions are not up-to-date, please run 'go generate ./...' and commit the changes
 
@@ -30,7 +30,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: a-novel-kit/workflows/go-actions/lint-go@v1.20.3
+      - uses: a-novel-kit/workflows/go-actions/lint-go@v1.22.0
 
   lint-proto:
     runs-on: ubuntu-latest
@@ -45,7 +45,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: a-novel-kit/workflows/node-actions/lint-node@v1.20.3
+      - uses: a-novel-kit/workflows/node-actions/lint-node@v1.22.0
         with:
           # `lint` is now the local umbrella (go + proto + prettier); the
           # node CI runner has no Go/buf toolchain, so it runs the node-only
@@ -83,7 +83,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: a-novel-kit/workflows/go-actions/test-go@v1.20.3
+      - uses: a-novel-kit/workflows/go-actions/test-go@v1.22.0
         with:
           modfile: gotestsum.mod
 
@@ -94,5 +94,5 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: a-novel-kit/workflows/go-actions/go-report-card@v1.20.3
+      - uses: a-novel-kit/workflows/go-actions/go-report-card@v1.22.0
         if: github.ref == 'refs/heads/master' && success()
