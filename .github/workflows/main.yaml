@@ -60,6 +60,28 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # The postgres package wraps a real database, so its tests need one. Without
+    # this the package cannot be tested at all, which is how a transaction
+    # helper that never opened a transaction survived here.
+    env:
+      POSTGRES_DSN: "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        # The job starts as soon as the container is up, which is earlier than
+        # the server accepts connections. Without the health gate the first test
+        # races the database and fails as a flake nobody can reproduce.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: a-novel-kit/workflows/go-actions/test-go@v1.20.0
         with:
