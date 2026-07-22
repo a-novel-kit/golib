@@ -7,13 +7,13 @@
     "format": "pnpm format:go && pnpm format:proto && pnpm format:prettier",
     "format:go": "go mod tidy && go tool -modfile=golangci-lint.mod golangci-lint run ./... --fix",
     "format:prettier": "prettier --write . --config prettier.config.js",
-    "format:proto": "go tool buf format -w && go tool buf dep update",
+    "format:proto": "go tool -modfile=buf.mod buf format -w && go tool -modfile=buf.mod buf dep update",
     "generate": "pnpm run generate:go",
     "generate:go": "go generate ./...",
     "lint": "pnpm lint:go && pnpm lint:proto && pnpm lint:prettier",
     "lint:go": "go tool -modfile=golangci-lint.mod golangci-lint run ./...",
     "lint:prettier": "prettier --check . --config prettier.config.js",
-    "lint:proto": "go tool buf lint",
+    "lint:proto": "go tool -modfile=buf.mod buf lint",
     "publish:patch": "pnpm version patch && git push --follow-tags"
   },
   "devDependencies": {
