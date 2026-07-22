@@ -39,5 +39,14 @@ func (logger *LogLocal) log(level LogLevel, msg string, fields ...any) {
 		lstyle = lstyle.Foreground(LipColorError)
 	}
 
-	_, _ = lipgloss.Fprint(logger.Out, lstyle.Render(fmt.Sprintf(msg, fields...))+"\n")
+	// With no operands there is nothing to format, and msg goes out as written. Running it
+	// through Sprintf would rewrite any % it contains — an error text reading "50% done"
+	// becomes "50%!(NOVERB)", losing the detail at the point the log exists to carry it.
+	// httpf.HandleError reaches here with the error text and no fields.
+	rendered := msg
+	if len(fields) > 0 {
+		rendered = fmt.Sprintf(msg, fields...)
+	}
+
+	_, _ = lipgloss.Fprint(logger.Out, lstyle.Render(rendered)+"\n")
 }
