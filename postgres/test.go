@@ -39,11 +39,13 @@ func NewContextTest(ctx context.Context, config Config) (context.Context, error)
 	return context.WithValue(ctx, ContextKey{}, db), nil
 }
 
-// RunIsolatedTransactionalTest runs test in a temporary throwaway schema. This allows for operations that cannot
-// be performed concurrently in a transactional context, such as refreshing materialized views.
+// RunIsolatedTransactionalTest runs callback in a throwaway schema, which admits
+// operations a transaction cannot host concurrently, such as refreshing a
+// materialized view.
 //
-// This method uses a separate schema, rather than a new database, so existing extensions are still available. It
-// still requires to rerun the whole migration process, so unless needed, RunTransactionalTest should be preferred.
+// The schema lives in the existing database, so its extensions remain available.
+// Each call reruns the whole migration set, which makes RunTransactionalTest the
+// cheaper default.
 func RunIsolatedTransactionalTest(t *testing.T, config Config, migrations fs.FS, callback TransactionalTestFunc) {
 	t.Helper()
 
@@ -59,9 +61,9 @@ func RunIsolatedTransactionalTest(t *testing.T, config Config, migrations fs.FS,
 	callback(ctx, t)
 }
 
-// RunTransactionalTest creates a special transactional context for testing. This context uses the PassthroughTx
-// implementation, that allows for concurrent tests with the same database connection. It discards sub-transactions
-// to prevent deadlocks.
+// RunTransactionalTest runs callback inside a transaction that is rolled back on
+// cleanup. The context carries a PassthroughTx, which discards sub-transactions
+// so concurrent calls sharing the connection cannot deadlock.
 func RunTransactionalTest(t *testing.T, config Config, callback TransactionalTestFunc) {
 	t.Helper()
 
@@ -85,9 +87,8 @@ func RunTransactionalTest(t *testing.T, config Config, callback TransactionalTes
 const (
 	// dbTestTemplatePrefix names the migrated template database that every
 	// per-test database is cloned from. Its suffix is a content hash of the
-	// migration set (see dbTestTemplateName), so changing a migration yields a
-	// brand-new template name automatically and a stale template from older
-	// code can never serve an outdated schema to a newer test binary.
+	// migration set (see dbTestTemplateName), so a migration change yields a new
+	// template name and no test binary can be served an outdated schema.
 	dbTestTemplatePrefix = "gotpl_"
 
 	// dbTestInstancePrefix names a throwaway per-test database. Exactly one is
@@ -95,17 +96,16 @@ const (
 	dbTestInstancePrefix = "gotest_"
 
 	// dbTestMaintenanceDatabase is the database the maintenance connection
-	// targets to issue CREATE DATABASE / DROP DATABASE. Neither statement can
-	// run while connected to the database being created, nor (for CREATE …
-	// TEMPLATE) while any session is connected to the template source, so the
-	// maintenance pool deliberately points at an unrelated database.
+	// targets to issue CREATE DATABASE / DROP DATABASE. Neither statement can run
+	// from the database being created, and CREATE … TEMPLATE needs the template
+	// source free of sessions, so the maintenance pool points at an unrelated
+	// database.
 	dbTestMaintenanceDatabase = "postgres"
 
-	// dbTestCreateAttempts bounds the retry of CREATE DATABASE … TEMPLATE.
-	// Cloning a template only fails transiently — a previous clone's
-	// connections taking a moment to drain shows up as SQLSTATE 55006
-	// (object_in_use); a short bounded retry absorbs that without masking a
-	// real configuration error, which fails every attempt identically.
+	// dbTestCreateAttempts bounds the retry of CREATE DATABASE … TEMPLATE. A
+	// previous clone's connections taking a moment to drain surfaces as SQLSTATE
+	// 55006 (object_in_use), which a short bounded retry absorbs; a real
+	// configuration error fails every attempt alike.
 	dbTestCreateAttempts = 5
 	// dbTestCreateBackoff is the wait between CREATE DATABASE … TEMPLATE
 	// attempts.
@@ -114,48 +114,39 @@ const (
 
 // dbTestOptionsConfig is the capability RunDBTest needs on top of the Config
 // interface: read access to the raw driver options, so it can derive sibling
-// connectors that target a different database (the maintenance database, the
-// template, and the per-test clone) than the one the preset was built for.
-// postgrespresets.Default satisfies this; a Config that does not is rejected
-// with a clear failure rather than a panic deep in the driver.
+// connectors targeting another database in the same cluster, such as the
+// per-test clone. postgrespresets.Default satisfies it.
 type dbTestOptionsConfig interface {
 	Options() []pgdriver.Option
 }
 
 // dbTestTemplated guards one-time template creation within a process. The first
 // RunDBTest call for a given (migrations, target-cluster) pair runs the
-// migrations (every other call blocks on dbTestMu meanwhile); subsequent calls
-// find it flagged and return immediately, so only the first test pays the
-// migration cost and the rest clone in parallel. The key includes the resolved
-// connection identity (see dbTestConnKey), not just the migration hash, so the
-// same migrations applied against two different clusters/roles in one process
-// do not alias onto a template that exists only in the first cluster.
+// migrations while every other call blocks on dbTestMu, so only the first test
+// pays the migration cost and the rest clone in parallel. The key includes the
+// resolved connection identity (see dbTestConnKey), so the same migrations
+// applied against two clusters in one process do not alias onto a template that
+// exists in only one of them.
 //
-// Cross-process safety (several `go test` package binaries sharing one
-// Postgres) is handled separately by the Postgres advisory lock in
-// dbTestCreateTemplate; this map only deduplicates work inside a single binary.
-// A failed creation is intentionally not recorded, so a transient failure is
-// retried by the next test rather than poisoning the whole package run.
+// Cross-process safety comes from the Postgres advisory lock in
+// dbTestCreateTemplate; this map deduplicates work inside a single binary. A
+// failed creation is not recorded, so the next test retries it.
 var (
 	dbTestMu        sync.Mutex
 	dbTestTemplated = map[string]bool{}
 
 	// dbTestCloneMu serializes CREATE DATABASE … TEMPLATE within a process.
-	// PostgreSQL serializes CREATE DATABASE globally on the server anyway, so
-	// firing N parallel clones only produces N contending statements and a
-	// retry storm; taking them one at a time client-side matches what the
-	// server does regardless and removes the contention entirely. The bounded
-	// retry in dbTestCreateInstance then only has to absorb *cross-process*
-	// contention, not in-process self-contention.
+	// PostgreSQL serializes CREATE DATABASE globally, so parallel clones only
+	// produce contending statements and a retry storm. Taking them one at a time
+	// leaves the bounded retry in dbTestCreateInstance to absorb cross-process
+	// contention alone.
 	dbTestCloneMu sync.Mutex
 )
 
 // RunDBTest runs callback against its own freshly created PostgreSQL database,
-// cloned from a migrated template via `CREATE DATABASE … TEMPLATE`. Unlike
-// RunTransactionalTest (shared schema, rolled-back transaction — correct only
-// when tests run serially) every RunDBTest call is physically isolated, so the
-// caller may freely mark the test and its sub-tests t.Parallel() even when they
-// reuse the same fixture keys.
+// cloned from a migrated template via `CREATE DATABASE … TEMPLATE`. Every call
+// is physically isolated, so the caller may mark the test and its sub-tests
+// t.Parallel() even when they reuse the same fixture keys.
 //
 // The cost model is "migrate once, clone many": the migration set is applied a
 // single time into a template database whose name is a hash of the migrations,
@@ -186,14 +177,13 @@ func RunDBTest(t *testing.T, config Config, migrations fs.FS, callback Transacti
 	err = dbTestCreateInstance(t.Context(), maintenance, instance, template)
 	require.NoError(t, err)
 
-	// Register the drop the instant the database exists — before the
-	// maintenance pool is closed — so a Close error (which fails the test via
-	// the require below) cannot strand the per-test database. It runs last
-	// (t.Cleanup is LIFO): the per-test pool opened further down is closed
-	// first, then the database is dropped.
+	// Register the drop the instant the database exists, before the maintenance
+	// pool is closed, so a Close error (which fails the test via the require
+	// below) cannot strand the per-test database. t.Cleanup is LIFO, so the
+	// per-test pool opened further down is closed first, then the database is
+	// dropped.
 	t.Cleanup(func() {
-		// t.Context() is already cancelled by the time cleanups run, so use a
-		// fresh background context for teardown.
+		// t.Context() is already canceled by the time cleanups run.
 		ctx := context.Background()
 
 		cleanup, cleanupErr := dbTestOpen(ctx, options, dbTestMaintenanceDatabase)
@@ -228,9 +218,9 @@ func dbTestEnsureTemplate(ctx context.Context, options []pgdriver.Option, migrat
 		return "", err
 	}
 
-	// Key by template name *and* resolved connection identity: the same
-	// migrations against a different cluster/role is a different template that
-	// this process has not necessarily created yet.
+	// Key by template name and resolved connection identity: the same migrations
+	// against a different cluster or role is a different template, which this
+	// process has not necessarily created yet.
 	cacheKey := name + "\x00" + dbTestConnKey(options)
 
 	dbTestMu.Lock()
@@ -250,10 +240,10 @@ func dbTestEnsureTemplate(ctx context.Context, options []pgdriver.Option, migrat
 	return name, nil
 }
 
-// dbTestConnKey returns a stable identifier for the Postgres target that
-// options resolve to (address, user, base database). It keys the in-process
-// template cache so the same migrations applied against two different clusters
-// in one process are not aliased onto a single cache entry.
+// dbTestConnKey returns a stable identifier for the Postgres target that options
+// resolve to (address, user, base database). It keys the in-process template
+// cache, so the same migrations applied against two clusters in one process get
+// two cache entries.
 func dbTestConnKey(options []pgdriver.Option) string {
 	config := pgdriver.NewConnector(options...).Config()
 
@@ -267,9 +257,8 @@ func dbTestConnKey(options []pgdriver.Option) string {
 // scoped to the maintenance connection (closing the connection releases it even
 // if the explicit unlock is skipped on an error path).
 //
-// Crucially, the migration pool is fully closed before returning: a database
-// can only serve as a CREATE … TEMPLATE source while no session is connected to
-// it, so any lingering connection here would break every clone.
+// The migration pool is fully closed before returning. A database can only serve as a
+// CREATE … TEMPLATE source while no session is connected to it.
 func dbTestCreateTemplate(
 	ctx context.Context, options []pgdriver.Option, name string, migrations fs.FS,
 ) error {
@@ -300,9 +289,9 @@ func dbTestCreateTemplate(
 		return fmt.Errorf("probe template database: %w", err)
 	}
 
-	// A matching name means a previous run (this binary or another) already
-	// migrated it; the content hash in the name guarantees the schema matches
-	// the current migration set, so it is safe to reuse as-is.
+	// A matching name means a previous run already migrated it, and the content
+	// hash in the name guarantees the schema matches the current migration set,
+	// so it is safe to reuse as-is.
 	if exists {
 		return nil
 	}
@@ -312,10 +301,10 @@ func dbTestCreateTemplate(
 		return fmt.Errorf("create template database: %w", err)
 	}
 
-	// The template database now exists but is empty/unmigrated. Any failure
-	// from here must drop it: otherwise the existence probe in a later call
-	// (this binary or another) would adopt the empty/partial database as a
-	// valid template and run every test against a broken schema.
+	// The template database now exists but is unmigrated, so any failure from
+	// here must drop it; otherwise the existence probe in a later call adopts the
+	// partial database as a valid template and every test runs against a broken
+	// schema.
 	templateDB, err := dbTestOpen(ctx, options, name)
 	if err != nil {
 		_ = dbTestDropDatabase(ctx, maintenance, name)
@@ -331,9 +320,9 @@ func dbTestCreateTemplate(
 		return fmt.Errorf("migrate template database: %w", err)
 	}
 
-	// Must succeed: an open connection to the template makes every subsequent
-	// CREATE … TEMPLATE fail with "source database is being accessed". A
-	// half-open template is unusable as a clone source, so drop it too.
+	// An open connection to the template makes every subsequent CREATE … TEMPLATE
+	// fail with "source database is being accessed", so a template whose
+	// connection cannot be closed is dropped.
 	err = templateDB.Close()
 	if err != nil {
 		_ = dbTestDropDatabase(ctx, maintenance, name)
@@ -367,9 +356,6 @@ func dbTestCreateInstance(ctx context.Context, maintenance *bun.DB, instance, te
 		dbTestQuoteIdent(instance), dbTestQuoteIdent(template),
 	)
 
-	// Serialize clones in-process: PostgreSQL serializes CREATE DATABASE
-	// globally anyway, so taking them one at a time here matches the server
-	// and leaves the retry below to handle only cross-process contention.
 	dbTestCloneMu.Lock()
 	defer dbTestCloneMu.Unlock()
 
@@ -394,10 +380,9 @@ func dbTestCreateInstance(ctx context.Context, maintenance *bun.DB, instance, te
 }
 
 // dbTestOpen opens a bun.DB for a single named database, derived from the
-// preset's options by overriding only the database name. The override is a
-// trailing pgdriver.WithDatabase: pgdriver applies options in order, so it wins
-// over whatever database the preset's own options (a DSN, discrete options, …)
-// selected, without this code having to parse them.
+// preset's options by overriding only the database name. pgdriver applies
+// options in order, so a trailing pgdriver.WithDatabase wins over whatever
+// database the preset's own options selected, with no need to parse them.
 func dbTestOpen(ctx context.Context, options []pgdriver.Option, database string) (*bun.DB, error) {
 	options = append(append([]pgdriver.Option{}, options...), pgdriver.WithDatabase(database))
 
@@ -437,23 +422,19 @@ func dbTestTemplateName(migrations fs.FS) (string, error) {
 		fileDigest := sha256.New()
 
 		_, err = io.Copy(fileDigest, file)
-		// Close immediately rather than via defer: defer here would hold every
-		// migration file open until WalkDir finished, risking fd exhaustion on
-		// large OS-backed migration sets.
+		// Closing here keeps one migration file open at a time, however large the
+		// migration set.
 		_ = file.Close()
 
 		if err != nil {
 			return err
 		}
 
-		// Frame each entry unambiguously: a length-prefixed path followed by a
-		// fixed-size (32-byte) content digest. Writing path and content
-		// back-to-back without framing would let a path/content boundary move
-		// (e.g. file "ab"/content "c" vs file "a"/content "bc") produce an
-		// identical byte stream for distinct migration sets, defeating the
-		// "a migration change always yields a fresh template" guarantee.
-		// fs.WalkDir visits entries in lexical order, so the digest is stable
-		// across runs without an explicit sort.
+		// Frame each entry as a length-prefixed path followed by a fixed-size
+		// (32-byte) content digest, so a shifting path/content boundary cannot
+		// give two distinct migration sets the same byte stream. fs.WalkDir
+		// visits entries in lexical order, so the digest is stable across runs
+		// without an explicit sort.
 		var pathLen [8]byte
 
 		binary.BigEndian.PutUint64(pathLen[:], uint64(len(path)))
@@ -482,9 +463,8 @@ func dbTestAdvisoryKey(name string) int64 {
 }
 
 // dbTestQuoteIdent double-quotes a SQL identifier. Database names cannot be
-// passed as query parameters, so they are interpolated; the generated names use
-// a restricted character set, but quoting is kept as defence in depth and to
-// document that these are identifiers, not literals.
+// bound as query parameters, so they are interpolated; the generated names use a
+// restricted character set, and quoting adds defense in depth.
 func dbTestQuoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }

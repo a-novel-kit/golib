@@ -7,22 +7,19 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// PassthroughTx is an extension of bun.Tx that prevents sub contexts from creating new sub-transactions.
+// PassthroughTx extends bun.Tx so that a nested transaction call resolves to the
+// same transaction.
 //
-// Because postgresql does not support nested transactions, bun will create savepoints instead. Unlike
-// top-level transactions, savepoints don't support parallelism (as they are part of the same query).
-//
-// For testing, where the whole application is wrapped in a transaction, this can cause issues where
-// multiple parallel calls to a method will attempt concurrent write on the same transaction.
-//
-// To get around it, this package provides an alternative bun.IDB implementation, that does not create
-// new transactions.
+// PostgreSQL has no nested transactions, so bun opens a savepoint instead. A
+// savepoint belongs to its parent's query stream and cannot serve parallel
+// callers, which breaks a test suite that wraps the whole application in one
+// transaction and then calls a method from several goroutines.
 type PassthroughTx struct {
 	bun.Tx
 }
 
 // NewPassthroughTx wraps tx so that nested transaction calls resolve to tx
-// itself rather than opening savepoints.
+// itself.
 func NewPassthroughTx(tx bun.Tx) *PassthroughTx {
 	return &PassthroughTx{Tx: tx}
 }

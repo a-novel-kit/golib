@@ -28,8 +28,7 @@ func (handler *echo) UnaryEcho(context.Context, *golibproto.UnaryEchoRequest) (*
 // shutdown.
 //
 // A non-positive healthPing degrades to a tight toggle loop that still
-// honors ctx cancellation. time.NewTicker would panic on a zero or negative
-// duration, so the wait is built around time.After instead.
+// honors ctx cancellation.
 func SetEchoServersContext(ctx context.Context, server *grpc.Server, healthPing time.Duration) {
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(server, healthcheck)

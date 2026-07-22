@@ -42,9 +42,8 @@ func (mailUsers MailUsers) Emails() []string {
 	})
 }
 
-// Sender delivers a rendered mail template to a set of recipients. Callers
-// depend on this interface rather than a concrete type so the delivery backend
-// can be swapped per environment: a real SMTP server in production, a writer in
+// Sender delivers a rendered mail template to a set of recipients. The delivery
+// backend swaps per environment: a real SMTP server in production, a writer in
 // local development, an in-memory recorder in tests.
 type Sender interface {
 	// SendMail renders template tName from t with data and delivers the result

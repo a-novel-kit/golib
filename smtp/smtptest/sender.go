@@ -12,9 +12,8 @@ import (
 	"github.com/a-novel-kit/golib/smtp"
 )
 
-// ErrPing is returned by Sender.Ping. Production code that pings a test
-// sender almost always indicates a misconfiguration where the real SMTP
-// sender was meant to be wired in.
+// ErrPing is returned by Sender.Ping. Reaching it means this test sender is
+// wired where the real SMTP sender belongs.
 var ErrPing = errors.New("pinging smtptest sender: make sure this is not a misconfiguration")
 
 // Mail is the captured form of a single SendMail call.
@@ -35,8 +34,7 @@ func NewSender() *Sender {
 	return &Sender{}
 }
 
-// SendMail satisfies smtp.Sender by appending a captured Mail entry rather
-// than reaching any network.
+// SendMail satisfies smtp.Sender by appending a captured Mail entry.
 func (sender *Sender) SendMail(to smtp.MailUsers, _ *template.Template, _ string, data any) error {
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
@@ -49,8 +47,7 @@ func (sender *Sender) SendMail(to smtp.MailUsers, _ *template.Template, _ string
 	return nil
 }
 
-// Ping always returns ErrPing — production code should never end up calling
-// it.
+// Ping always returns ErrPing.
 func (sender *Sender) Ping() error {
 	return ErrPing
 }
@@ -58,11 +55,10 @@ func (sender *Sender) Ping() error {
 // FindMail returns the first captured Mail for which cmp returns true, or
 // (nil, false) if none matched.
 //
-// cmp runs after the lock is released, against a snapshot of the captured
-// pointers: this keeps a slow comparator from blocking concurrent SendMail
-// callers, and a re-entrant one (that calls back into SendMail) from
-// deadlocking. The returned *Mail aliases the captured entry — callers must
-// not mutate it.
+// cmp runs against a snapshot of the captured pointers, after the lock is
+// released, so a slow comparator cannot block concurrent SendMail callers and a
+// re-entrant one cannot deadlock. The returned *Mail aliases the captured entry;
+// callers must not mutate it.
 func (sender *Sender) FindMail(cmp func(*Mail) bool) (*Mail, bool) {
 	sender.mu.RLock()
 	snapshot := append([]*Mail(nil), sender.mails...)

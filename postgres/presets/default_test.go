@@ -14,8 +14,8 @@ import (
 )
 
 // concurrentQueries is how many statements the tests run at once. It sits above
-// database/sql's own idle default of two and below the preset's, so the number of
-// connections left idle afterwards distinguishes the two.
+// database/sql's own idle default of two and below the preset's, so the number
+// of connections left idle afterwards tells the two apart.
 const concurrentQueries = 5
 
 func testConfig(t *testing.T) *postgrespresets.Default {
@@ -45,11 +45,11 @@ func holdOpen(ctx context.Context, t *testing.T, config *postgrespresets.Default
 		go func() {
 			defer wg.Done()
 
-			// A sleep rather than a trivial select: the statements have to overlap, and
-			// a fast query would be served by one connection handed round.
+			// The statements have to overlap. pg_sleep holds each connection long enough
+			// for the pool to open a second.
 			_, queryErr := db.NewRaw("SELECT pg_sleep(0.2);").Exec(ctx)
-			// assert, not require: require calls FailNow, which only works on the
-			// goroutine running the test.
+			// require calls FailNow, which only works on the goroutine running the
+			// test.
 			assert.NoError(t, queryErr)
 		}()
 	}
@@ -57,10 +57,8 @@ func holdOpen(ctx context.Context, t *testing.T, config *postgrespresets.Default
 	wg.Wait()
 }
 
-// TestDefaultKeepsIdleConnections is the regression test for the pool's idle
-// default. It fails against a preset that leaves database/sql's own default in
-// place, because only two of the five connections would survive being released —
-// and the other three would be reopened, handshake and all, by the next caller.
+// TestDefaultKeepsIdleConnections pins the pool's idle default. All five connections
+// survive being released. The next caller reuses them without a fresh handshake.
 func TestDefaultKeepsIdleConnections(t *testing.T) {
 	t.Parallel()
 
@@ -76,8 +74,8 @@ func TestDefaultKeepsIdleConnections(t *testing.T) {
 		"every released connection should have been kept, not closed and reopened later")
 }
 
-// TestDefaultHonoursTheOverride covers the escape hatch: a deployment that wants a
-// different number gets it, and the default only applies when none was expressed.
+// TestDefaultHonoursTheOverride covers the escape hatch: a deployment that sets
+// its own number gets it, and the default applies only when none was expressed.
 func TestDefaultHonoursTheOverride(t *testing.T) {
 	t.Parallel()
 
@@ -94,8 +92,7 @@ func TestDefaultHonoursTheOverride(t *testing.T) {
 }
 
 // TestDefaultNegativeOverrideKeepsNone pins the one value that is not "unset": a
-// negative override means keep nothing, matching database/sql, rather than falling
-// back to the default.
+// negative override keeps nothing, matching database/sql.
 func TestDefaultNegativeOverrideKeepsNone(t *testing.T) {
 	t.Parallel()
 

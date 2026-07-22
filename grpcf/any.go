@@ -10,10 +10,8 @@ import (
 
 // MarshalJSONAsAny serializes an arbitrary Go value to JSON and packs the
 // resulting bytes into a google.protobuf.Any whose contained message type is
-// google.protobuf.BytesValue. Use it only when an RPC field is typed as Any
-// and you actually want to carry an opaque JSON payload — Any is normally
-// reserved for genuine protobuf messages, so this is a deliberate escape
-// hatch, not the default way to transit data.
+// google.protobuf.BytesValue. Use it where an RPC field typed as Any must carry
+// an opaque JSON payload; Any otherwise holds genuine protobuf messages.
 //
 // The inverse is [UnmarshalJSONFromAny].
 func MarshalJSONAsAny(v any) (*anypb.Any, error) {

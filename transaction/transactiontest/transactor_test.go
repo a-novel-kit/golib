@@ -41,8 +41,7 @@ func TestTransactorPropagatesTheCallbackError(t *testing.T) {
 }
 
 // TestFailingTransactorSkipsTheCallback covers the property the failing double
-// exists for: an operation that reports success when its unit of work never
-// started is the bug it reproduces, so the callback must not run.
+// exists for: when the transaction cannot be opened, the callback must not run.
 func TestFailingTransactorSkipsTheCallback(t *testing.T) {
 	t.Parallel()
 
@@ -71,8 +70,8 @@ func TestTransactorCountsNestedCalls(t *testing.T) {
 	require.Equal(t, 2, transactor.Calls())
 }
 
-// TestTransactorSatisfiesTheInterface fails to compile rather than fails to
-// run if the double drifts from the contract it stands in for.
+// TestTransactorSatisfiesTheInterface fails to compile if the double drifts from
+// the contract it stands in for.
 func TestTransactorSatisfiesTheInterface(t *testing.T) {
 	t.Parallel()
 

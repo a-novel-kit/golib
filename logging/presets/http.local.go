@@ -66,8 +66,8 @@ func (logger *HTTPLocal) Logger() func(http.Handler) http.Handler {
 				message += lstyle.Render("\n\t" + strings.ReplaceAll(body, "\n", "\n\t"))
 			}
 
-			// Dumping the raw response body would leak sensitive data in
-			// production, but this preset only ever runs in local development.
+			// This preset only ever runs in local development, where dumping the
+			// raw response body is safe.
 			_, _ = fmt.Fprint(logger.BaseLogger.Out, strings.TrimSpace(message)+"\n")
 		})
 	}

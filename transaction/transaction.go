@@ -1,11 +1,9 @@
 // Package transaction declares the scope a unit of work runs in, independently
 // of what stores it.
 //
-// It exists as its own package, rather than alongside a driver, so that a
-// caller can name what it needs without gaining access to a database. Its
-// entire dependency list is context: nothing here can reach a connection, a
-// pool, or a driver symbol, which is what makes it safe to import from a layer
-// that is supposed to stay free of persistence detail.
+// Its entire dependency list is context: nothing here reaches a connection, a
+// pool, or a driver symbol, so a layer that must stay free of persistence detail
+// can import it and still name the scope it needs.
 //
 // Implementations live with their driver — see
 // [github.com/a-novel-kit/golib/postgres.Transactor] for the PostgreSQL one.
@@ -17,21 +15,15 @@ import "context"
 // the context it hands the callback either commits together or is rolled back
 // together.
 //
-// The callback receives no transaction handle. That is deliberate, and it is
-// the reason this interface exists rather than callers driving a driver
-// directly: a handle callers are expected to thread through every nested call
-// is a handle they can forget, and forgetting it fails silently — the calls run
-// outside the transaction, the block commits, and the tests pass. With nothing
-// to thread, the mistake cannot be written.
+// The callback receives no transaction handle: the context it is given is the
+// only way to reach the transaction, so no call can escape it unnoticed.
 //
-// Two behaviours are part of the contract, and an implementation that does not
-// honour them does not satisfy this interface.
+// Two behaviors are part of the contract, and an implementation must honor both.
 //
-// A nested WithinTx joins the transaction already in progress rather than
-// opening a nested one, so a rollback anywhere discards the whole outermost
-// unit of work. An inner operation that treats a failure as locally
-// recoverable is therefore discarding its caller's work too. Nesting is legal,
-// but it should be a deliberate choice rather than an accident of composition.
+// A nested WithinTx joins the transaction already in progress, so a rollback
+// anywhere discards the whole outermost unit of work. An inner operation that
+// treats a failure as locally recoverable is therefore discarding its caller's
+// work too, which makes nesting a deliberate choice.
 //
 // Nothing that talks to an external service may run inside the callback. An
 // open transaction holds a pooled connection for as long as it lasts, and

@@ -15,24 +15,19 @@ import (
 
 const (
 	// CreateSchema is the format string for the statement that creates a schema.
-	// Schema names cannot be passed as query parameters, so the name is
-	// interpolated into the statement rather than bound.
+	// Schema names cannot be bound as query parameters, so the name is
+	// interpolated into the statement.
 	CreateSchema = "CREATE SCHEMA IF NOT EXISTS %s;"
 
 	// MaxIdleConnsDefault is the number of idle connections a pool keeps when the
 	// caller expresses no preference.
 	//
-	// It exists because database/sql keeps two, and two is nobody's intended
-	// answer: past the second concurrent query every call opens a fresh
-	// connection — a TCP round trip, a TLS handshake and a PostgreSQL
-	// authentication exchange — then discards it on release. Nothing reports that.
-	// It is simply a latency floor under every query, in every service, that no
-	// error or log or test attributes to anything.
-	//
-	// Idle connections are cheap: a file descriptor here and a backend on the
-	// server. The handshake they save is not. Ten is deliberately modest — it must
-	// stay well under a stock max_connections of 100 once multiplied by however
-	// many replicas a service runs.
+	// database/sql keeps two, so past the second concurrent query every call opens
+	// a fresh connection — a TCP round trip, a TLS handshake and a PostgreSQL
+	// authentication exchange — and discards it on release, putting a silent
+	// latency floor under every query. Idle connections cost a file descriptor
+	// here and a backend on the server; ten stays well under a stock
+	// max_connections of 100 once multiplied by a service's replica count.
 	MaxIdleConnsDefault = 10
 )
 
@@ -44,10 +39,6 @@ type Default struct {
 
 	// MaxIdleConns overrides how many idle connections the pools keep. Zero means
 	// MaxIdleConnsDefault; a negative value keeps none, matching database/sql.
-	//
-	// The maximum number of OPEN connections is deliberately not here. That one
-	// depends on how many replicas a deployment runs against one database, which
-	// is a service's decision, not a library's.
 	MaxIdleConns int
 
 	// Cached connection to the primary database, opened on first use.
@@ -87,11 +78,9 @@ func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 	return config.db, nil
 }
 
-// DBSchema returns a database connection for the specified schema. It smartly caches and reuses connections for
-// any given schema name.
-//
-// If the `create` parameter is true, and no connection exists for the specified schema, it will create the schema
-// in the database before returning the connection.
+// DBSchema returns a database connection scoped to the named schema, caching one
+// connection per schema name. When create is true and the schema has no cached
+// connection yet, the schema is created before the connection is returned.
 func (config *Default) DBSchema(ctx context.Context, schema string, create bool) (*bun.DB, error) {
 	db, err := config.DB(ctx)
 	if err != nil {

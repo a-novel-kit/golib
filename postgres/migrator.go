@@ -13,8 +13,8 @@ import (
 )
 
 // ErrNoDbInContext is returned by RunMigrationsContext when the context carries
-// a bun.IDB that is not a full *bun.DB. Migrations need a database handle, not a
-// transaction; [ErrNoIDBInContext] covers the case of no connection at all.
+// a bun.IDB that is not a full *bun.DB, which migrations require.
+// [ErrNoIDBInContext] covers the case of no connection at all.
 var ErrNoDbInContext = errors.New("context does not contain a bun.DB")
 
 // RunMigrations runs all the migrations found in the provided filesystem.

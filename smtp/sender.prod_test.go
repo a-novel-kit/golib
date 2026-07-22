@@ -14,10 +14,8 @@ import (
 	"github.com/a-novel-kit/golib/smtp"
 )
 
-// ProdSender drives the SMTP exchange itself rather than calling net/smtp.SendMail, because
-// SendMail dials internally and so cannot be bounded. That transcription is what these tests cover:
-// the handshake still happens in the right order, and — the reason for the change — a server that
-// accepts a connection and then goes quiet no longer holds the caller forever.
+// These tests cover ProdSender's own SMTP exchange. The handshake happens in the right order, and
+// a server that accepts a connection and then goes quiet releases the caller on the timeout.
 //
 // The fake server is a real listener speaking enough SMTP to complete a transaction, so the client
 // under test is the real net/smtp client on a real socket.
@@ -25,14 +23,13 @@ import (
 // fakeServer is a minimal SMTP server for one connection.
 type fakeServer struct {
 	listener net.Listener
-	// stall makes the server accept the connection and then never write a greeting, which is the
-	// failure mode the timeout exists for: the dial succeeds, so no dial timeout can help.
+	// stall makes the server accept the connection and then never write a greeting. The dial
+	// succeeds, so only a deadline on the connection ends the wait.
 	stall bool
 	// transcript records the commands the client sent, in order.
 	transcript []string
-	// stop releases a stalled handler at cleanup; done reports that serve has returned. Separate
-	// channels on purpose — a stalled handler waiting on the one its own defer closes would
-	// deadlock against the cleanup waiting for it.
+	// stop releases a stalled handler at cleanup; done reports that serve has returned. They are
+	// separate channels: the handler waits on stop and the cleanup waits on done.
 	stop chan struct{}
 	done chan struct{}
 }
@@ -76,8 +73,7 @@ func (s *fakeServer) serve() {
 	defer func() { _ = conn.Close() }()
 
 	if s.stall {
-		// Accept and say nothing. Without a deadline on the connection the client waits here
-		// indefinitely for a greeting that never comes.
+		// Accept and say nothing. The client waits here for a greeting until its deadline fires.
 		<-s.stop
 
 		return
@@ -112,8 +108,8 @@ func (s *fakeServer) serve() {
 
 		switch {
 		case strings.HasPrefix(line, "EHLO"):
-			// AUTH is advertised; STARTTLS deliberately is not, so the client must skip the upgrade
-			// rather than fail. PlainAuth permits plaintext credentials to a loopback server.
+			// AUTH is advertised and STARTTLS is not, so the client skips the upgrade and carries on.
+			// PlainAuth permits plaintext credentials to a loopback server.
 			write("250-fake")
 			write("250 AUTH PLAIN")
 		case strings.HasPrefix(line, "AUTH"):
@@ -157,8 +153,7 @@ func TestProdSenderSendMail(t *testing.T) {
 		Email: "noreply@example.com",
 		// The fake accepts any credential; what matters is that AUTH is attempted at all.
 		Password: "hunter2",
-		// PlainAuth checks this against the server it is talking to, so Domain is the SMTP host
-		// rather than the mail domain — a pre-existing coupling this change does not alter.
+		// PlainAuth checks this against the server it is talking to, so Domain is the SMTP host.
 		Domain: host,
 	}
 
@@ -175,7 +170,7 @@ func TestProdSenderSendMail(t *testing.T) {
 	require.Contains(t, joined, "DATA")
 	require.Contains(t, joined, "QUIT")
 
-	// AUTH before MAIL: the transcription must not start a transaction unauthenticated.
+	// AUTH before MAIL. The transaction starts only once the client is authenticated.
 	authAt := strings.Index(joined, "AUTH")
 	mailAt := strings.Index(joined, "MAIL FROM")
 	require.Less(t, authAt, mailAt, "AUTH must precede MAIL FROM")
@@ -184,8 +179,7 @@ func TestProdSenderSendMail(t *testing.T) {
 func TestProdSenderRefusesServerWithoutAuth(t *testing.T) {
 	t.Parallel()
 
-	// A server advertising no AUTH would previously have had credentials skipped silently; the
-	// send must fail rather than deliver unauthenticated.
+	// A server advertising no AUTH fails the send. Every message goes out authenticated.
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
@@ -241,10 +235,9 @@ func TestProdSenderTimesOutOnStalledServer(t *testing.T) {
 		Timeout: 150 * time.Millisecond,
 	}
 
-	// The connection is accepted, so a dial timeout would not help — only a deadline on the
-	// connection bounds the wait for a greeting that never arrives. Without one this blocks
-	// forever, and the goroutine holding it is invisible: the HTTP request that spawned it has
-	// already returned 202.
+	// The connection is accepted, so the deadline on the connection bounds the wait for a greeting.
+	// The goroutine holding it is invisible: the HTTP request that spawned it has already returned
+	// 202.
 	start := time.Now()
 
 	err := sender.SendMail(
@@ -266,9 +259,8 @@ func TestProdSenderPingTimesOutOnStalledServer(t *testing.T) {
 
 	server := newFakeServer(t, true)
 
-	// Ping backs the readiness probe. Unbounded, the probe that exists to report a broken SMTP
-	// server hangs instead of reporting it — so the one signal an operator would look at is the
-	// one the failure disables.
+	// Ping backs the readiness probe, so it returns within the timeout and reports the outage it
+	// exists to detect.
 	sender := &smtp.ProdSender{
 		Addr:    server.addr(),
 		Email:   "noreply@example.com",
@@ -285,10 +277,10 @@ func TestProdSenderPingTimesOutOnStalledServer(t *testing.T) {
 func TestProdSenderDefaultTimeoutApplies(t *testing.T) {
 	t.Parallel()
 
-	// An unset Timeout must not mean "unbounded" — that is the config every caller forgets.
+	// An unset Timeout selects DefaultTimeout.
 	sender := &smtp.ProdSender{Addr: "192.0.2.1:25", Email: "noreply@example.com"}
 
 	require.Positive(t, smtp.DefaultTimeout)
 
-	_ = sender // the constant is the contract; dialing TEST-NET-1 here would cost DefaultTimeout
+	_ = sender // the constant is the contract; dialing TEST-NET-1 costs DefaultTimeout
 }
