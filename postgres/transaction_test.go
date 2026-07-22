@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/driver/pgdriver"
 
 	"github.com/a-novel-kit/golib/postgres"
@@ -87,31 +86,6 @@ func TestWithinTxRollback(t *testing.T) {
 		require.ErrorIs(t, err, errRollback)
 
 		require.Equal(t, 0, probeCount(ctx, t, id))
-	})
-}
-
-// TestRunInTxDoesNotCoverTheContext pins the deprecated function's behaviour.
-// It asserts the row SURVIVES a rolled-back transaction, which is not a mistake:
-// it documents, in the repository rather than in a review thread, exactly what
-// WithinTx was introduced to fix.
-//
-// It is expected to be deleted with RunInTx, not repaired.
-func TestRunInTxDoesNotCoverTheContext(t *testing.T) {
-	t.Parallel()
-
-	id := "run-in-tx-escape"
-
-	postgres.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
-		t.Helper()
-
-		err := postgres.RunInTx(ctx, nil, func(ctx context.Context, _ bun.IDB) error {
-			writeProbe(ctx, t, id)
-
-			return errRollback
-		})
-		require.ErrorIs(t, err, errRollback)
-
-		require.Equal(t, 1, probeCount(ctx, t, id), "the write escaped the transaction and committed on its own")
 	})
 }
 
