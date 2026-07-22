@@ -10,15 +10,11 @@ import (
 	"time"
 )
 
-// LoadEnv parses the raw environment value into T using parser, returning fallback when the value
-// is empty.
+// LoadEnv parses the raw environment value into T using parser.
 //
-// A value that is set but does not parse panics. Configuration is read at boot, from package-level
-// vars, so the panic lands before the service serves anything. Falling back instead would make a
-// typo indistinguishable from an unset variable, and the fallback is chosen for the second case:
-// OTEL=on parses as no bool at all and selects the preset that disables every exporter, and a
-// malformed origin list falls back to "*", widening CORS where the operator meant to narrow it.
-// Neither says anything, and the first disables the subsystem that would have.
+// An empty value yields fallback. A value that is set but does not parse panics, naming the value
+// and the type it could not become. Configuration is read at boot from package-level vars, so the
+// panic precedes any traffic.
 func LoadEnv[T any](value string, fallback T, parser func(string) (T, error)) T {
 	if value == "" {
 		return fallback
@@ -26,8 +22,6 @@ func LoadEnv[T any](value string, fallback T, parser func(string) (T, error)) T 
 
 	parsedValue, err := parser(value)
 	if err != nil {
-		// The variable's name is not in scope here, so the value and its target type are what
-		// point at the line to fix.
 		panic(fmt.Errorf("(LoadEnv) cannot parse %q as %T: %w", value, fallback, err))
 	}
 

@@ -14,8 +14,7 @@ func TestEnvStringParser(t *testing.T) {
 	t.Setenv("foo", "foo:value")
 
 	require.Equal(t, "foo:value", config.LoadEnv(os.Getenv("foo"), "foo:default", config.StringParser))
-	// bar is unset here, and StringParser cannot fail regardless — an absent variable still
-	// resolves to its fallback.
+	// bar is unset, and StringParser cannot fail regardless.
 	require.Equal(t, "bar:default", config.LoadEnv(os.Getenv("bar"), "bar:default", config.StringParser))
 }
 
@@ -200,21 +199,19 @@ func TestEnvEnumParser(t *testing.T) {
 		"bar",
 		config.LoadEnv(os.Getenv("foo"), "invalid", config.EnumParser(config.StringParser, "foo", "bar")),
 	)
-	// A value outside the allow list is set-but-wrong, which is exactly what must not resolve to
-	// the fallback: the operator named something, and it is not one of the choices.
+	// A value outside the allow list is set-but-wrong, not absent.
 	require.Panics(t, func() {
 		_ = config.LoadEnv(os.Getenv("foo"), "invalid", config.EnumParser(config.StringParser, "foo", "baz"))
 	})
 }
 
-// LoadEnv never sees the variable's name, so the message has to point at the line to fix with what
-// it does have: the offending value, the type it could not become, and the parser's own complaint.
+// The panic carries the offending value, the type it could not become, and the parser's own error.
+// LoadEnv never sees the variable's name, so those three are what locate the line to fix.
 func TestLoadEnvPanicNamesTheValueAndType(t *testing.T) {
 	t.Setenv("foo", "on")
 
-	// The live instance behind this: OTEL=on parses as no bool at all, and the fallback selects the
-	// preset that turns every exporter off — so the subsystem that would report the mistake is the
-	// one the mistake disables.
+	// OTEL=on is the live instance: no bool strconv recognises, and the fallback selects the preset
+	// that turns every exporter off.
 	err := requirePanicError(t, func() {
 		_ = config.LoadEnv(os.Getenv("foo"), false, config.BoolParser)
 	})
