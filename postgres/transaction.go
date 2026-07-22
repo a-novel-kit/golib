@@ -8,8 +8,7 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// WithTx derives a context carrying tx, so GetContext resolves the transaction
-// rather than the pool it was opened on.
+// WithTx derives a context carrying tx, so GetContext resolves that transaction.
 //
 // [WithinTx] applies this for you and is what callers normally want. WithTx is
 // exported for the cases that own the transaction lifecycle themselves — a test
@@ -19,12 +18,11 @@ func WithTx(ctx context.Context, tx bun.IDB) context.Context {
 	return context.WithValue(ctx, ContextKey{}, tx)
 }
 
-// InTx reports whether ctx carries an open transaction rather than the
-// connection pool. It reports false when ctx carries no database at all, since
-// no handle is not an open transaction.
+// InTx reports whether ctx carries an open transaction. It reports false when
+// ctx carries the connection pool, and false when it carries no database at all.
 //
 // Work that must not hold a pooled connection — any call to an external service
-// — guards itself with this rather than trusting the convention to hold.
+// — guards itself with this.
 //
 // It reports true under [RunTransactionalTest], whose PassthroughTx is not a
 // *bun.DB. A test covering an outbound call must therefore use [RunDBTest],
@@ -41,18 +39,16 @@ func InTx(ctx context.Context) bool {
 }
 
 // WithinTx runs callback inside a transaction opened on the connection carried
-// by ctx, and installs that transaction on the context callback receives — so
-// every call made with it takes part rather than committing on its own.
+// by ctx, and installs that transaction on the context callback receives, so
+// every call made with it takes part in the transaction.
 //
-// The callback takes no transaction argument, which is the whole point: a
-// handle callers must thread through every nested call is a handle they can
-// forget, and forgetting it fails silently. With nothing to thread, the only
-// database handle reachable inside the callback is the transactional one.
+// The callback takes no transaction argument: the context it receives is the
+// only database handle reachable inside it, so no call can escape unnoticed.
 //
-// A nested call joins the transaction already in progress instead of opening a
-// savepoint, so one unit of work has one outcome and a rollback anywhere
-// discards all of it. A nested call therefore never reaches opts: an operation
-// depending on a specific isolation level must be the outermost transaction.
+// A nested call joins the transaction already in progress, so one unit of work
+// has one outcome and a rollback anywhere discards all of it. A nested call
+// never reaches opts: an operation depending on a specific isolation level must
+// be the outermost transaction.
 func WithinTx(ctx context.Context, opts *sql.TxOptions, callback func(ctx context.Context) error) error {
 	db, err := GetContext(ctx)
 	if err != nil {

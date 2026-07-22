@@ -25,9 +25,9 @@ var migrations embed.FS
 var errRollback = errors.New("rollback")
 
 // testConfig points the tests at a throwaway database, named by the same
-// environment variable production uses so a developer configures one thing.
-// There is no default: a wrong guess would silently target whatever happens to
-// listen on the usual port, and these tests write.
+// environment variable production uses so a developer configures one thing. The
+// variable has no default, since these tests write and a guessed target could be
+// any database listening on the usual port.
 func testConfig(t *testing.T) postgres.Config {
 	t.Helper()
 
@@ -38,10 +38,9 @@ func testConfig(t *testing.T) postgres.Config {
 	return postgrespresets.NewDefault(pgdriver.WithDSN(dsn))
 }
 
-// writeProbe inserts one row through GetContext — the same way every consumer's
-// data-access code resolves its handle. That is what makes these tests
-// meaningful: they exercise the path that silently escaped the transaction,
-// not a handle threaded in by the test itself.
+// writeProbe inserts one row through GetContext, the way every consumer's
+// data-access code resolves its handle, so the tests exercise the path a real
+// caller takes.
 func writeProbe(ctx context.Context, t *testing.T, id string) {
 	t.Helper()
 
@@ -66,10 +65,8 @@ func probeCount(ctx context.Context, t *testing.T, id string) int {
 	return count
 }
 
-// TestWithinTxRollback is the regression test for the defect this package
-// carried: it fails against an implementation that leaves the pool on the
-// context, because the insert would then commit on its own and outlive the
-// rollback.
+// TestWithinTxRollback pins that the callback's writes go through the transaction.
+// The rollback takes the insert with it.
 func TestWithinTxRollback(t *testing.T) {
 	t.Parallel()
 
@@ -108,9 +105,9 @@ func TestWithinTxCommit(t *testing.T) {
 	})
 }
 
-// TestWithinTxNested covers the joining rule: an inner failure discards the
-// outer unit of work, because the inner call takes part in the transaction
-// already in progress rather than opening a savepoint it could roll back alone.
+// TestWithinTxNested covers the joining rule: the inner call takes part in the
+// transaction already in progress, so an inner failure discards the outer unit
+// of work too.
 func TestWithinTxNested(t *testing.T) {
 	t.Parallel()
 
@@ -172,8 +169,8 @@ func TestInTx(t *testing.T) {
 	})
 }
 
-// TestInTxNoContext covers a context nothing seeded. InTx answers "is a
-// transaction open", and no database handle at all is not one.
+// TestInTxNoContext covers a context nothing seeded: InTx answers "is a
+// transaction open", which a missing database handle is not.
 func TestInTxNoContext(t *testing.T) {
 	t.Parallel()
 

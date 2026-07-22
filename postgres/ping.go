@@ -9,10 +9,10 @@ import (
 )
 
 const (
+	// PingTimeout bounds how long Ping keeps retrying before giving up.
 	PingTimeout = 10 * time.Second
-	// PingRetryInterval is the wait between failed ping attempts. Without it,
-	// Ping would tight-loop reconnects on an unreachable database for the
-	// duration of PingTimeout.
+	// PingRetryInterval is the wait between failed ping attempts, keeping Ping
+	// from tight-looping reconnects on an unreachable database.
 	PingRetryInterval = 100 * time.Millisecond
 )
 

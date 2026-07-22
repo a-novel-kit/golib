@@ -62,7 +62,6 @@ func (config *Sentry) Init() error {
 			}
 
 			if req, ok := hint.Context.Value(sentry.RequestContextKey).(*http.Request); ok {
-				// Add IP Address to user information.
 				event.User.IPAddress = req.RemoteAddr
 			}
 
@@ -79,8 +78,8 @@ func (config *Sentry) GetPropagators() (propagation.TextMapPropagator, error) {
 }
 
 func (config *Sentry) GetTraceProvider() (trace.TracerProvider, error) {
-	// sentry-go v0.47 dropped the span processor in favour of an OTLP span exporter.
-	// The batch processor buffers spans and is drained by Flush -> tp.Shutdown.
+	// Spans reach Sentry through an OTLP exporter. The batch processor buffers them
+	// and is drained by Flush -> tp.Shutdown.
 	exporter, err := sentryotlp.NewTraceExporter(context.Background(), config.DSN)
 	if err != nil {
 		return nil, err

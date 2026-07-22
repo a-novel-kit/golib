@@ -6,12 +6,10 @@
 // body without a database while the test can still assert that the body ran
 // inside a transaction at all.
 //
-// It does not implement transactions. Nothing is rolled back, because there is
-// nothing to roll back — an in-memory double cannot undo whatever the callback
-// did to the fakes around it. What it verifies is that the caller opened a
-// scope and propagated the callback's outcome; that a rollback actually
-// discards writes is a property of the real implementation, and belongs in a
-// test that has a database.
+// Nothing is rolled back: an in-memory double cannot undo what the callback did
+// to the fakes around it. It verifies that the caller opened a scope and
+// propagated the callback's outcome; that a rollback discards writes belongs in
+// a test that has a database.
 package transactiontest
 
 import (
@@ -33,10 +31,9 @@ func NewTransactor() *Transactor {
 	return &Transactor{}
 }
 
-// NewFailingTransactor returns a Transactor that refuses to run the callback at
-// all and returns err instead, standing in for a transaction that could not be
-// opened. The callback not running is the point: an operation that reports
-// success when its unit of work never started is the failure this reproduces.
+// NewFailingTransactor returns a Transactor that returns err without running the
+// callback, standing in for a transaction that could not be opened. It
+// reproduces an operation whose unit of work never started.
 func NewFailingTransactor(err error) *Transactor {
 	return &Transactor{err: err}
 }
@@ -57,7 +54,7 @@ func (transactor *Transactor) WithinTx(ctx context.Context, fn func(ctx context.
 }
 
 // Calls reports how many times WithinTx was entered, so a test can assert an
-// operation opened exactly one scope rather than one per write.
+// operation opened exactly one scope.
 func (transactor *Transactor) Calls() int {
 	transactor.mu.Lock()
 	defer transactor.mu.Unlock()

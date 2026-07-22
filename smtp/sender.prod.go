@@ -14,16 +14,13 @@ import (
 
 // DefaultTimeout bounds a single delivery when ProdSender leaves Timeout unset.
 //
-// Bounded rather than unlimited on purpose. net/smtp dials with no deadline, so an SMTP host that
-// accepts the connection and then goes quiet — a security-group change, a provider throttling by
-// stalling — holds the calling goroutine forever. A caller who must remember to set a timeout is a
-// caller who eventually forgets, and the resulting leak reports nothing: the request that spawned
-// the send has already returned, so there is no latency signal, no error rate and no failing probe.
-// Only a slow climb in memory.
+// net/smtp dials with no deadline. An SMTP host that accepts the connection and then goes quiet
+// holds the calling goroutine. The request that spawned the send has already returned, so the leak
+// shows up only as a slow climb in memory.
 const DefaultTimeout = 30 * time.Second
 
-// ErrNoAuthSupport is returned when the server does not advertise the AUTH extension. Continuing
-// would mean either skipping authentication or offering credentials the server never asked for.
+// ErrNoAuthSupport is returned when the server does not advertise the AUTH extension. Delivery
+// stops there: every message goes out authenticated.
 var ErrNoAuthSupport = errors.New("SMTP server does not support AUTH")
 
 // ProdSender delivers mail through a real SMTP server using net/smtp. Its
@@ -43,16 +40,14 @@ type ProdSender struct {
 	ForceUnencryptedTls bool `json:"forceUnencryptedTLS" yaml:"forceUnencryptedTLS"`
 
 	// Timeout bounds one delivery end to end. Connect, handshake, authentication and the message
-	// body share a single budget, because a stalled server can hold any of those steps.
-	// Non-positive selects DefaultTimeout.
+	// body share a single budget. Non-positive selects DefaultTimeout.
 	Timeout time.Duration `json:"timeout" yaml:"timeout"`
 }
 
 // SendMail renders tName from t with data and delivers it, driving the SMTP exchange directly.
 //
-// [smtp.SendMail] would be the obvious call, and this is a transcription of what it does — but it
-// dials internally with no deadline, so nothing a caller can do bounds the exchange once the
-// connection is accepted.
+// This transcribes [smtp.SendMail], which dials internally with no deadline. Driving the exchange
+// here puts the delivery deadline on the connection.
 func (sender *ProdSender) SendMail(to MailUsers, t *template.Template, tName string, data any) error {
 	writer := bytes.NewBuffer(nil)
 
@@ -99,8 +94,7 @@ func (sender *ProdSender) SendMail(to MailUsers, t *template.Template, tName str
 		return fmt.Errorf("send email: %w", err)
 	}
 
-	// Closing the body is what commits the message, so its error is the server's verdict on the
-	// delivery — not the droppable error of a cleanup close.
+	// Closing the body commits the message, so its error is the server's verdict on the delivery.
 	err = body.Close()
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
@@ -115,8 +109,7 @@ func (sender *ProdSender) SendMail(to MailUsers, t *template.Template, tName str
 }
 
 // Ping reports whether the SMTP server is reachable and accepts the configured credentials. It
-// shares SendMail's timeout: a readiness probe that can hang is one that reports nothing about the
-// very outage it exists to detect.
+// shares SendMail's timeout, so the probe always returns.
 func (sender *ProdSender) Ping() error {
 	client, host, err := sender.dial()
 	if err != nil {
@@ -157,13 +150,9 @@ func (sender *ProdSender) auth() smtp.Auth {
 
 // dial connects to the SMTP server with the delivery's deadline already set on the connection.
 //
-// The deadline is the whole reason for dialing here rather than through [smtp.SendMail] or
-// [smtp.Dial]: both dial internally with no deadline, so a caller cannot bound what happens once the
-// connection is accepted. net/smtp offers no context and no cancellation, which leaves the
-// connection's own deadline as the only mechanism reaching every subsequent read and write.
-//
-// The dialer takes a background context because [Sender] carries none; the timeout, not the context,
-// is what bounds this.
+// net/smtp offers no context and no cancellation, so the connection's own deadline reaches every
+// subsequent read and write. The dialer takes a background context because [Sender] carries none;
+// the timeout is what bounds this.
 func (sender *ProdSender) dial() (*smtp.Client, string, error) {
 	timeout := sender.timeout()
 
@@ -179,7 +168,7 @@ func (sender *ProdSender) dial() (*smtp.Client, string, error) {
 		return nil, "", fmt.Errorf("dial SMTP server: %w", err)
 	}
 
-	// Measured from here, so the budget covers the whole exchange rather than restarting per step.
+	// Measured from here, so one budget covers the whole exchange.
 	err = conn.SetDeadline(time.Now().Add(timeout))
 	if err != nil {
 		_ = conn.Close()
@@ -197,12 +186,11 @@ func (sender *ProdSender) dial() (*smtp.Client, string, error) {
 	return client, host, nil
 }
 
-// negotiate performs the handshake [smtp.SendMail] would have done: upgrade to TLS whenever the
-// server offers it, then authenticate, refusing to continue when the server does not advertise AUTH.
+// negotiate performs the handshake: upgrade to TLS whenever the server offers it, then
+// authenticate. A server that does not advertise AUTH stops the delivery.
 //
-// The ordering is the security-relevant part and matches the standard library's: STARTTLS is
-// attempted before any credential is offered, so an eavesdropper sees the upgrade rather than the
-// password.
+// The ordering is security-relevant. STARTTLS is attempted before any credential is offered, so
+// credentials only cross an upgraded connection.
 func (sender *ProdSender) negotiate(client *smtp.Client, host string) error {
 	ok, _ := client.Extension("STARTTLS")
 	if ok {
