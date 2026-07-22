@@ -7,9 +7,9 @@ import (
 	"text/template"
 )
 
-// DebugSender is a Sender that renders the mail template to an io.Writer
-// instead of delivering it, for local development where no SMTP server is
-// available. Recipients are ignored and Ping always succeeds.
+// DebugSender is a Sender that renders the mail template to an io.Writer, for local
+// development where no SMTP server is available. Recipients are ignored and Ping always
+// succeeds.
 type DebugSender struct {
 	writer io.Writer
 }
