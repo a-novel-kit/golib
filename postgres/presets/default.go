@@ -18,6 +18,22 @@ const (
 	// Schema names cannot be passed as query parameters, so the name is
 	// interpolated into the statement rather than bound.
 	CreateSchema = "CREATE SCHEMA IF NOT EXISTS %s;"
+
+	// MaxIdleConnsDefault is the number of idle connections a pool keeps when the
+	// caller expresses no preference.
+	//
+	// It exists because database/sql keeps two, and two is nobody's intended
+	// answer: past the second concurrent query every call opens a fresh
+	// connection — a TCP round trip, a TLS handshake and a PostgreSQL
+	// authentication exchange — then discards it on release. Nothing reports that.
+	// It is simply a latency floor under every query, in every service, that no
+	// error or log or test attributes to anything.
+	//
+	// Idle connections are cheap: a file descriptor here and a backend on the
+	// server. The handshake they save is not. Ten is deliberately modest — it must
+	// stay well under a stock max_connections of 100 once multiplied by however
+	// many replicas a service runs.
+	MaxIdleConnsDefault = 10
 )
 
 // Default is the standard postgres.Config implementation, backed by pgdriver.
@@ -25,6 +41,14 @@ const (
 // one per requested schema, all guarded by a single mutex.
 type Default struct {
 	options []pgdriver.Option
+
+	// MaxIdleConns overrides how many idle connections the pools keep. Zero means
+	// MaxIdleConnsDefault; a negative value keeps none, matching database/sql.
+	//
+	// The maximum number of OPEN connections is deliberately not here. That one
+	// depends on how many replicas a deployment runs against one database, which
+	// is a service's decision, not a library's.
+	MaxIdleConns int
 
 	// Cached connection to the primary database, opened on first use.
 	db *bun.DB
@@ -50,6 +74,7 @@ func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 	if config.db == nil {
 		sqldb := sql.OpenDB(pgdriver.NewConnector(config.options...))
 		db := bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())
+		db.SetMaxIdleConns(config.maxIdleConns())
 
 		err := postgres.Ping(ctx, db)
 		if err != nil {
@@ -96,6 +121,7 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 
 	sqldb := sql.OpenDB(pgdriver.NewConnector(options...))
 	db = bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())
+	db.SetMaxIdleConns(config.maxIdleConns())
 
 	err = postgres.Ping(ctx, db)
 	if err != nil {
@@ -115,4 +141,14 @@ func (config *Default) Options() []pgdriver.Option {
 	defer config.mu.RUnlock()
 
 	return append([]pgdriver.Option{}, config.options...)
+}
+
+// maxIdleConns resolves the configured override against the default. Callers hold
+// the mutex.
+func (config *Default) maxIdleConns() int {
+	if config.MaxIdleConns == 0 {
+		return MaxIdleConnsDefault
+	}
+
+	return config.MaxIdleConns
 }
