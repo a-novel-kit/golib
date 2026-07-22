@@ -41,6 +41,15 @@ type Default struct {
 	// MaxIdleConnsDefault; a negative value keeps none, matching database/sql.
 	MaxIdleConns int
 
+	// MaxOpenConns bounds how many connections the pools may open. Zero means
+	// unlimited, matching database/sql.
+	//
+	// No default: the right number depends on how many replicas share the database,
+	// which a library cannot know. It lives here rather than being set on the pool
+	// afterwards because the handle is cached — setting it late applies it to
+	// nothing, and nothing reports that.
+	MaxOpenConns int
+
 	// Cached connection to the primary database, opened on first use.
 	db *bun.DB
 	// Cached connection per schema name.
@@ -66,6 +75,8 @@ func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 		sqldb := sql.OpenDB(pgdriver.NewConnector(config.options...))
 		db := bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())
 		db.SetMaxIdleConns(config.maxIdleConns())
+		db.SetMaxOpenConns(config.MaxOpenConns)
+		db.SetMaxOpenConns(config.MaxOpenConns)
 
 		err := postgres.Ping(ctx, db)
 		if err != nil {

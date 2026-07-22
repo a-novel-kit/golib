@@ -107,3 +107,39 @@ func TestDefaultNegativeOverrideKeepsNone(t *testing.T) {
 
 	require.Zero(t, db.Stats().Idle)
 }
+
+// TestDefaultBoundsOpenConnections covers the open limit, which has no default:
+// the field exists so a service can state its own answer where it builds the
+// config, and the pool has to honour it on every connection it opens.
+func TestDefaultBoundsOpenConnections(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t)
+	config.MaxOpenConns = 2
+
+	ctx := t.Context()
+
+	db, err := config.DB(ctx)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, db.Stats().MaxOpenConnections)
+
+	// The cap has to hold under contention, not just report itself: more callers
+	// than connections must queue rather than open more.
+	holdOpen(ctx, t, config)
+	require.LessOrEqual(t, db.Stats().OpenConnections, 2)
+}
+
+// TestDefaultLeavesOpenConnectionsUnlimitedByDefault pins the absence of a
+// default. A library cannot know how many replicas share a database, so an
+// unset value must keep database/sql's behaviour rather than invent a ceiling.
+func TestDefaultLeavesOpenConnectionsUnlimitedByDefault(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t)
+
+	db, err := config.DB(t.Context())
+	require.NoError(t, err)
+
+	require.Zero(t, db.Stats().MaxOpenConnections, "0 is database/sql's encoding of unlimited")
+}
