@@ -25,18 +25,26 @@ import (
 // context carrying the connection isolated for that test.
 type TransactionalTestFunc func(context.Context, *testing.T)
 
-// NewContextTest derives a context bound to a fresh, randomly named schema
-// created through config, isolating the test from others sharing the database.
-func NewContextTest(ctx context.Context, config Config) (context.Context, error) {
+// schemaDropper is the optional capability a Config offers to remove a schema created
+// through DBSchema. The bundled Default implements it; a Config that does not simply
+// leaves its throwaway schemas in place, as before.
+type schemaDropper interface {
+	DropSchema(ctx context.Context, schema string) error
+}
+
+// NewContextTest derives a context bound to a fresh, randomly named schema created
+// through config, isolating the test from others sharing the database. It returns the
+// schema name so the caller can drop it once done.
+func NewContextTest(ctx context.Context, config Config) (context.Context, string, error) {
 	schemaName := "ta_" + strings.ToLower(rand.Text())
 	schemaName = fmt.Sprintf("%.*s", NameLen, schemaName)
 
 	db, err := config.DBSchema(ctx, schemaName, true)
 	if err != nil {
-		return nil, fmt.Errorf("get db from config: %w", err)
+		return nil, "", fmt.Errorf("get db from config: %w", err)
 	}
 
-	return context.WithValue(ctx, ContextKey{}, db), nil
+	return context.WithValue(ctx, ContextKey{}, db), schemaName, nil
 }
 
 // RunIsolatedTransactionalTest runs callback in a throwaway schema, which admits
@@ -49,8 +57,19 @@ func NewContextTest(ctx context.Context, config Config) (context.Context, error)
 func RunIsolatedTransactionalTest(t *testing.T, config Config, migrations fs.FS, callback TransactionalTestFunc) {
 	t.Helper()
 
-	ctx, err := NewContextTest(t.Context(), config)
+	ctx, schema, err := NewContextTest(t.Context(), config)
 	require.NoError(t, err)
+
+	if dropper, ok := config.(schemaDropper); ok {
+		t.Cleanup(func() {
+			// t.Context is cancelled by the time cleanup runs, so the drop gets a fresh
+			// context. A failure here leaks the schema but must not fail the test.
+			dropErr := dropper.DropSchema(context.WithoutCancel(ctx), schema)
+			if dropErr != nil {
+				t.Logf("drop test schema %s: %v", schema, dropErr)
+			}
+		})
+	}
 
 	require.NoError(t, RunMigrationsContext(ctx, migrations))
 
