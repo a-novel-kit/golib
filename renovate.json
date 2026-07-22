@@ -1,7 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "gomod": {
-    "managerFilePatterns": ["/(^|/)go\\.mod$/", "/(^|/)golangci-lint\\.mod$/", "/(^|/)gotestsum\\.mod$/"]
+    "managerFilePatterns": [
+      "/(^|/)go\\.mod$/",
+      "/(^|/)golangci-lint\\.mod$/",
+      "/(^|/)gotestsum\\.mod$/",
+      "/(^|/)buf\\.mod$/"
+    ]
   },
   "packageRules": [
     {
@@ -27,15 +32,17 @@
       }
     },
     {
-      "matchFileNames": ["go.mod"],
-      "matchPackageNames": ["github.com/bufbuild/buf/cmd/buf"],
+      "matchFileNames": ["buf.mod"],
+      "additionalBranchPrefix": "buf-",
+      "goGetDirs": ["."],
       "postUpgradeTasks": {
         "commands": [
-          "go mod download",
-          "rm -rf internal/handlers/protogen",
-          "go tool buf generate",
-          "go tool buf format -w",
-          "go tool buf dep update"
+          "rm -f buf.sum",
+          "go get -modfile=buf.mod -tool github.com/bufbuild/buf/cmd/buf",
+          "rm -rf grpcf/proto/gen",
+          "go tool -modfile=buf.mod buf generate",
+          "go tool -modfile=buf.mod buf format -w",
+          "go tool -modfile=buf.mod buf dep update"
         ],
         "executionMode": "branch"
       }
