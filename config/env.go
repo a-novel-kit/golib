@@ -10,8 +10,11 @@ import (
 	"time"
 )
 
-// LoadEnv parses the raw environment value into T using parser, returning fallback when the value
-// is empty or the parser reports an error.
+// LoadEnv parses the raw environment value into T using parser.
+//
+// An empty value yields fallback. A value that is set but does not parse panics, naming the value
+// and the type it could not become. Configuration is read at boot from package-level vars, so the
+// panic precedes any traffic.
 func LoadEnv[T any](value string, fallback T, parser func(string) (T, error)) T {
 	if value == "" {
 		return fallback
@@ -19,7 +22,7 @@ func LoadEnv[T any](value string, fallback T, parser func(string) (T, error)) T 
 
 	parsedValue, err := parser(value)
 	if err != nil {
-		return fallback
+		panic(fmt.Errorf("(LoadEnv) cannot parse %q as %T: %w", value, fallback, err))
 	}
 
 	return parsedValue
