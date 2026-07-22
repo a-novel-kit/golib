@@ -10,12 +10,22 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// SendJSON encodes data as JSON to w with a JSON content type and records the outcome
-// on the span. An encoding failure is reported on the span; by then the status line is
-// already sent, so the body may be truncated. The caller sets any non-200 status before
-// calling.
-func SendJSON[Data any](_ context.Context, w http.ResponseWriter, span trace.Span, data Data) {
+// SendJSONStatus encodes data as JSON to w under status, and records the outcome on the
+// span.
+//
+// The status is a parameter rather than something the caller sends first, because
+// net/http freezes the outbound header set when the status line goes out. A caller that
+// writes the status first has its Content-Type discarded and answers text/plain; one
+// that writes it afterwards gets a "superfluous WriteHeader" and keeps the 200. Owning
+// both is the only order that answers JSON under a status other than 200.
+//
+// An encoding failure is reported on the span. The status line is already sent by then,
+// so the body may be truncated.
+func SendJSONStatus[Data any](
+	_ context.Context, w http.ResponseWriter, span trace.Span, status int, data Data,
+) {
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 
 	err := json.NewEncoder(w).Encode(data)
 	if err != nil {
@@ -25,4 +35,14 @@ func SendJSON[Data any](_ context.Context, w http.ResponseWriter, span trace.Spa
 	}
 
 	otel.ReportSuccessNoContent(span)
+}
+
+// SendJSON encodes data as JSON to w with a 200 status, and records the outcome on the
+// span.
+//
+// Deprecated: use [SendJSONStatus], passing http.StatusOK for the same response. This
+// signature cannot answer under any other status — a caller that sends one first loses
+// the JSON content type, which is what [SendJSONStatus] exists to make impossible.
+func SendJSON[Data any](ctx context.Context, w http.ResponseWriter, span trace.Span, data Data) {
+	SendJSONStatus(ctx, w, span, http.StatusOK, data)
 }
