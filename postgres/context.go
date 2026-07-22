@@ -58,6 +58,17 @@ func GetContext(ctx context.Context) (bun.IDB, error) {
 
 // RunInTx runs callback within a transaction opened on the connection carried
 // by ctx. The callback receives the transaction as a bun.IDB.
+//
+// The context it hands the callback is the original one, still carrying the
+// pool — so anything inside that resolves its handle with [GetContext] gets the
+// pool back and commits independently of the surrounding transaction, silently.
+// Only calls made through the tx argument take part, and a caller who threads
+// ctx instead has a block that opens a transaction, commits it, and protects
+// nothing. Nothing about that fails or logs.
+//
+// Deprecated: use [WithinTx], whose callback takes no transaction argument
+// because the transaction is installed on the context it receives. With nothing
+// to thread, the mistake above cannot be written.
 func RunInTx(ctx context.Context, opts *sql.TxOptions, callback func(ctx context.Context, tx bun.IDB) error) error {
 	db, err := GetContext(ctx)
 	if err != nil {

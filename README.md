@@ -30,15 +30,16 @@ go get github.com/a-novel-kit/golib
 
 Each **sub-package** is a directory-scoped, independently importable helper — focused, dependency-light, and shared across services. One that grows a broad API of its own graduates to its own repo (see [What this is](#what-this-is)).
 
-| Path       | What it's for                                                                                                                                                                      |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config`   | Loads environment variables into typed config structs and fails fast at startup when one is missing or malformed, so a service never boots half-configured.                        |
-| `otel`     | Wires OpenTelemetry tracing and logging under a shared app identity and reports each operation's outcome on its span. Exporters ship for local development and hosted backends.    |
-| `httpf`    | Holds the REST boundary logic a handler leans on — mapping domain error sentinels to HTTP status codes and writing JSON — so every service answers errors the same way.            |
-| `grpcf`    | The gRPC equivalent of `httpf`: it shapes per-call context, supplies client dial credentials (local or GCP), and bundles a health/echo service for tests.                          |
-| `logging`  | Defines the interfaces the platform logs through, so a service can swap its log backend without touching call sites. Presets cover local and Google Cloud, for both HTTP and gRPC. |
-| `postgres` | Carries the database handle on the request context and scopes work into transactions, and ships a migration runner plus harnesses that give each test an isolated database.        |
-| `smtp`     | Sends transactional mail behind one `Sender` interface, with a real SMTP sender for production and a debug sender for local runs and tests.                                        |
+| Path          | What it's for                                                                                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config`      | Loads environment variables into typed config structs and fails fast at startup when one is missing or malformed, so a service never boots half-configured.                                 |
+| `otel`        | Wires OpenTelemetry tracing and logging under a shared app identity and reports each operation's outcome on its span. Exporters ship for local development and hosted backends.             |
+| `httpf`       | Holds the REST boundary logic a handler leans on — mapping domain error sentinels to HTTP status codes and writing JSON — so every service answers errors the same way.                     |
+| `grpcf`       | The gRPC equivalent of `httpf`: it shapes per-call context, supplies client dial credentials (local or GCP), and bundles a health/echo service for tests.                                   |
+| `logging`     | Defines the interfaces the platform logs through, so a service can swap its log backend without touching call sites. Presets cover local and Google Cloud, for both HTTP and gRPC.          |
+| `postgres`    | Carries the database handle on the request context and runs work inside transactions installed on it, and ships a migration runner plus harnesses that give each test an isolated database. |
+| `smtp`        | Sends transactional mail behind one `Sender` interface, with a real SMTP sender for production and a debug sender for local runs and tests.                                                 |
+| `transaction` | Declares what a unit of work is, in one interface that names no database — so business code can require atomicity without gaining a way to reach a driver. `postgres` implements it.        |
 
 ## Contributing
 
