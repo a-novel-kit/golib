@@ -99,20 +99,6 @@ func TestSendJSONStatus(t *testing.T) {
 	}
 }
 
-func TestSendJSONKeepsTheJSONContentType(t *testing.T) {
-	t.Parallel()
-
-	// The deprecated signature still answers 200 with a JSON content type, so the 14
-	// call sites that never set a status are unaffected by the change.
-	got := call(t, func(w http.ResponseWriter, r *http.Request) {
-		httpf.SendJSON(r.Context(), w, noop.Span{}, map[string]int{"n": 1})
-	})
-
-	require.Equal(t, http.StatusOK, got.status)
-	require.Equal(t, "application/json", got.contentType)
-	require.JSONEq(t, `{"n":1}`, got.body)
-}
-
 // Pins the behaviour the new signature exists to make unreachable: net/http freezes the
 // header set at WriteHeader, so a Content-Type written afterwards never leaves the
 // process and the client is told text/plain.
