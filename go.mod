@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.35.0
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.58.0
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.59.0
 	github.com/getsentry/sentry-go v0.48.0
 	github.com/getsentry/sentry-go/otel v0.48.0
 	github.com/getsentry/sentry-go/otel/otlp v0.48.0
