@@ -12,7 +12,6 @@ Shared Go library for the A-Novel backend services — the glue they'd otherwise
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/a-novel-kit/golib)
 
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/a-novel-kit/golib/main.yaml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/a-novel-kit/golib)](https://goreportcard.com/report/github.com/a-novel-kit/golib)
 
 ## What this is
 
