@@ -36,13 +36,3 @@ func SendJSONStatus[Data any](
 
 	otel.ReportSuccessNoContent(span)
 }
-
-// SendJSON encodes data as JSON to w with a 200 status, and records the outcome on the
-// span.
-//
-// Deprecated: use [SendJSONStatus], passing http.StatusOK for the same response. This
-// signature cannot answer under any other status — a caller that sends one first loses
-// the JSON content type, which is what [SendJSONStatus] exists to make impossible.
-func SendJSON[Data any](ctx context.Context, w http.ResponseWriter, span trace.Span, data Data) {
-	SendJSONStatus(ctx, w, span, http.StatusOK, data)
-}
