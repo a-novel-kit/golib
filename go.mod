@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	charm.land/lipgloss/v2 v2.0.5
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.34.0
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.35.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator v0.58.0
 	github.com/getsentry/sentry-go v0.48.0
 	github.com/getsentry/sentry-go/otel v0.48.0
@@ -35,7 +35,7 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/trace v1.16.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.58.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.59.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
