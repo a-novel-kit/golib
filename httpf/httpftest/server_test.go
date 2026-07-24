@@ -15,8 +15,7 @@ import (
 	"github.com/a-novel-kit/golib/httpf/httpftest"
 )
 
-// serverDeadline is short enough to keep the suite quick, and long enough that a machine under load
-// does not trip it before the request is even sent.
+// serverDeadline is long enough that a loaded machine does not trip it before the request is sent.
 const serverDeadline = 250 * time.Millisecond
 
 func TestServer(t *testing.T) {

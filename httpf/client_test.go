@@ -17,12 +17,9 @@ import (
 )
 
 const (
-	// slowHeaderDelay outlasts any response-header timeout a hardening pass would plausibly
-	// introduce, while still keeping the test quick.
+	// slowHeaderDelay outlasts any response-header timeout a hardening pass would introduce.
 	slowHeaderDelay = 250 * time.Millisecond
 
-	// clientTraceID, and the traceparent carrying it, stand in for an inbound trace a caller
-	// continues on its way out.
 	clientTraceID      = "0102030405060708090a0b0c0d0e0f10"
 	inboundTraceHeader = "00-" + clientTraceID + "-0102030405060708-01"
 )
@@ -56,8 +53,7 @@ func TestNewTransport(t *testing.T) {
 			require.Equal(t, testCase.options.MaxIdleConns, transport.MaxIdleConns)
 			require.Equal(t, testCase.options.MaxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
 
-			// A live guard on the decision written out in NewTransport: a hardening change that
-			// set this would break only slow responses, which is to say only in production.
+			// Guards the zero written out in NewTransport.
 			require.Zero(t, transport.ResponseHeaderTimeout)
 		})
 	}
@@ -69,8 +65,7 @@ func TestNewClient(t *testing.T) {
 	t.Run("Success/NoOverallTimeout", func(t *testing.T) {
 		t.Parallel()
 
-		// The companion guard to the transport's zero header timeout: this one caps the whole
-		// exchange, so a non-zero value would truncate a long response mid-body.
+		// Guards the zero written out in NewClient.
 		require.Zero(t, httpf.NewClient(httpf.ClientOptions{}).Timeout)
 	})
 
@@ -99,8 +94,8 @@ func TestNewClient(t *testing.T) {
 			response, err := client.Do(request)
 			require.NoError(t, err)
 
-			// Draining and closing is what returns the connection to the idle pool. Skipping
-			// either makes every request below open a fresh one, so this is part of the assertion.
+			// Draining and closing returns the connection to the idle pool, so this is part of
+			// the assertion.
 			_, err = io.Copy(io.Discard, response.Body)
 			require.NoError(t, errors.Join(err, response.Body.Close()))
 		}
@@ -131,8 +126,7 @@ func TestNewClient(t *testing.T) {
 	t.Run("Success/PropagatesTraceContext", func(t *testing.T) {
 		t.Parallel()
 
-		// Buffered so the handler never blocks, and read after Do returns, which is what keeps the
-		// race detector out of this.
+		// Buffered so the handler never blocks, and read after Do returns.
 		received := make(chan string, 1)
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,8 +136,7 @@ func TestNewClient(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		// Extracting an inbound traceparent puts a valid span context on ctx without pulling in the
-		// tracing SDK: the outbound request should continue that trace rather than start its own.
+		// An extracted traceparent puts a valid span context on ctx without the tracing SDK.
 		carrier := propagation.HeaderCarrier{}
 		carrier.Set("traceparent", inboundTraceHeader)
 		ctx := propagation.TraceContext{}.Extract(t.Context(), carrier)

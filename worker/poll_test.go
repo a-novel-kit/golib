@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	// pollTimeout bounds every wait below. Each case drives Poll with an interval of an hour, so
-	// anything that has not happened inside a second is not going to happen because it was slow.
+	// pollTimeout bounds every wait below. The cases use an hour-long interval, so nothing here
+	// times out for being slow.
 	pollTimeout = time.Second
 
 	// pollStagger is long enough to measure without making the suite wait on it.
@@ -26,8 +26,7 @@ const (
 	pollDrainRuns = 5
 )
 
-// discardLogger keeps the loop's own log lines out of the test output. No case asserts on them:
-// what is under test is the loop, and the lines are covered by the shape of the calls it makes.
+// discardLogger keeps the loop's log lines out of the test output; no case asserts on them.
 var discardLogger = &loggingpresets.LogLocal{Out: io.Discard}
 
 func TestPoll(t *testing.T) {
@@ -82,8 +81,8 @@ func TestPoll(t *testing.T) {
 			return false, nil
 		}
 
-		// The interval is an hour, so reaching the last run inside pollTimeout is only possible if
-		// reporting work skips the wait entirely. That is the whole behaviour under test.
+		// Reaching the last run inside pollTimeout is only possible if reporting work skips the
+		// hour-long wait.
 		go worker.Poll(ctx, discardLogger, "test", time.Hour, 0, drain)
 
 		select {

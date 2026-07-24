@@ -1,14 +1,8 @@
 // Package httpftest provides a scripted HTTP server for testing the calls a service makes through
 // [github.com/a-novel-kit/golib/httpf.NewClient].
 //
-// A test builds one with the replies it wants, points the client at it, and afterwards reads back
-// every request the server received. Two of the replies exist for failures no recorded fixture can
-// reproduce — a server that accepts a request and then goes quiet, and one that drops the
-// connection without answering — because those are the failures a timeout, a retry, or a lease is
-// written to survive, and they are otherwise only reachable in production.
-//
-// It lives in regular (non-_test.go) files so tests in other packages can import it: Go excludes
-// _test.go files from a package's exported surface.
+// A test builds one with the replies it wants, points the client at it, then reads back every
+// request it received.
 package httpftest
 
 import (
@@ -32,16 +26,15 @@ type Response struct {
 	// Body is written after it.
 	Body string
 
-	// Delay holds the reply back before anything is written, which is how a test reaches a
-	// caller's deadline without waiting out a real server's latency.
+	// Delay holds the reply back before anything is written, so a test can reach a caller's
+	// deadline without a real server's latency.
 	Delay time.Duration
 
-	// Hang holds the reply open until the request's context is cancelled, and writes nothing. It
-	// stands for a server that accepted the request and then stopped answering.
+	// Hang holds the reply open until the request's context is cancelled, standing for a server
+	// that accepted the request and then stopped answering.
 	Hang bool
 
-	// Drop closes the connection without writing a reply, which surfaces to the caller as a
-	// transport error rather than a status code.
+	// Drop closes the connection without replying, which reaches the caller as a transport error.
 	Drop bool
 }
 
@@ -67,7 +60,7 @@ type Server struct {
 }
 
 // NewServer starts a server that replays responses in order. A request arriving after the last
-// scripted reply fails the test rather than being answered with something nobody chose.
+// scripted reply fails the test.
 func NewServer(t *testing.T, responses ...Response) *Server {
 	t.Helper()
 
@@ -106,8 +99,7 @@ func (scripted *Server) handle(writer http.ResponseWriter, request *http.Request
 		Body:   body,
 	})
 	if !ok {
-		// Errorf rather than Fatalf: this runs on the server's goroutine, and only Errorf is safe
-		// to call from one other than the test's own.
+		// Errorf: only it is safe to call from a goroutine other than the test's own.
 		scripted.t.Errorf("httpftest: unscripted request %s %s", request.Method, request.URL.Path)
 		writer.WriteHeader(http.StatusInternalServerError)
 

@@ -8,14 +8,9 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 )
 
-// TestMain installs the W3C trace-context propagator before any test in this package runs.
-//
-// otelhttp reads the global propagator at request time, and its default injects nothing, so the
-// trace-context assertion in client_test.go would pass over an empty header without this. A service
-// reaches the same state through otel.Init, which points every preset — the disabled one
-// included — at TraceContext.
-//
-// It runs once, ahead of the first test, so no parallel test observes the global mid-write.
+// TestMain installs the W3C trace-context propagator, which otelhttp reads at request time and
+// which defaults to injecting nothing. Without it the trace-context assertion below passes over an
+// empty header.
 func TestMain(m *testing.M) {
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
