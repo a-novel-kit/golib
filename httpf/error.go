@@ -1,7 +1,3 @@
-// Package httpf holds small helpers for writing HTTP handler responses that stay
-// consistent with the service's OpenTelemetry tracing and structured logging: every
-// outcome is recorded on the request span so handlers report success and failure the
-// same way.
 package httpf
 
 import (
