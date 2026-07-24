@@ -1,13 +1,20 @@
 package otel
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// errRecoveredPanic marks an error produced from a panic value absorbed by [RecoverPanic].
+var errRecoveredPanic = errors.New("recovered panic")
 
 // AppName is the instrumentation scope name stamped on every tracer and logger
 // created through this package. Set it once at startup with SetAppName.
@@ -49,4 +56,20 @@ func ReportSuccess[Resp any](span trace.Span, resp Resp) Resp {
 // ReportSuccessNoContent marks the span successful when there is no value to return.
 func ReportSuccessNoContent(span trace.Span) {
 	span.SetStatus(codes.Ok, "")
+}
+
+// RecoverPanic stops a panic from escaping the calling goroutine: it records the panic on span
+// and logs it with a stack trace. Defer it directly — recover only works from a function the
+// panicking goroutine deferred itself.
+//
+// Use it on detached goroutines. HTTP servers recover their handler goroutines; a panic escaping
+// any other goroutine ends the process.
+func RecoverPanic(ctx context.Context, span trace.Span) {
+	rec := recover()
+	if rec == nil {
+		return
+	}
+
+	err := fmt.Errorf("%w: %v", errRecoveredPanic, rec)
+	Logger().ErrorContext(ctx, ReportError(span, err).Error()+"\n"+string(debug.Stack()))
 }
