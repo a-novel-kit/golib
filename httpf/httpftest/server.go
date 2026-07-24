@@ -1,8 +1,8 @@
-// Package httpftest provides a scripted HTTP server for testing the calls a service makes through
-// [github.com/a-novel-kit/golib/httpf.NewClient].
+// Package httpftest scripts an HTTP server for testing outbound calls.
 //
-// A test builds one with the replies it wants, points the client at it, then reads back every
-// request it received.
+// Over a plain httptest server it saves writing a handler. Replies are declared up front and
+// returned in order, every request is recorded for later assertion, and a reply can hang until the
+// caller's context expires or drop the connection — the failures a handler cannot easily produce.
 package httpftest
 
 import (
