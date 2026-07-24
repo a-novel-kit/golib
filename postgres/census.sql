@@ -32,7 +32,8 @@ WITH
       pg_namespace
     WHERE
       nspname = ?0
-  )
+  ),
+  census AS (
 SELECT
   'column' AS class,
   c.relname || '.' || a.attname AS identity,
@@ -136,9 +137,9 @@ UNION ALL
 SELECT
   'routine',
   p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
-  -- The body is hashed rather than embedded: a routine definition can run to hundreds of lines,
-  -- and the census is read as a diff where one changed line beats one changed page.
-  p.prokind::text || ' ' || md5(coalesce(p.prosrc, '')) || ' ' || pg_get_function_result(p.oid) || ' ' || p.provolatile::text || ' ' || p.proisstrict::text || ' ' || p.prosecdef::text || ' ' || l.lanname
+  -- The complete reconstructed definition is hashed rather than embedded: it can run to hundreds
+  -- of lines, and the census is read as a diff where one changed line beats one changed page.
+  p.prokind::text || ' ' || md5(pg_get_functiondef(p.oid)) || ' ' || pg_get_function_result(p.oid) || ' ' || p.provolatile::text || ' ' || p.proisstrict::text || ' ' || p.prosecdef::text || ' ' || l.lanname
 FROM
   pg_proc p
   JOIN target ON p.pronamespace = target.nsp
@@ -157,7 +158,7 @@ UNION ALL
 SELECT
   'trigger',
   c.relname || '.' || tg.tgname,
-  pg_get_triggerdef(tg.oid)
+  pg_get_triggerdef(tg.oid) || ' ENABLED ' || tg.tgenabled::text
 FROM
   pg_trigger tg
   JOIN pg_class c ON c.oid = tg.tgrelid
@@ -168,7 +169,17 @@ UNION ALL
 SELECT
   'policy',
   c.relname || '.' || pol.polname,
-  pol.polcmd::text || ' ' || coalesce(pg_get_expr(pol.polqual, pol.polrelid), '-') || ' ' || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '-')
+  pol.polcmd::text || ' ' || pol.polpermissive::text || ' ' || array_to_string(
+    ARRAY(
+      SELECT
+        CASE WHEN role_oid = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(role_oid) END
+      FROM
+        unnest(pol.polroles) AS roles (role_oid)
+      ORDER BY
+        1
+    ),
+    ','
+  ) || ' ' || coalesce(pg_get_expr(pol.polqual, pol.polrelid), '-') || ' ' || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '-')
 FROM
   pg_policy pol
   JOIN pg_class c ON c.oid = pol.polrelid
@@ -396,7 +407,24 @@ WHERE
       e.objid = conv.oid
       AND e.classid = 'pg_conversion'::regclass
   )
+  )
+SELECT
+  CASE
+    WHEN class IN ('relation', 'index') THEN 'pg_class'
+    WHEN class = 'constraint' THEN 'pg_constraint'
+    WHEN class = 'type' THEN 'pg_type'
+    WHEN class = 'routine' THEN 'pg_proc'
+    WHEN class = 'unsupported' AND identity LIKE 'relkind %' THEN 'pg_class'
+    WHEN class = 'unsupported' AND identity LIKE 'typtype %' THEN 'pg_type'
+    WHEN class = 'unsupported' AND identity = 'aggregate' THEN 'pg_proc'
+    ELSE ''
+  END AS catalog,
+  class,
+  identity,
+  definition
+FROM
+  census
 ORDER BY
-  1,
   2,
-  3;
+  3,
+  4;

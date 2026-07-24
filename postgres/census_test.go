@@ -138,12 +138,31 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 			to:   []string{`CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 2 $$`},
 		},
 		{
+			name: "function setting changed",
+			from: []string{`CREATE FUNCTION f() RETURNS int LANGUAGE sql SET search_path = public AS $$ SELECT 1 $$`},
+			to:   []string{`CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$`},
+		},
+		{
 			name: "trigger left behind",
 			from: []string{`CREATE TABLE t (a int)`},
 			to: []string{
 				`CREATE TABLE t (a int)`,
 				`CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`,
 				`CREATE TRIGGER tr BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION f()`,
+			},
+		},
+		{
+			name: "trigger disabled",
+			from: []string{
+				`CREATE TABLE t (a int)`,
+				`CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`,
+				`CREATE TRIGGER tr BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION f()`,
+			},
+			to: []string{
+				`CREATE TABLE t (a int)`,
+				`CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`,
+				`CREATE TRIGGER tr BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION f()`,
+				`ALTER TABLE t DISABLE TRIGGER tr`,
 			},
 		},
 		{
@@ -173,6 +192,19 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 				`CREATE TABLE t (a int)`,
 				`ALTER TABLE t ENABLE ROW LEVEL SECURITY`,
 				`CREATE POLICY p ON t USING (a > 0)`,
+			},
+		},
+		{
+			name: "row level security policy role changed",
+			from: []string{
+				`CREATE TABLE t (a int)`,
+				`ALTER TABLE t ENABLE ROW LEVEL SECURITY`,
+				`CREATE POLICY p ON t TO PUBLIC USING (a > 0)`,
+			},
+			to: []string{
+				`CREATE TABLE t (a int)`,
+				`ALTER TABLE t ENABLE ROW LEVEL SECURITY`,
+				`CREATE POLICY p ON t TO pg_read_all_data USING (a > 0)`,
 			},
 		},
 		{
@@ -306,6 +338,33 @@ func TestSchemaSnapshotExcludesMigrationBookkeeping(t *testing.T) {
 	)
 
 	require.Equal(t, bare, withBookkeeping)
+}
+
+func TestSchemaSnapshotKeepsSimilarlyNamedUserObjects(t *testing.T) {
+	t.Parallel()
+
+	snapshot := probeSnapshot(t,
+		`CREATE TABLE bun_migrations_archive (id int PRIMARY KEY)`,
+	)
+
+	require.Contains(t, snapshot, "relation\tbun_migrations_archive\t")
+}
+
+func TestSchemaSnapshotEscapesRecordSeparators(t *testing.T) {
+	t.Parallel()
+
+	snapshot := probeSnapshot(t,
+		`CREATE TABLE t (a int)`,
+		`COMMENT ON TABLE t IS E'first\nsecond\tfield\\tail'`,
+	)
+
+	require.Contains(t, snapshot, `first\nsecond\tfield\\tail`)
+	require.NotContains(t, snapshot, "first\nsecond")
+
+	for line := range strings.SplitSeq(strings.TrimSuffix(snapshot, "\n"), "\n") {
+		require.Equalf(t, 2, strings.Count(line, "\t"),
+			"every snapshot record must have exactly three tab-separated fields: %q", line)
+	}
 }
 
 func TestSnapshotDelta(t *testing.T) {

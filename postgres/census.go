@@ -17,6 +17,12 @@ import (
 //go:embed census.sql
 var censusQuery string
 
+// censusCoverageQuery counts the objects censusQuery must render from each covered catalog. Keeping
+// the count independent makes an accidentally removed renderer fail every caller's snapshot.
+//
+//go:embed censusCoverage.sql
+var censusCoverageQuery string
+
 // ErrUnsupportedSchemaObject is returned by [SchemaSnapshot] when the schema holds an object class
 // the census cannot render, such as an aggregate or a custom operator.
 //
@@ -25,29 +31,38 @@ var censusQuery string
 // exactly the object nobody thought to cover. Teaching census.sql the class is the fix.
 var ErrUnsupportedSchemaObject = errors.New("schema holds an object class the census cannot render")
 
-// censusBookkeepingPrefix marks the tables bun's migrator keeps for itself. They record which
-// migrations ran, so they exist at every step of a rollback and describe the harness rather than
-// the schema under test.
-//
-// The prefix, rather than the two exact names, also covers the indexes and constraints those tables
-// own. A caller's own table starting with it would be invisible to the census.
-const censusBookkeepingPrefix = "bun_migration"
+const (
+	// censusMigrationsTable records which Bun migrations have run.
+	censusMigrationsTable = "bun_migrations"
+	// censusMigrationLocksTable serializes Bun migration runs.
+	censusMigrationLocksTable = "bun_migration_locks"
+)
 
 // censusClassUnsupported is the class census.sql gives an object it cannot render, so a gap in
 // coverage arrives as a row to fail on rather than as silence.
-const censusClassUnsupported = "unsupported"
+const (
+	censusClassRelation    = "relation"
+	censusClassUnsupported = "unsupported"
+)
 
 // censusRow is one object in a schema census.
 type censusRow struct {
 	Class      string `bun:"class"`
+	Catalog    string `bun:"catalog"`
 	Identity   string `bun:"identity"`
 	Definition string `bun:"definition"`
 }
 
-// SchemaSnapshot renders every object in schema as canonical, sorted text, one line per object.
-// Two schemas are identical exactly when their snapshots are, which is what makes a snapshot usable
-// as a fixture: [RunMigrationRoundtripTest] compares one against the next to prove a rollback
-// landed where it should.
+// censusCoverageRow is the number of objects censusQuery must render from one catalog.
+type censusCoverageRow struct {
+	Catalog  string `bun:"catalog"`
+	Expected int    `bun:"expected"`
+}
+
+// SchemaSnapshot renders the supported objects in schema as canonical, sorted text, one line per
+// object. Two schemas are identical within that supported surface exactly when their snapshots are,
+// which is what makes a snapshot usable as a fixture: [RunMigrationRoundtripTest] compares one
+// against the next to prove a rollback landed where it should.
 //
 // The rendering is stable across databases and across the order statements were run in, so a
 // snapshot can be committed and diffed. PostgreSQL renders the definitions itself, so a snapshot
@@ -65,10 +80,25 @@ func SchemaSnapshot(ctx context.Context, db bun.IDB, schema string) (string, err
 		return "", fmt.Errorf("census schema %q: %w", schema, err)
 	}
 
+	var coverage []censusCoverageRow
+
+	err = db.NewRaw(censusCoverageQuery, schema).Scan(ctx, &coverage)
+	if err != nil {
+		return "", fmt.Errorf("check census coverage for schema %q: %w", schema, err)
+	}
+
+	err = validateCensusCoverage(rows, coverage)
+	if err != nil {
+		return "", fmt.Errorf("check census coverage for schema %q: %w", schema, err)
+	}
+
 	var (
 		unsupported []string
 		out         strings.Builder
 	)
+
+	fieldEscaper := strings.NewReplacer(
+		`\`, `\\`, "\t", `\t`, "\r", `\r`, "\n", `\n`)
 
 	for _, row := range rows {
 		if row.Class == censusClassUnsupported {
@@ -77,15 +107,15 @@ func SchemaSnapshot(ctx context.Context, db bun.IDB, schema string) (string, err
 			continue
 		}
 
-		if strings.HasPrefix(row.Identity, censusBookkeepingPrefix) {
+		if isCensusBookkeepingObject(row) {
 			continue
 		}
 
-		out.WriteString(row.Class)
+		out.WriteString(fieldEscaper.Replace(row.Class))
 		out.WriteByte('\t')
-		out.WriteString(row.Identity)
+		out.WriteString(fieldEscaper.Replace(row.Identity))
 		out.WriteByte('\t')
-		out.WriteString(row.Definition)
+		out.WriteString(fieldEscaper.Replace(row.Definition))
 		out.WriteByte('\n')
 	}
 
@@ -94,6 +124,55 @@ func SchemaSnapshot(ctx context.Context, db bun.IDB, schema string) (string, err
 	}
 
 	return out.String(), nil
+}
+
+// isCensusBookkeepingObject identifies only the objects Bun's default migrator creates.
+func isCensusBookkeepingObject(row censusRow) bool {
+	switch row.Class {
+	case "column", "constraint":
+		return strings.HasPrefix(row.Identity, censusMigrationsTable+".") ||
+			strings.HasPrefix(row.Identity, censusMigrationLocksTable+".")
+	case censusClassRelation:
+		return row.Identity == censusMigrationsTable ||
+			row.Identity == censusMigrationLocksTable ||
+			row.Identity == censusMigrationsTable+"_id_seq" ||
+			row.Identity == censusMigrationLocksTable+"_id_seq"
+	case "sequence":
+		return row.Identity == censusMigrationsTable+"_id_seq" ||
+			row.Identity == censusMigrationLocksTable+"_id_seq"
+	case "index":
+		return row.Identity == censusMigrationsTable+"_pkey" ||
+			row.Identity == censusMigrationsTable+"_name_unique" ||
+			row.Identity == censusMigrationLocksTable+"_pkey" ||
+			row.Identity == censusMigrationLocksTable+"_table_name_key"
+	case "comment":
+		return row.Identity == censusMigrationsTable ||
+			row.Identity == censusMigrationLocksTable ||
+			strings.HasPrefix(row.Identity, censusMigrationsTable+".") ||
+			strings.HasPrefix(row.Identity, censusMigrationLocksTable+".")
+	default:
+		return false
+	}
+}
+
+// validateCensusCoverage proves the renderer accounted for every expected catalog row.
+func validateCensusCoverage(rows []censusRow, coverage []censusCoverageRow) error {
+	actual := make(map[string]int, len(coverage))
+
+	for _, row := range rows {
+		if row.Catalog != "" {
+			actual[row.Catalog]++
+		}
+	}
+
+	for _, expected := range coverage {
+		if actual[expected.Catalog] != expected.Expected {
+			return fmt.Errorf("schema census coverage for %s: rendered %d objects, catalog has %d",
+				expected.Catalog, actual[expected.Catalog], expected.Expected)
+		}
+	}
+
+	return nil
 }
 
 // SnapshotDelta reports how got differs from want, as one line per object, or nil when the two
