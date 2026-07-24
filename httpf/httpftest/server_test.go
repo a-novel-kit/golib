@@ -40,7 +40,7 @@ func TestServer(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		response, err := httpf.NewClient(httpf.ClientOptions{}).Do(request)
+		response, err := httpf.NewPoolClient(httpf.PoolOptions{}).Do(request)
 		require.NoError(t, err)
 
 		body, err := io.ReadAll(response.Body)
@@ -70,7 +70,7 @@ func TestServer(t *testing.T) {
 		require.NoError(t, err)
 
 		//nolint:bodyclose // The call never returns a response, so there is no body to close.
-		_, err = httpf.NewClient(httpf.ClientOptions{}).Do(request)
+		_, err = httpf.NewPoolClient(httpf.PoolOptions{}).Do(request)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 
 		require.Len(t, server.Requests(), 1)
@@ -85,7 +85,7 @@ func TestServer(t *testing.T) {
 		require.NoError(t, err)
 
 		//nolint:bodyclose // The call never returns a response, so there is no body to close.
-		_, err = httpf.NewClient(httpf.ClientOptions{}).Do(request)
+		_, err = httpf.NewPoolClient(httpf.PoolOptions{}).Do(request)
 		require.Error(t, err)
 
 		require.Len(t, server.Requests(), 1)

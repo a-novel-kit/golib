@@ -8,7 +8,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-// Standard-library transport defaults, restated because the transport is built field by field.
 const (
 	transportDialTimeout           = 30 * time.Second
 	transportDialKeepAlive         = 30 * time.Second
@@ -17,20 +16,20 @@ const (
 	transportExpectContinueTimeout = 1 * time.Second
 )
 
-// ClientOptions sizes the connection pool of the client [NewClient] returns.
-type ClientOptions struct {
+// PoolOptions sizes the connection pool [NewPoolClient] and [NewPoolTransport] build.
+type PoolOptions struct {
 	// MaxIdleConns caps the idle connections kept across every host.
 	MaxIdleConns int
 
 	// MaxIdleConnsPerHost caps the idle connections kept for a single host. Set it to at least the
-	// number of concurrent requests made to that host: the standard library's default is two, and
-	// every call past the limit pays a fresh TLS handshake.
+	// number of concurrent requests made to that host: the standard library keeps two, and every
+	// call past that pays a fresh TLS handshake.
 	MaxIdleConnsPerHost int
 }
 
-// NewTransport builds the transport [NewClient] runs on. Use it to read those settings back, or to
-// wrap the transport before building a client.
-func NewTransport(options ClientOptions) *http.Transport {
+// NewPoolTransport returns the transport [NewPoolClient] runs on, untraced. Use it to read the pool
+// settings back, or to wrap the transport before building a client.
+func NewPoolTransport(options PoolOptions) *http.Transport {
 	return &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -44,22 +43,19 @@ func NewTransport(options ClientOptions) *http.Transport {
 		TLSHandshakeTimeout:   transportTLSHandshakeTimeout,
 		ExpectContinueTimeout: transportExpectContinueTimeout,
 
-		// Zero: a server that computes its answer before replying sends no headers until it is
-		// done, so any value here kills the long calls and spares the short ones. The caller's
-		// context deadline is the bound instead.
+		// A value here cuts off a response that is slow to start.
 		ResponseHeaderTimeout: 0,
 	}
 }
 
-// NewClient builds the client a service makes its outbound calls through, traced with otelhttp so
-// each request opens a span under the caller's and carries the trace context onward.
+// NewPoolClient returns an HTTP client that adds three things to http.DefaultClient: a connection
+// pool the caller sizes, otelhttp tracing that opens a span per request and carries the trace
+// context to the far end, and no timeout, so a response that takes minutes to arrive survives.
 //
-// Build one per process and inject it: sharing it is what makes the connection pool useful.
-func NewClient(options ClientOptions) *http.Client {
+// Build one per process and inject it: sharing it is what makes the pool useful.
+func NewPoolClient(options PoolOptions) *http.Client {
 	return &http.Client{
-		Transport: otelhttp.NewTransport(NewTransport(options)),
-
-		// Zero: this bounds the whole exchange, so any value truncates a long response mid-body.
-		Timeout: 0,
+		Transport: otelhttp.NewTransport(NewPoolTransport(options)),
+		Timeout:   0,
 	}
 }

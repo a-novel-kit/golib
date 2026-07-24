@@ -24,23 +24,23 @@ const (
 	inboundTraceHeader = "00-" + clientTraceID + "-0102030405060708-01"
 )
 
-func TestNewTransport(t *testing.T) {
+func TestNewPoolTransport(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
 		name string
 
-		options httpf.ClientOptions
+		options httpf.PoolOptions
 	}{
 		{
 			name: "Success",
 
-			options: httpf.ClientOptions{MaxIdleConns: 100, MaxIdleConnsPerHost: 4},
+			options: httpf.PoolOptions{MaxIdleConns: 100, MaxIdleConnsPerHost: 4},
 		},
 		{
 			name: "Success/Zeroed",
 
-			options: httpf.ClientOptions{},
+			options: httpf.PoolOptions{},
 		},
 	}
 
@@ -48,25 +48,25 @@ func TestNewTransport(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			transport := httpf.NewTransport(testCase.options)
+			transport := httpf.NewPoolTransport(testCase.options)
 
 			require.Equal(t, testCase.options.MaxIdleConns, transport.MaxIdleConns)
 			require.Equal(t, testCase.options.MaxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
 
-			// Guards the zero written out in NewTransport.
+			// Guards the zero written out in NewPoolTransport.
 			require.Zero(t, transport.ResponseHeaderTimeout)
 		})
 	}
 }
 
-func TestNewClient(t *testing.T) {
+func TestNewPoolClient(t *testing.T) {
 	t.Parallel()
 
 	t.Run("Success/NoOverallTimeout", func(t *testing.T) {
 		t.Parallel()
 
-		// Guards the zero written out in NewClient.
-		require.Zero(t, httpf.NewClient(httpf.ClientOptions{}).Timeout)
+		// Guards the zero written out in NewPoolClient.
+		require.Zero(t, httpf.NewPoolClient(httpf.PoolOptions{}).Timeout)
 	})
 
 	t.Run("Success/ReusesConnections", func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestNewClient(t *testing.T) {
 		}))
 		t.Cleanup(server.Close)
 
-		client := httpf.NewClient(httpf.ClientOptions{MaxIdleConns: 100, MaxIdleConnsPerHost: 4})
+		client := httpf.NewPoolClient(httpf.PoolOptions{MaxIdleConns: 100, MaxIdleConnsPerHost: 4})
 
 		var reused []bool
 
@@ -115,7 +115,7 @@ func TestNewClient(t *testing.T) {
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
 		require.NoError(t, err)
 
-		response, err := httpf.NewClient(httpf.ClientOptions{}).Do(request)
+		response, err := httpf.NewPoolClient(httpf.PoolOptions{}).Do(request)
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, response.Body.Close()) }()
@@ -144,7 +144,7 @@ func TestNewClient(t *testing.T) {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
 		require.NoError(t, err)
 
-		response, err := httpf.NewClient(httpf.ClientOptions{}).Do(request)
+		response, err := httpf.NewPoolClient(httpf.PoolOptions{}).Do(request)
 		require.NoError(t, err)
 		require.NoError(t, response.Body.Close())
 
