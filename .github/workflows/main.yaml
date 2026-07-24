@@ -104,8 +104,6 @@ jobs:
           version: "1.28.0"
 
   test-go:
-    # No needs. lint-go used to sit here, on its own runner and its own checkout, where its
-    # verdict could not change this job's — it only delayed the tests by a lint run.
     runs-on: ubuntu-latest
     permissions:
       contents: read
