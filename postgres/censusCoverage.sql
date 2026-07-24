@@ -1,6 +1,5 @@
--- Expected row counts for the four PostgreSQL catalogs the census promises to cover completely.
--- census.sql tags each corresponding output row with its source catalog; comparing the totals
--- makes removing or accidentally filtering any renderer branch fail loudly.
+-- Independent object counts for the four catalogs the census covers completely.
+-- census.sql tags matching rows by source catalog; unequal totals expose a missing renderer.
 --
 -- ?0 is the schema to census.
 WITH
@@ -29,7 +28,6 @@ WITH
       nspname = ?0
   ),
   catalog_objects (catalog, oid) AS (
-    -- Supported relations each produce one 'relation' row.
     SELECT
       'pg_class',
       c.oid
@@ -47,7 +45,6 @@ WITH
           AND e.classid = 'pg_class'::regclass
       )
     UNION ALL
-    -- Index relations each produce one 'index' row.
     SELECT
       'pg_class',
       i.indexrelid
@@ -56,7 +53,6 @@ WITH
       JOIN pg_class c ON c.oid = i.indexrelid
       JOIN target ON c.relnamespace = target.nsp
     UNION ALL
-    -- Every remaining user-defined relation kind produces an 'unsupported' row.
     SELECT
       'pg_class',
       c.oid
@@ -73,7 +69,6 @@ WITH
       pg_constraint con
       JOIN target ON con.connamespace = target.nsp
     UNION ALL
-    -- Supported enum, domain, and standalone composite types each produce one 'type' row.
     SELECT
       'pg_type',
       t.oid
@@ -99,7 +94,6 @@ WITH
           AND e.classid = 'pg_type'::regclass
       )
     UNION ALL
-    -- Non-implied types outside that supported set each produce an 'unsupported' row.
     SELECT
       'pg_type',
       t.oid
@@ -125,7 +119,6 @@ WITH
           AND e.classid = 'pg_type'::regclass
       )
     UNION ALL
-    -- Regular routines produce 'routine' rows; aggregates produce 'unsupported' rows.
     SELECT
       'pg_proc',
       p.oid

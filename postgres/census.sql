@@ -1,21 +1,10 @@
--- A canonical, order-insensitive census of a schema, one row per object as
--- (class, identity, definition).
---
--- Definitions are rendered by PostgreSQL itself through the pg_get_*def family — the same
--- functions pg_dump uses — so however a migration spelled a thing, the catalog reports one
--- canonical form. Rows are keyed by object identity rather than ordinal position, which is what
--- lets a column re-added at the end of a table by a rollback read as identical.
---
--- Nothing derives from an OID. OIDs are assigned in creation order, so any leak would make an
--- identical schema built by a different sequence of statements render different text.
---
--- Classes this census cannot render emit an 'unsupported' row instead of being skipped, turning a
--- gap in coverage into a loud failure rather than a silent pass.
+-- Canonical (class, identity, definition) rows for one schema.
+-- PostgreSQL renders definitions; identity keys make comparison order-insensitive.
+-- Output is OID-free. Unsupported classes fail instead of disappearing.
 --
 -- ?0 is the schema to census.
 WITH
-  -- Objects a CREATE EXTENSION brought in belong to the extension, which is censused in its own
-  -- right, so dropping its members here loses no coverage.
+  -- Extension members are represented by their owning extension.
   extension_owned AS (
     SELECT
       objid,
@@ -48,7 +37,7 @@ FROM
 WHERE
   a.attnum > 0
   AND NOT a.attisdropped
-  -- 'c' covers the fields of a standalone composite type, which has no other home.
+  -- Include standalone composite fields.
   AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'c')
 UNION ALL
 SELECT
@@ -115,8 +104,7 @@ FROM
   JOIN target ON t.typnamespace = target.nsp
 WHERE
   t.typtype IN ('e', 'd', 'c')
-  -- A table's row type is implied by the table. A standalone composite type also owns a pg_class
-  -- row, of relkind 'c', which is why only the other kinds are excluded here.
+  -- Table row types are implied; standalone composites (relkind 'c') are not.
   AND NOT EXISTS (
     SELECT
     FROM
@@ -137,8 +125,7 @@ UNION ALL
 SELECT
   'routine',
   p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
-  -- The complete reconstructed definition is hashed rather than embedded: it can run to hundreds
-  -- of lines, and the census is read as a diff where one changed line beats one changed page.
+  -- Hash complete definitions to preserve one-line records.
   p.prokind::text || ' ' || md5(pg_get_functiondef(p.oid)) || ' ' || pg_get_function_result(p.oid) || ' ' || p.provolatile::text || ' ' || p.proisstrict::text || ' ' || p.prosecdef::text || ' ' || l.lanname
 FROM
   pg_proc p
@@ -280,8 +267,7 @@ FROM
 WHERE
   n.nspname NOT LIKE 'pg\_%'
   AND n.nspname <> 'information_schema'
-  -- Everything below reports what this census cannot render. A row here fails the caller rather
-  -- than letting an object class drop silently out of coverage.
+  -- Unsupported objects fail the snapshot instead of disappearing.
 UNION ALL
 SELECT
   'unsupported',

@@ -18,65 +18,30 @@ import (
 )
 
 const (
-	// roundtripInstancePrefix names the throwaway database one roundtrip runs against. Unlike the
-	// databases RunDBTest clones, it starts empty: the run's whole subject is what the migrations
-	// do to a virgin database, so there is nothing to clone from.
 	roundtripInstancePrefix = "goroundtrip_"
 
-	// roundtripSnapshotExt is the extension of a committed snapshot. Plain text, because its
-	// review value is that a reader can see a migration's effect on the schema in a pull request.
 	roundtripSnapshotExt = ".txt"
 
-	// roundtripUpdateEnv, when set to any non-empty value, makes a run rewrite the committed
-	// snapshots instead of comparing against them.
-	//
-	// An environment variable rather than a test flag: this package is linked into every
-	// consumer's test binary, and a flag registered here would collide with a consumer that
-	// defines its own.
 	roundtripUpdateEnv = "GOLIB_UPDATE_SNAPSHOTS"
 
-	// roundtripSchema is the schema migrations land in. Services run one schema per database, so
-	// the roundtrip has no reason to take it as a parameter.
 	roundtripSchema = "public"
 )
 
-// errMigrationDrift reports that the schema is not where a migration should have left it. It stays
-// unexported because RunMigrationRoundtripTest fails the test rather than handing it back; only
-// this package's own tests distinguish it from an infrastructure failure.
 var errMigrationDrift = errors.New("schema drift")
 
-// RoundtripOptions tunes [RunMigrationRoundtripTest]. The zero value runs the roundtrip against a
-// schema that never holds rows and keeps no snapshots on disk.
+// RoundtripOptions configures [RunMigrationRoundtripTest]. Its zero value is valid.
 type RoundtripOptions struct {
-	// Fixtures holds SQL files named for the migration they follow, as `<timestamp>_<name>.sql`.
-	// A fixture runs after its migration, so its rows are what the next migration's up and its own
-	// migration's down both have to survive.
-	//
-	// Seeding at the step rather than at the end is what puts data in front of the up migrations
-	// too: a column added NOT NULL with no default succeeds on an empty table and fails on a
-	// populated one, and only the second is what production does.
-	//
-	// A migration with no matching file simply seeds nothing.
+	// Fixtures holds optional `<timestamp>_<name>.sql` files, applied after the named migration.
 	Fixtures fs.FS
 
-	// Snapshots is the directory holding one committed snapshot per migration. When set, each
-	// snapshot taken on the way up is compared against the file for that migration, so an edit to
-	// an already-merged migration surfaces as a diff on a file that should never move again.
-	//
-	// Setting GOLIB_UPDATE_SNAPSHOTS rewrites the files instead of comparing.
+	// Snapshots holds one committed snapshot per migration. GOLIB_UPDATE_SNAPSHOTS rewrites them.
 	Snapshots string
 }
 
 // RunMigrationRoundtripTest proves that every down migration exactly reverses its up.
 //
-// It applies the migrations one at a time against a throwaway database, snapshotting the schema
-// after each, then rolls them back one at a time and requires every rollback to land exactly on the
-// state before its migration. Finally it re-applies the whole set, which catches a down migration
-// that leaves the database in a state the up cannot run against a second time.
-//
-// Verifying each step, rather than only the end state, is what localises a failure to the migration
-// that caused it. A rollback that overshoots and one that stops short both end at the wrong place,
-// but the step that first diverged names which migration to fix.
+// It snapshots each up, verifies each down against the preceding snapshot, then re-applies the full
+// set. Fixtures run between steps; snapshots optionally enforce migration immutability.
 //
 // config must expose Options() []pgdriver.Option, as postgrespresets.Default does.
 func RunMigrationRoundtripTest(t *testing.T, config Config, migrations fs.FS, opts *RoundtripOptions) {
@@ -85,9 +50,6 @@ func RunMigrationRoundtripTest(t *testing.T, config Config, migrations fs.FS, op
 	require.NoError(t, verifyRoundtrip(t.Context(), roundtripDatabase(t, config), migrations, opts))
 }
 
-// verifyRoundtrip carries the whole roundtrip. It returns errors rather than failing a test so that
-// this package can test what it does when a migration set is broken, which is the behaviour that
-// matters most.
 func verifyRoundtrip(ctx context.Context, db *bun.DB, migrations fs.FS, opts *RoundtripOptions) error {
 	if opts == nil {
 		opts = &RoundtripOptions{}
@@ -138,8 +100,7 @@ func verifyRoundtrip(ctx context.Context, db *bun.DB, migrations fs.FS, opts *Ro
 	for step := len(ordered); step >= 1; step-- {
 		err = roundtripDown(ctx, db, ordered, step, states[step-1])
 		if err != nil {
-			// Drift cascades: every remaining rollback would report the same difference, so the
-			// run stops at the migration that introduced it rather than repeating itself.
+			// Later rollback errors would only repeat this first divergence.
 			return err
 		}
 	}
@@ -147,7 +108,6 @@ func verifyRoundtrip(ctx context.Context, db *bun.DB, migrations fs.FS, opts *Ro
 	return roundtripReplay(ctx, db, ordered, states[len(ordered)])
 }
 
-// roundtripUp applies migration number step and nothing else, and snapshots the result.
 func roundtripUp(ctx context.Context, db *bun.DB, ordered migrate.MigrationSlice, step int) (string, error) {
 	slug := roundtripSlug(ordered[step-1])
 
@@ -165,7 +125,6 @@ func roundtripUp(ctx context.Context, db *bun.DB, ordered migrate.MigrationSlice
 	return SchemaSnapshot(ctx, db, roundtripSchema)
 }
 
-// roundtripDown rolls back migration number step and requires the schema to land on want.
 func roundtripDown(
 	ctx context.Context, db *bun.DB, ordered migrate.MigrationSlice, step int, want string,
 ) error {
@@ -194,8 +153,6 @@ func roundtripDown(
 	return nil
 }
 
-// roundtripReplay re-applies every migration to the rolled-back database and requires the schema to
-// come back identical.
 func roundtripReplay(ctx context.Context, db *bun.DB, ordered migrate.MigrationSlice, want string) error {
 	_, err := migrate.NewMigrator(db, roundtripPrefix(ordered, len(ordered))).Migrate(ctx)
 	if err != nil {
@@ -216,12 +173,8 @@ func roundtripReplay(ctx context.Context, db *bun.DB, ordered migrate.MigrationS
 	return nil
 }
 
-// roundtripPrefix builds a migration set holding only the first n of ordered.
-//
 // Bun stamps every migration applied by one Migrate call with a single group id, and rolls back a
-// whole group at a time. A set that ends at migration n therefore leaves exactly one migration
-// pending, which is what makes its group one migration wide — and a rollback of that group revert
-// one migration rather than the entire set.
+// whole group. Limiting the set to n leaves one pending migration per call.
 func roundtripPrefix(ordered migrate.MigrationSlice, n int) *migrate.Migrations {
 	set := migrate.NewMigrations()
 	for _, migration := range ordered[:n] {
@@ -231,9 +184,7 @@ func roundtripPrefix(ordered migrate.MigrationSlice, n int) *migrate.Migrations 
 	return set
 }
 
-// roundtripSlug rebuilds the stem of a migration's filename, which is how its fixture and its
-// committed snapshot are named. Bun splits the filename into a timestamp and a comment; neither
-// half identifies a migration on its own.
+// roundtripSlug rebuilds the filename stem Bun split during discovery.
 func roundtripSlug(migration migrate.Migration) string {
 	if migration.Comment == "" {
 		return migration.Name
@@ -242,7 +193,6 @@ func roundtripSlug(migration migrate.Migration) string {
 	return migration.Name + "_" + migration.Comment
 }
 
-// roundtripApplyFixture runs the fixture belonging to a migration, if there is one.
 func roundtripApplyFixture(
 	ctx context.Context, db *bun.DB, opts *RoundtripOptions, migration migrate.Migration,
 ) error {
@@ -254,8 +204,6 @@ func roundtripApplyFixture(
 
 	body, err := fs.ReadFile(opts.Fixtures, name)
 	if err != nil {
-		// A migration that needs no rows of its own is the common case, so an absent fixture is
-		// not a failure. Any other read error is.
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
@@ -271,8 +219,6 @@ func roundtripApplyFixture(
 	return nil
 }
 
-// roundtripCheckSnapshot compares a snapshot against its committed file, or rewrites the file when
-// the update variable is set.
 func roundtripCheckSnapshot(opts *RoundtripOptions, migration migrate.Migration, got string) error {
 	if opts.Snapshots == "" {
 		return nil
@@ -310,7 +256,6 @@ func roundtripCheckSnapshot(opts *RoundtripOptions, migration migrate.Migration,
 	return nil
 }
 
-// roundtripDatabase creates an empty database for one roundtrip and drops it on cleanup.
 func roundtripDatabase(t *testing.T, config Config) *bun.DB {
 	t.Helper()
 
@@ -325,7 +270,6 @@ func roundtripDatabase(t *testing.T, config Config) *bun.DB {
 	return db
 }
 
-// newRoundtripDatabase creates the throwaway database and registers its teardown.
 func newRoundtripDatabase(t *testing.T, options []pgdriver.Option) (*bun.DB, error) {
 	t.Helper()
 
@@ -343,8 +287,7 @@ func newRoundtripDatabase(t *testing.T, options []pgdriver.Option) (*bun.DB, err
 		return nil, fmt.Errorf("create the roundtrip database: %w", err)
 	}
 
-	// Registered while the maintenance pool is still open, so a failure below cannot strand the
-	// database. Cleanup is LIFO, so the pool opened further down closes before the drop runs.
+	// Register before opening the test pool so cleanup runs after that pool closes.
 	t.Cleanup(func() {
 		// t.Context is already cancelled by the time cleanups run.
 		ctx := context.Background()

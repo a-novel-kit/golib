@@ -11,11 +11,6 @@ import (
 	"github.com/uptrace/bun/migrate"
 )
 
-// The roundtrip is tested from inside the package so that the failures can be inspected. Its
-// exported entry point fails a test rather than returning, which is right for callers and useless
-// for proving it fails on the right things.
-
-// roundtripTestDB stands up the throwaway database one verifyRoundtrip call runs against.
 func roundtripTestDB(t *testing.T) *bun.DB {
 	t.Helper()
 
@@ -39,8 +34,6 @@ func TestVerifyRoundtripAcceptsAReversibleSet(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// The defect is a down migration that drops the column it added but leaves its enum type behind —
-// the shape of bug a schema comparison blind to types reports as a clean rollback.
 func TestVerifyRoundtripCatchesAnObjectLeftBehind(t *testing.T) {
 	t.Parallel()
 
@@ -54,8 +47,6 @@ func TestVerifyRoundtripCatchesAnObjectLeftBehind(t *testing.T) {
 		"the failure must name the object left behind")
 }
 
-// Fixtures are seeded between steps so an up migration meets rows, not just an empty table. The two
-// halves here run the same migrations and differ only in whether anything was seeded.
 func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 	t.Parallel()
 
@@ -79,10 +70,6 @@ func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 	})
 }
 
-// Not parallel: recording is switched on by an environment variable, which is process-wide, and
-// t.Setenv panics in a parallel test. Only runs that set Snapshots ever read it, and they all live
-// here.
-//
 //nolint:paralleltest // t.Setenv is incompatible with t.Parallel.
 func TestVerifyRoundtripSnapshots(t *testing.T) {
 	migrations := os.DirFS("testdata/roundtrip/migrations")
@@ -98,8 +85,6 @@ func TestVerifyRoundtripSnapshots(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, recorded, 3, "one snapshot per migration")
 
-		// The second pass compares instead of recording, so it proves the recorded files describe
-		// what the migrations actually produce.
 		t.Setenv(roundtripUpdateEnv, "")
 		require.NoError(t, verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations,
 			&RoundtripOptions{Snapshots: dir}))
@@ -114,8 +99,6 @@ func TestVerifyRoundtripSnapshots(t *testing.T) {
 
 		t.Setenv(roundtripUpdateEnv, "")
 
-		// Stands for a merged migration having been edited: the file no longer describes the
-		// schema the migration builds.
 		edited := filepath.Join(dir, "20260725000001_probe_table.txt")
 		require.NoError(t, os.WriteFile(edited, []byte("relation\troundtrip_probe\tr\n"), 0o600))
 
@@ -144,9 +127,6 @@ func TestVerifyRoundtripRejectsAnEmptyMigrationSet(t *testing.T) {
 	require.ErrorContains(t, err, "no migrations discovered")
 }
 
-// The group width is the mechanic the whole roundtrip rests on: bun rolls back a group at a time,
-// so a group holding more than one migration would revert several at once and the per-step
-// comparison would be meaningless.
 func TestRoundtripPrefixNarrowsTheSetToOnePendingMigration(t *testing.T) {
 	t.Parallel()
 

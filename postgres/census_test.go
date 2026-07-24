@@ -16,10 +16,7 @@ import (
 	"github.com/a-novel-kit/golib/postgres"
 )
 
-// probeDB stands up an empty database, runs statements against it, and drops it on cleanup.
-//
-// Each probe gets a database rather than a schema because the census covers extensions, which are
-// database-scoped: two schemas of one database would agree about them however the probe differed.
+// Use separate databases because extensions are database-scoped.
 func probeDB(t *testing.T, statements ...string) *bun.DB {
 	t.Helper()
 
@@ -64,7 +61,6 @@ func probeDB(t *testing.T, statements ...string) *bun.DB {
 	return db
 }
 
-// probeSnapshot censuses a database built from statements.
 func probeSnapshot(t *testing.T, statements ...string) string {
 	t.Helper()
 
@@ -74,15 +70,13 @@ func probeSnapshot(t *testing.T, statements ...string) string {
 	return snapshot
 }
 
-// drift is one pair of schemas the census must tell apart, or must not.
 type drift struct {
 	name string
 	from []string
 	to   []string
 }
 
-// A rollback that overshoots or stops short leaves the schema subtly wrong. Every case here is a
-// difference the census has to report, or a down migration could pass while leaving it behind.
+// Each case is schema drift a rollback must expose.
 func TestSchemaSnapshotReportsDrift(t *testing.T) {
 	t.Parallel()
 
@@ -232,15 +226,13 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 	}
 }
 
-// The census is only usable as a rollback oracle if it stays quiet about differences that are not
-// schema differences. Each case here is one a textual pg_dump comparison reports and this must not.
+// Each case is equivalent schema a textual dump can report as different.
 func TestSchemaSnapshotIgnoresNonDifferences(t *testing.T) {
 	t.Parallel()
 
 	cases := []drift{
 		{
-			// The case that defeats a dump diff: PostgreSQL appends a re-added column rather than
-			// restoring its position, so a correct rollback still moves it.
+			// PostgreSQL appends a re-added column; ordinal position is not schema drift.
 			name: "column re-added at the end by a rollback",
 			from: []string{`CREATE TABLE t (a int, b int, c int)`},
 			to: []string{
@@ -279,9 +271,7 @@ func TestSchemaSnapshotIgnoresNonDifferences(t *testing.T) {
 	}
 }
 
-// PostgreSQL assigns OIDs in creation order. If any reached the snapshot, an identical schema built
-// by a different sequence of statements would render differently and every committed snapshot would
-// churn for no reason — so the two halves here are deliberately built in opposite orders.
+// Opposite creation order detects leaked OIDs.
 func TestSchemaSnapshotIsIndependentOfCreationOrder(t *testing.T) {
 	t.Parallel()
 
@@ -309,9 +299,6 @@ func TestSchemaSnapshotIsIndependentOfCreationOrder(t *testing.T) {
 	require.Equal(t, forward, reversed, "the snapshot must not depend on the order objects were created in")
 }
 
-// An object class the census cannot render must fail the caller. Silently omitting it would make a
-// snapshot taken after it was created compare equal to one taken before — the exact blindness the
-// snapshot exists to rule out.
 func TestSchemaSnapshotRejectsUnsupportedObjects(t *testing.T) {
 	t.Parallel()
 
@@ -325,8 +312,6 @@ func TestSchemaSnapshotRejectsUnsupportedObjects(t *testing.T) {
 	require.Contains(t, err.Error(), "aggregate")
 }
 
-// The migrator's own bookkeeping exists at every step of a rollback and describes the harness, not
-// the schema under test, so it must never reach a snapshot.
 func TestSchemaSnapshotExcludesMigrationBookkeeping(t *testing.T) {
 	t.Parallel()
 
