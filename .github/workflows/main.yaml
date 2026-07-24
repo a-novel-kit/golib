@@ -28,7 +28,6 @@ jobs:
 
   lint-go:
     runs-on: ubuntu-latest
-    needs: [generated-go]
     permissions:
       contents: read
     steps:
@@ -105,7 +104,6 @@ jobs:
           version: "1.28.0"
 
   test-go:
-    needs: [lint-go]
     runs-on: ubuntu-latest
     permissions:
       contents: read
