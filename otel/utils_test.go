@@ -14,7 +14,7 @@ func TestRecoverPanic(t *testing.T) {
 
 		done := make(chan struct{})
 
-		// Reaching done is the assertion: a panic RecoverPanic misses ends the test binary itself.
+		// A missed panic ends the test binary; reaching done is the assertion.
 		go func() {
 			defer close(done)
 

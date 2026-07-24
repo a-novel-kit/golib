@@ -4,24 +4,19 @@ import (
 	"text/template"
 )
 
-// BoundedSender is a [Sender] that caps concurrent deliveries; sends past the cap wait for a
-// free slot.
-//
-// ProdSender holds one connection per delivery, up to its full timeout, so concurrent callers
-// pile up connections during a burst or a server stall. The cap bounds the connections; callers
-// queue.
+// BoundedSender is a [Sender] that caps concurrent deliveries; excess sends wait for a slot.
+// ProdSender holds one connection per delivery, so an unbounded burst piles up connections.
 type BoundedSender struct {
 	sender Sender
 	slots  chan struct{}
 }
 
-// NewBoundedSender wraps sender so at most limit deliveries run concurrently. A limit below one
-// is raised to one.
+// NewBoundedSender caps sender at limit concurrent deliveries; a limit below one becomes one.
 func NewBoundedSender(sender Sender, limit int) *BoundedSender {
 	return &BoundedSender{sender: sender, slots: make(chan struct{}, max(limit, 1))}
 }
 
-// SendMail waits for a delivery slot, then delegates to the wrapped sender.
+// SendMail waits for a slot, then delegates.
 func (bounded *BoundedSender) SendMail(to MailUsers, t *template.Template, tName string, data any) error {
 	bounded.slots <- struct{}{}
 	defer func() { <-bounded.slots }()
@@ -29,8 +24,7 @@ func (bounded *BoundedSender) SendMail(to MailUsers, t *template.Template, tName
 	return bounded.sender.SendMail(to, t, tName, data)
 }
 
-// Ping delegates to the wrapped sender without taking a delivery slot, so readiness answers
-// while every slot is busy.
+// Ping delegates without taking a slot, so probes never queue behind sends.
 func (bounded *BoundedSender) Ping() error {
 	return bounded.sender.Ping()
 }
