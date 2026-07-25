@@ -1,9 +1,11 @@
 package postgres
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
@@ -85,6 +87,10 @@ func TestVerifyRoundtripSnapshots(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, recorded, 3, "one snapshot per migration")
 
+		first, err := os.ReadFile(filepath.Join(dir, "20260725000001_probe_table.txt")) //nolint:gosec // t.TempDir.
+		require.NoError(t, err)
+		require.Contains(t, string(first), roundtripHistoryRecord)
+
 		t.Setenv(roundtripUpdateEnv, "")
 		require.NoError(t, verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations,
 			&RoundtripOptions{Snapshots: dir}))
@@ -148,4 +154,49 @@ func TestRoundtripSlug(t *testing.T) {
 		roundtripSlug(migrate.Migration{Name: "20260725000001", Comment: "probe_table"}))
 	require.Equal(t, "20260725000001",
 		roundtripSlug(migrate.Migration{Name: "20260725000001"}))
+}
+
+func TestRoundtripHistoryDigests(t *testing.T) {
+	t.Parallel()
+
+	migrations := fstest.MapFS{
+		"20260725000001_first.up.sql":    {Data: []byte("SELECT 1;")},
+		"20260725000001_first.down.sql":  {Data: []byte("SELECT 2;")},
+		"20260725000002_second.up.sql":   {Data: []byte("SELECT 3;")},
+		"20260725000002_second.down.sql": {Data: []byte("SELECT 4;")},
+	}
+	ordered := migrate.MigrationSlice{
+		{Name: "20260725000001", Comment: "first"},
+		{Name: "20260725000002", Comment: "second"},
+	}
+
+	baseline, err := roundtripHistoryDigests(migrations, ordered)
+	require.NoError(t, err)
+	require.Len(t, baseline, 2)
+
+	for _, sourcePath := range []string{
+		"20260725000001_first.up.sql",
+		"20260725000001_first.down.sql",
+	} {
+		t.Run(sourcePath, func(t *testing.T) {
+			t.Parallel()
+
+			edited := maps.Clone(migrations)
+			edited[sourcePath] = &fstest.MapFile{Data: []byte("SELECT 5;")}
+
+			changed, err := roundtripHistoryDigests(edited, ordered)
+			require.NoError(t, err)
+			require.NotEqual(t, baseline[0], changed[0])
+			require.NotEqual(t, baseline[1], changed[1])
+		})
+	}
+
+	appended := maps.Clone(migrations)
+	appended["20260725000003_third.up.sql"] = &fstest.MapFile{Data: []byte("SELECT 6;")}
+	appended["20260725000003_third.down.sql"] = &fstest.MapFile{Data: []byte("SELECT 7;")}
+
+	withAppend, err := roundtripHistoryDigests(appended, append(ordered,
+		migrate.Migration{Name: "20260725000003", Comment: "third"}))
+	require.NoError(t, err)
+	require.Equal(t, baseline, withAppend[:2])
 }
