@@ -3,10 +3,15 @@ package postgres
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +29,8 @@ const (
 
 	roundtripUpdateEnv = "GOLIB_UPDATE_SNAPSHOTS"
 
+	roundtripHistoryRecord = "migration-history\tsha256:"
+
 	roundtripSchema = "public"
 )
 
@@ -34,14 +41,15 @@ type RoundtripOptions struct {
 	// Fixtures holds optional `<timestamp>_<name>.sql` files, applied after the named migration.
 	Fixtures fs.FS
 
-	// Snapshots holds one committed snapshot per migration. GOLIB_UPDATE_SNAPSHOTS rewrites them.
+	// Snapshots holds one history-bound schema snapshot per migration. GOLIB_UPDATE_SNAPSHOTS
+	// rewrites them.
 	Snapshots string
 }
 
 // RunMigrationRoundtripTest proves that every down migration exactly reverses its up.
 //
 // It snapshots each up, verifies each down against the preceding snapshot, then re-applies the full
-// set. Fixtures run between steps; snapshots optionally enforce migration immutability.
+// set. Fixtures run between steps. Snapshots bind each schema to its exact migration prefix.
 //
 // config must expose Options() []pgdriver.Option, as postgrespresets.Default does.
 func RunMigrationRoundtripTest(t *testing.T, config Config, migrations fs.FS, opts *RoundtripOptions) {
@@ -67,6 +75,14 @@ func verifyRoundtrip(ctx context.Context, db *bun.DB, migrations fs.FS, opts *Ro
 		return errors.New("no migrations discovered — the roundtrip would assert nothing")
 	}
 
+	historyDigests := make([]string, len(ordered))
+	if opts.Snapshots != "" {
+		historyDigests, err = roundtripHistoryDigests(migrations, ordered)
+		if err != nil {
+			return err
+		}
+	}
+
 	err = migrate.NewMigrator(db, roundtripPrefix(ordered, len(ordered))).Init(ctx)
 	if err != nil {
 		return fmt.Errorf("initialise the migration bookkeeping: %w", err)
@@ -86,7 +102,7 @@ func verifyRoundtrip(ctx context.Context, db *bun.DB, migrations fs.FS, opts *Ro
 			return err
 		}
 
-		err = roundtripCheckSnapshot(opts, ordered[step-1], states[step])
+		err = roundtripCheckSnapshot(opts, ordered[step-1], states[step], historyDigests[step-1])
 		if err != nil {
 			return err
 		}
@@ -219,12 +235,15 @@ func roundtripApplyFixture(
 	return nil
 }
 
-func roundtripCheckSnapshot(opts *RoundtripOptions, migration migrate.Migration, got string) error {
+func roundtripCheckSnapshot(
+	opts *RoundtripOptions, migration migrate.Migration, got, historyDigest string,
+) error {
 	if opts.Snapshots == "" {
 		return nil
 	}
 
-	path := filepath.Join(opts.Snapshots, roundtripSlug(migration)+roundtripSnapshotExt)
+	snapshotPath := filepath.Join(opts.Snapshots, roundtripSlug(migration)+roundtripSnapshotExt)
+	got = roundtripHistoryRecord + historyDigest + "\n" + got
 
 	if os.Getenv(roundtripUpdateEnv) != "" {
 		err := os.MkdirAll(opts.Snapshots, 0o750)
@@ -232,28 +251,125 @@ func roundtripCheckSnapshot(opts *RoundtripOptions, migration migrate.Migration,
 			return fmt.Errorf("create the snapshot directory: %w", err)
 		}
 
-		err = os.WriteFile(path, []byte(got), 0o600)
+		err = os.WriteFile(snapshotPath, []byte(got), 0o600)
 		if err != nil {
-			return fmt.Errorf("write snapshot %s: %w", path, err)
+			return fmt.Errorf("write snapshot %s: %w", snapshotPath, err)
 		}
 
 		return nil
 	}
 
-	want, err := os.ReadFile(path) //nolint:gosec // the path is built from a migration filename.
+	want, err := os.ReadFile(snapshotPath) //nolint:gosec // Built from a migration filename.
 	if err != nil {
 		return fmt.Errorf("read snapshot %s — run with %s=1 to record it: %w",
-			path, roundtripUpdateEnv, err)
+			snapshotPath, roundtripUpdateEnv, err)
 	}
 
 	if delta := SnapshotDelta(string(want), got); len(delta) > 0 {
 		return fmt.Errorf(
-			"%w: migration %s no longer produces its committed schema. A merged migration must not "+
-				"change; if this one legitimately did, re-record with %s=1.\n  %s",
+			"%w: migration %s no longer matches its committed history and schema. A merged "+
+				"migration must not change; re-record a reviewed exception with %s=1.\n  %s",
 			errMigrationDrift, roundtripSlug(migration), roundtripUpdateEnv, strings.Join(delta, "\n  "))
 	}
 
 	return nil
+}
+
+type roundtripMigrationSources struct {
+	up   string
+	down string
+}
+
+func roundtripHistoryDigests(
+	migrations fs.FS, ordered migrate.MigrationSlice,
+) ([]string, error) {
+	digests := make([]string, len(ordered))
+	sources := make(map[string]roundtripMigrationSources, len(ordered))
+
+	err := fs.WalkDir(migrations, ".", func(sourcePath string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		if entry.IsDir() {
+			return nil
+		}
+
+		slug, isDown, ok := roundtripSourceName(path.Base(sourcePath))
+		if !ok {
+			return nil
+		}
+
+		pair := sources[slug]
+
+		target, direction := &pair.up, "up"
+		if isDown {
+			target, direction = &pair.down, "down"
+		}
+
+		if *target != "" {
+			return fmt.Errorf("migration %s has duplicate %s files", slug, direction)
+		}
+
+		*target = sourcePath
+		sources[slug] = pair
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("discover migration history: %w", err)
+	}
+
+	history := sha256.New()
+
+	for index, migration := range ordered {
+		slug := roundtripSlug(migration)
+
+		pair := sources[slug]
+		if pair.up == "" || pair.down == "" {
+			return nil, fmt.Errorf("migration %s needs one up and one down SQL file", slug)
+		}
+
+		for _, sourcePath := range []string{pair.up, pair.down} {
+			body, readErr := fs.ReadFile(migrations, sourcePath)
+			if readErr != nil {
+				return nil, fmt.Errorf("read migration history file %s: %w", sourcePath, readErr)
+			}
+
+			roundtripHashField(history, []byte(sourcePath))
+			roundtripHashField(history, body)
+		}
+
+		digests[index] = hex.EncodeToString(history.Sum(nil))
+	}
+
+	return digests, nil
+}
+
+func roundtripSourceName(name string) (string, bool, bool) {
+	for _, suffix := range []struct {
+		value  string
+		isDown bool
+	}{
+		{value: ".tx.up.sql"},
+		{value: ".up.sql"},
+		{value: ".tx.down.sql", isDown: true},
+		{value: ".down.sql", isDown: true},
+	} {
+		if slug, found := strings.CutSuffix(name, suffix.value); found {
+			return slug, suffix.isDown, true
+		}
+	}
+
+	return "", false, false
+}
+
+func roundtripHashField(digest hash.Hash, field []byte) {
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(field)))
+
+	_, _ = digest.Write(size[:])
+	_, _ = digest.Write(field)
 }
 
 func roundtripDatabase(t *testing.T, config Config) *bun.DB {
