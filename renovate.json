@@ -55,7 +55,7 @@
       "matchManagers": ["npm"],
       "postUpdateOptions": ["pnpmDedupe"],
       "postUpgradeTasks": {
-        "commands": ["pnpm format"],
+        "commands": ["pnpm format:prettier"],
         "executionMode": "branch"
       }
     }
