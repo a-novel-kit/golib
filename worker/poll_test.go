@@ -67,7 +67,6 @@ func TestPoll(t *testing.T) {
 
 		drained := make(chan struct{})
 
-		//nolint:unparam // The callback's signature is dictated by worker.Poll, not by this test.
 		drain := func(context.Context) (bool, error) {
 			count := calls.Add(1)
 			if count < pollDrainRuns {
@@ -102,7 +101,6 @@ func TestPoll(t *testing.T) {
 
 		recovered := make(chan struct{})
 
-		//nolint:unparam // The callback's signature is dictated by worker.Poll, not by this test.
 		failOnce := func(context.Context) (bool, error) {
 			switch calls.Add(1) {
 			case 1:
@@ -132,7 +130,6 @@ func TestPoll(t *testing.T) {
 		started := time.Now()
 		firstCall := make(chan time.Duration, 1)
 
-		//nolint:unparam // The callback's signature is dictated by worker.Poll, not by this test.
 		recordFirstCall := func(context.Context) (bool, error) {
 			select {
 			case firstCall <- time.Since(started):
