@@ -23,14 +23,15 @@ const DefaultTimeout = 30 * time.Second
 // stops there: every message goes out authenticated.
 var ErrNoAuthSupport = errors.New("SMTP server does not support AUTH")
 
-// ProdSender delivers mail through a real SMTP server using net/smtp. Its
-// fields are populated from configuration; the password is never serialized
-// back out.
+// ProdSender delivers mail through a real SMTP server using net/smtp. Email controls the envelope
+// sender and visible From header. Username controls SMTP authentication and falls back to Email
+// when empty. The password is never serialized back out.
 type ProdSender struct {
-	Addr   string `json:"addr"   yaml:"addr"`
-	Name   string `json:"name"   yaml:"name"`
-	Email  string `json:"email"  yaml:"email"`
-	Domain string `json:"domain" yaml:"domain"`
+	Addr     string `json:"addr"     yaml:"addr"`
+	Name     string `json:"name"     yaml:"name"`
+	Email    string `json:"email"    yaml:"email"`
+	Username string `json:"username" yaml:"username"`
+	Domain   string `json:"domain"   yaml:"domain"`
 
 	Password string `json:"-" yaml:"-"`
 
@@ -140,7 +141,14 @@ func (sender *ProdSender) timeout() time.Duration {
 }
 
 func (sender *ProdSender) auth() smtp.Auth {
-	auth := smtp.PlainAuth(sender.Name, sender.Email, sender.Password, sender.Domain)
+	username := sender.Username
+	if username == "" {
+		// Existing callers use the sender address as their SMTP login. Keep that contract while
+		// allowing relays such as Brevo to provide a separate account username.
+		username = sender.Email
+	}
+
+	auth := smtp.PlainAuth("", username, sender.Password, sender.Domain)
 	if sender.ForceUnencryptedTls {
 		return unencryptedAuth{auth}
 	}
