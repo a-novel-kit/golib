@@ -2,6 +2,7 @@ package smtp_test
 
 import (
 	"bufio"
+	"encoding/base64"
 	"errors"
 	"net"
 	"strings"
@@ -61,6 +62,8 @@ func newFakeServer(t *testing.T, stall bool) *fakeServer {
 }
 
 func (s *fakeServer) addr() string { return s.listener.Addr().String() }
+
+func (s *fakeServer) wait() { <-s.done }
 
 func (s *fakeServer) serve() {
 	defer close(s.done)
@@ -139,41 +142,88 @@ func testTemplate(t *testing.T) *template.Template {
 	return tmpl
 }
 
+func plainAuthCredentials(t *testing.T, transcript []string) (string, string, string) {
+	t.Helper()
+
+	for _, line := range transcript {
+		payload, ok := strings.CutPrefix(line, "AUTH PLAIN ")
+		if !ok {
+			continue
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(payload)
+		require.NoError(t, err)
+
+		credentials := strings.Split(string(decoded), "\x00")
+		require.Len(t, credentials, 3)
+
+		return credentials[0], credentials[1], credentials[2]
+	}
+
+	require.FailNow(t, "AUTH PLAIN command not found")
+
+	return "", "", ""
+}
+
 func TestProdSenderSendMail(t *testing.T) {
 	t.Parallel()
 
-	server := newFakeServer(t, false)
-
-	host, _, err := net.SplitHostPort(server.addr())
-	require.NoError(t, err)
-
-	sender := &smtp.ProdSender{
-		Addr:  server.addr(),
-		Name:  "Agora",
-		Email: "noreply@example.com",
-		// The fake accepts any credential; what matters is that AUTH is attempted at all.
-		Password: "hunter2",
-		// PlainAuth checks this against the server it is talking to, so Domain is the SMTP host.
-		Domain: host,
+	testCases := map[string]struct {
+		username         string
+		expectedUsername string
+	}{
+		"distinct authentication username": {
+			username:         "relay-user@example.net",
+			expectedUsername: "relay-user@example.net",
+		},
+		"sender email fallback": {
+			expectedUsername: "noreply@example.com",
+		},
 	}
 
-	err = sender.SendMail(
-		smtp.MailUsers{{Name: "Recipient", Email: "to@example.com"}},
-		testTemplate(t), "mail", "world",
-	)
-	require.NoError(t, err)
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	joined := strings.Join(server.transcript, "\n")
-	require.Contains(t, joined, "AUTH PLAIN", "credentials must be offered")
-	require.Contains(t, joined, "MAIL FROM:<noreply@example.com>")
-	require.Contains(t, joined, "RCPT TO:<to@example.com>")
-	require.Contains(t, joined, "DATA")
-	require.Contains(t, joined, "QUIT")
+			server := newFakeServer(t, false)
 
-	// AUTH before MAIL. The transaction starts only once the client is authenticated.
-	authAt := strings.Index(joined, "AUTH")
-	mailAt := strings.Index(joined, "MAIL FROM")
-	require.Less(t, authAt, mailAt, "AUTH must precede MAIL FROM")
+			host, _, err := net.SplitHostPort(server.addr())
+			require.NoError(t, err)
+
+			sender := &smtp.ProdSender{
+				Addr:     server.addr(),
+				Name:     "Agora",
+				Email:    "noreply@example.com",
+				Username: testCase.username,
+				Password: "hunter2",
+				// PlainAuth checks this against the server it is talking to, so Domain is the SMTP host.
+				Domain: host,
+			}
+
+			err = sender.SendMail(
+				smtp.MailUsers{{Name: "Recipient", Email: "to@example.com"}},
+				testTemplate(t), "mail", "world",
+			)
+			require.NoError(t, err)
+			server.wait()
+
+			joined := strings.Join(server.transcript, "\n")
+			require.Contains(t, joined, "MAIL FROM:<noreply@example.com>")
+			require.Contains(t, joined, "RCPT TO:<to@example.com>")
+			require.Contains(t, joined, "DATA")
+			require.Contains(t, joined, "QUIT")
+
+			identity, username, password := plainAuthCredentials(t, server.transcript)
+			require.Empty(t, identity)
+			require.Equal(t, testCase.expectedUsername, username)
+			require.Equal(t, "hunter2", password)
+
+			// AUTH before MAIL. The transaction starts only once the client is authenticated.
+			authAt := strings.Index(joined, "AUTH")
+			mailAt := strings.Index(joined, "MAIL FROM")
+			require.Less(t, authAt, mailAt, "AUTH must precede MAIL FROM")
+		})
+	}
 }
 
 func TestProdSenderRefusesServerWithoutAuth(t *testing.T) {
