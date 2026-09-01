@@ -1,6 +1,6 @@
 module github.com/a-novel-kit/golib
 
-go 1.27.0
+go 1.27.1
 
 require (
 	charm.land/lipgloss/v2 v2.0.6
