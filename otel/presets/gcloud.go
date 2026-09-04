@@ -10,7 +10,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace" //nolint:staticcheck // Retained temporarily while the shared preset migrates to authenticated OTLP.
-	gcppropagator "github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -52,10 +51,6 @@ func (config *Gcloud) Init() error {
 
 func (config *Gcloud) GetPropagators() (propagation.TextMapPropagator, error) {
 	return propagation.NewCompositeTextMapPropagator(
-		// On extraction the later propagator wins, so listing CloudTrace first lets a
-		// standard traceparent header take precedence over the X-Cloud-Trace-Context
-		// header when a request carries both.
-		gcppropagator.CloudTraceOneWayPropagator{},
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	), nil
