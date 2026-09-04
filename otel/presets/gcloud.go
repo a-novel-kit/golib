@@ -2,6 +2,7 @@ package otelpresets
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	stdlog "log"
 	"net/http"
@@ -9,28 +10,40 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace" //nolint:staticcheck // Retained temporarily while the shared preset migrates to authenticated OTLP.
 	"google.golang.org/grpc"
+	grpccredentials "google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/oauth"
 
+	"go.opentelemetry.io/contrib/detectors/gcp"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/otel"
 )
 
+const (
+	gcloudProjectIDAttribute = "gcp.project_id"
+	gcloudTraceHost          = "telemetry.googleapis.com"
+	gcloudTraceEndpoint      = gcloudTraceHost + ":443"
+)
+
 var _ otel.Config = (*Gcloud)(nil)
 
-// Gcloud is a Config that exports traces to Google Cloud Trace and writes
-// structured logs to stderr for Cloud Logging to collect.
+// Gcloud is a Config that exports traces to Google Cloud over authenticated
+// OTLP and writes structured logs to stderr for Cloud Logging to collect.
 type Gcloud struct {
 	// ProjectID is the Google Cloud project traces are sent to. When empty, the
-	// exporter detects it from the ambient credentials.
+	// project is detected from Google Application Default Credentials or the
+	// runtime environment.
 	ProjectID string `json:"projectID" yaml:"projectID"`
 	// FlushTimeout bounds how long Flush waits for buffered data to drain; zero
 	// waits indefinitely.
@@ -43,7 +56,7 @@ type Gcloud struct {
 func (config *Gcloud) Init() error {
 	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 	_, _ = fmt.Fprintln(os.Stdout, banner.Render(fmt.Sprintf(
-		"☁️ OpenTelemetry GCP Mode: exporting traces to Cloud Trace (project=%s)", config.ProjectID,
+		"☁️ OpenTelemetry GCP Mode: exporting traces to Cloud Trace over OTLP (project=%s)", config.ProjectID,
 	)))
 
 	return nil
@@ -56,21 +69,51 @@ func (config *Gcloud) GetPropagators() (propagation.TextMapPropagator, error) {
 	), nil
 }
 
-//nolint:staticcheck // Keep the legacy exporter behavior stable until the coordinated OTLP migration.
 func (config *Gcloud) GetTraceProvider() (trace.TracerProvider, error) {
-	var opts []texporter.Option
-	if config.ProjectID != "" {
-		opts = append(opts, texporter.WithProjectID(config.ProjectID))
+	ctx := context.Background()
+
+	traceCredentials, err := oauth.NewApplicationDefault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load Google application default credentials: %w", err)
 	}
 
-	exporter, err := texporter.New(opts...)
+	gcpResourceOptions := []resource.Option{
+		resource.WithDetectors(gcp.NewDetector()),
+	}
+	if config.ProjectID != "" {
+		gcpResourceOptions = append(
+			gcpResourceOptions,
+			resource.WithAttributes(attribute.String(gcloudProjectIDAttribute, config.ProjectID)),
+		)
+	}
+
+	gcpResource, err := resource.New(ctx, gcpResourceOptions...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GCP trace exporter: %w", err)
+		return nil, fmt.Errorf("detect GCP telemetry resource: %w", err)
+	}
+
+	traceResource, err := resource.Merge(resource.DefaultWithContext(ctx), gcpResource)
+	if err != nil {
+		return nil, fmt.Errorf("merge GCP telemetry resource: %w", err)
+	}
+
+	exporter, err := otlptracegrpc.New(
+		ctx,
+		otlptracegrpc.WithEndpoint(gcloudTraceEndpoint),
+		otlptracegrpc.WithTLSCredentials(grpccredentials.NewTLS(&tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: gcloudTraceHost,
+		})),
+		otlptracegrpc.WithDialOption(grpc.WithPerRPCCredentials(traceCredentials)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create GCP trace exporter: %w", err)
 	}
 
 	config.tp = sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(traceResource),
 	)
 
 	return config.tp, nil
