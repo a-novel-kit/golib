@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace"
+	texporter "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace" //nolint:staticcheck // Retained temporarily while the shared preset migrates to authenticated OTLP.
 	gcppropagator "github.com/GoogleCloudPlatform/opentelemetry-operations-go/propagator"
 	"google.golang.org/grpc"
 
@@ -61,6 +61,7 @@ func (config *Gcloud) GetPropagators() (propagation.TextMapPropagator, error) {
 	), nil
 }
 
+//nolint:staticcheck // Keep the legacy exporter behavior stable until the coordinated OTLP migration.
 func (config *Gcloud) GetTraceProvider() (trace.TracerProvider, error) {
 	var opts []texporter.Option
 	if config.ProjectID != "" {
