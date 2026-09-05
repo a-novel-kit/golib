@@ -3,6 +3,7 @@ package httpf
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"go.opentelemetry.io/otel/trace"
@@ -11,7 +12,9 @@ import (
 )
 
 // SendJSONStatus encodes data as JSON to w under status, and records the outcome on the
-// span.
+// span. HTTP error statuses (400 and above) report an error using the standard status
+// text, without recording the payload. Other statuses report success after encoding.
+// This follows HandleError's application-span convention for client and server errors.
 //
 // The status is a parameter rather than something the caller sends first, because
 // net/http freezes the outbound header set when the status line goes out. A caller that
@@ -30,6 +33,12 @@ func SendJSONStatus[Data any](
 	err := json.NewEncoder(w).Encode(data)
 	if err != nil {
 		_ = otel.ReportError(span, err)
+
+		return
+	}
+
+	if status >= http.StatusBadRequest {
+		_ = otel.ReportError(span, errors.New(http.StatusText(status)))
 
 		return
 	}
