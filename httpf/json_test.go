@@ -1,7 +1,9 @@
 package httpf_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,9 +11,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/otel/trace/noop"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/otel"
 )
 
 // Every case here goes through a real server, because httptest.ResponseRecorder cannot
@@ -52,35 +57,79 @@ func call(t *testing.T, handler http.HandlerFunc) response {
 func TestSendJSONStatus(t *testing.T) {
 	t.Parallel()
 
-	span := noop.Span{}
-
 	testCases := []struct {
 		name string
 
-		status int
-		data   any
+		status   int
+		data     any
+		priorErr error
 
-		expectBody string
+		expectBody       string
+		expectSpanStatus codes.Code
+		expectEvents     int
 	}{
 		{
-			name:       "OK",
-			status:     http.StatusOK,
-			data:       map[string]string{"hello": "world"},
-			expectBody: `{"hello":"world"}`,
+			name:             "OK",
+			status:           http.StatusOK,
+			data:             map[string]string{"hello": "world"},
+			expectBody:       `{"hello":"world"}`,
+			expectSpanStatus: codes.Ok,
 		},
 		{
 			// The case the previous signature could not express. Both live 201 handlers
 			// declare content: application/json for it in their openapi.yaml.
-			name:       "Created",
-			status:     http.StatusCreated,
-			data:       map[string]string{"id": "abc"},
-			expectBody: `{"id":"abc"}`,
+			name:             "Created",
+			status:           http.StatusCreated,
+			data:             map[string]string{"id": "abc"},
+			expectBody:       `{"id":"abc"}`,
+			expectSpanStatus: codes.Ok,
 		},
 		{
-			name:       "Accepted",
-			status:     http.StatusAccepted,
-			data:       []string{"queued"},
-			expectBody: `["queued"]`,
+			name:             "Accepted",
+			status:           http.StatusAccepted,
+			data:             []string{"queued"},
+			expectBody:       `["queued"]`,
+			expectSpanStatus: codes.Ok,
+		},
+
+		{
+			name:             "Error/BadRequest",
+			status:           http.StatusBadRequest,
+			data:             map[string]string{"status": "invalid"},
+			expectBody:       `{"status":"invalid"}`,
+			expectSpanStatus: codes.Error,
+			expectEvents:     1,
+		},
+		{
+			name:             "Error/ServiceUnavailable",
+			status:           http.StatusServiceUnavailable,
+			data:             map[string]string{"status": "down"},
+			expectBody:       `{"status":"down"}`,
+			expectSpanStatus: codes.Error,
+			expectEvents:     1,
+		},
+		{
+			name:             "Error/PreviouslyReportedDependency",
+			status:           http.StatusServiceUnavailable,
+			data:             map[string]string{"status": "down"},
+			priorErr:         errors.New("foo"),
+			expectBody:       `{"status":"down"}`,
+			expectSpanStatus: codes.Error,
+			expectEvents:     2,
+		},
+		{
+			name:             "Error/Encoding",
+			status:           http.StatusOK,
+			data:             make(chan int),
+			expectSpanStatus: codes.Error,
+			expectEvents:     1,
+		},
+		{
+			name:             "Error/ResponseWrite",
+			status:           http.StatusNoContent,
+			data:             map[string]string{"status": "up"},
+			expectSpanStatus: codes.Error,
+			expectEvents:     1,
 		},
 	}
 
@@ -88,13 +137,39 @@ func TestSendJSONStatus(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+
+			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+
+			_, span := provider.Tracer("httpf-test").Start(t.Context(), "response")
+			if testCase.priorErr != nil {
+				_ = otel.ReportError(span, testCase.priorErr)
+			}
+
 			got := call(t, func(w http.ResponseWriter, r *http.Request) {
+				defer span.End()
+
 				httpf.SendJSONStatus(r.Context(), w, span, testCase.status, testCase.data)
 			})
 
 			require.Equal(t, testCase.status, got.status)
 			require.Equal(t, "application/json", got.contentType)
-			require.JSONEq(t, testCase.expectBody, got.body)
+
+			if testCase.expectBody == "" {
+				require.Empty(t, got.body)
+			} else {
+				require.JSONEq(t, testCase.expectBody, got.body)
+			}
+
+			spans := recorder.Ended()
+			require.Len(t, spans, 1)
+			require.Equal(t, testCase.expectSpanStatus, spans[0].Status().Code)
+			require.Len(t, spans[0].Events(), testCase.expectEvents)
+
+			if testCase.status >= http.StatusBadRequest {
+				require.Equal(t, http.StatusText(testCase.status), spans[0].Status().Description)
+			}
 		})
 	}
 }
