@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/a-novel-kit/golib/postgres"
+	"github.com/a-novel-kit/golib/postgres/postgrestest"
 )
 
 // schemaExists reports whether a schema is present, read through the primary connection
@@ -45,7 +46,7 @@ func TestRunIsolatedTransactionalTestDropsItsSchema(t *testing.T) {
 			"the schema must be dropped after the isolated test")
 	})
 
-	postgres.RunIsolatedTransactionalTest(t, config, migrations, func(ctx context.Context, t *testing.T) {
+	postgrestest.RunIsolatedTransactionalTest(t, config, migrations, func(ctx context.Context, t *testing.T) {
 		t.Helper()
 
 		db, err := postgres.GetContext(ctx)
@@ -68,7 +69,7 @@ func TestDropSchemaEvictsTheCachedPool(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, schema, err := postgres.NewContextTest(ctx, config)
+	_, schema, err := postgrestest.NewContextTest(ctx, config)
 	require.NoError(t, err)
 	require.True(t, schemaExists(ctx, t, config, schema))
 

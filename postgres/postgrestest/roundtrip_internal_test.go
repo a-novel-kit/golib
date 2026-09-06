@@ -1,4 +1,4 @@
-package postgres
+package postgrestest
 
 import (
 	"maps"
@@ -30,8 +30,8 @@ func TestVerifyRoundtripAcceptsAReversibleSet(t *testing.T) {
 	t.Parallel()
 
 	err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
-		os.DirFS("testdata/roundtrip/migrations"),
-		&RoundtripOptions{Fixtures: os.DirFS("testdata/roundtrip/fixtures")})
+		os.DirFS("../testdata/roundtrip/migrations"),
+		&RoundtripOptions{Fixtures: os.DirFS("../testdata/roundtrip/fixtures")})
 
 	require.NoError(t, err)
 }
@@ -40,7 +40,7 @@ func TestVerifyRoundtripCatchesAnObjectLeftBehind(t *testing.T) {
 	t.Parallel()
 
 	err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
-		os.DirFS("testdata/roundtrip-broken/migrations"), nil)
+		os.DirFS("../testdata/roundtrip-broken/migrations"), nil)
 
 	require.ErrorIs(t, err, errMigrationDrift)
 	require.Contains(t, err.Error(), "20260725000002_probe_status",
@@ -52,7 +52,7 @@ func TestVerifyRoundtripCatchesAnObjectLeftBehind(t *testing.T) {
 func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 	t.Parallel()
 
-	migrations := os.DirFS("testdata/roundtrip-strict/migrations")
+	migrations := os.DirFS("../testdata/roundtrip-strict/migrations")
 
 	t.Run("passes against an empty table", func(t *testing.T) {
 		t.Parallel()
@@ -64,7 +64,7 @@ func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 		t.Parallel()
 
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations,
-			&RoundtripOptions{Fixtures: os.DirFS("testdata/roundtrip/fixtures")})
+			&RoundtripOptions{Fixtures: os.DirFS("../testdata/roundtrip/fixtures")})
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "20260725000002_probe_required")
@@ -74,7 +74,7 @@ func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 
 //nolint:paralleltest // t.Setenv is incompatible with t.Parallel.
 func TestVerifyRoundtripSnapshots(t *testing.T) {
-	migrations := os.DirFS("testdata/roundtrip/migrations")
+	migrations := os.DirFS("../testdata/roundtrip/migrations")
 
 	t.Run("records then re-reads them", func(t *testing.T) {
 		dir := t.TempDir()

@@ -4,13 +4,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/a-novel-kit/golib/postgres"
+	"github.com/a-novel-kit/golib/postgres/postgrestest"
 )
 
 func TestRunMigrationRoundtripTest(t *testing.T) {
 	t.Parallel()
 
-	postgres.RunMigrationRoundtripTest(t, testConfig(t),
+	postgrestest.RunMigrationRoundtripTest(t, testConfig(t),
 		os.DirFS("testdata/roundtrip/migrations"),
-		&postgres.RoundtripOptions{Fixtures: os.DirFS("testdata/roundtrip/fixtures")})
+		&postgrestest.RoundtripOptions{Fixtures: os.DirFS("testdata/roundtrip/fixtures")})
 }
