@@ -26,6 +26,7 @@ func TestDecodeJSON(t *testing.T) {
 
 		expect    request
 		expectErr bool
+		errorIs   error
 	}{
 		{
 			name: "Success/Whitespace",
@@ -57,6 +58,7 @@ func TestDecodeJSON(t *testing.T) {
 			name:      "Error/SecondValue",
 			body:      `{"name":"Ada"} {"name":"Grace"}`,
 			expectErr: true,
+			errorIs:   httpf.ErrJSONMultipleValues,
 		},
 		{
 			name:      "Error/TrailingGarbage",
@@ -74,6 +76,10 @@ func TestDecodeJSON(t *testing.T) {
 			err := httpf.DecodeJSON(strings.NewReader(testCase.body), &got)
 			if testCase.expectErr {
 				require.Error(t, err)
+
+				if testCase.errorIs != nil {
+					require.ErrorIs(t, err, testCase.errorIs)
+				}
 
 				return
 			}

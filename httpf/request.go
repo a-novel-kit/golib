@@ -7,7 +7,8 @@ import (
 	"io"
 )
 
-var errJSONMultipleValues = errors.New("JSON request body contains multiple values")
+// ErrJSONMultipleValues is returned when a request body contains more than one JSON value.
+var ErrJSONMultipleValues = errors.New("JSON request body contains multiple values")
 
 // DecodeJSON decodes one JSON value from body into destination. It preserves encoding/json's
 // compatibility behavior and returns an error when body is empty, malformed, or contains another
@@ -27,11 +28,14 @@ func DecodeJSON(body io.Reader, destination any) error {
 	}
 
 	err = decoder.Decode(&struct{}{})
+	// Decode returns io.EOF after one JSON value and trailing whitespace.
 	if !errors.Is(err, io.EOF) {
 		if err == nil {
-			return errJSONMultipleValues
+			// A successful second decode means the body held another JSON value.
+			return ErrJSONMultipleValues
 		}
 
+		// Preserve parsing and body-size errors for callers that classify them with errors.Is or errors.As.
 		return fmt.Errorf("decode JSON request body: %w", err)
 	}
 
