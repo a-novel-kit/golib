@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,19 +21,46 @@ const (
 // Honors ctx cancellation both for the PingContext call and for the wait
 // between retries.
 func Ping(ctx context.Context, client *bun.DB) error {
-	start := time.Now()
+	return ping(ctx, client, PingTimeout, PingRetryInterval)
+}
 
-	for err := client.PingContext(ctx); err != nil; err = client.PingContext(ctx) {
-		if time.Since(start) > PingTimeout {
-			return fmt.Errorf("ping database: %w", err)
-		}
+type pinger interface {
+	PingContext(ctx context.Context) error
+}
 
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("ping database: %w", ctx.Err())
-		case <-time.After(PingRetryInterval):
-		}
+func ping(ctx context.Context, client pinger, timeout time.Duration, retryInterval time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
+		deadline = callerDeadline
 	}
 
-	return nil
+	pingContext, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	for {
+		err := client.PingContext(pingContext)
+		if err == nil {
+			return nil
+		}
+
+		contextErr := pingContext.Err()
+		if contextErr != nil {
+			return fmt.Errorf("ping database: %w", errors.Join(err, contextErr))
+		}
+
+		timer := time.NewTimer(retryInterval)
+
+		select {
+		case <-pingContext.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+
+			return fmt.Errorf("ping database: %w", errors.Join(err, pingContext.Err()))
+		case <-timer.C:
+		}
+	}
 }
