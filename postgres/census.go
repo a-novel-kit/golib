@@ -21,6 +21,8 @@ var censusCoverageQuery string
 
 // ErrUnsupportedSchemaObject reports a schema object the census cannot safely compare. Such objects
 // fail instead of being silently omitted.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.ErrUnsupportedSchemaObject].
 var ErrUnsupportedSchemaObject = errors.New("schema holds an object class the census cannot render")
 
 const (
@@ -50,6 +52,8 @@ type censusCoverageRow struct {
 //
 // It includes database-scoped extensions and schemas, reads no row data, and returns
 // [ErrUnsupportedSchemaObject] rather than omitting an unsupported class.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.SchemaSnapshot].
 func SchemaSnapshot(ctx context.Context, db bun.IDB, schema string) (string, error) {
 	var rows []censusRow
 
@@ -153,6 +157,8 @@ func validateCensusCoverage(rows []censusRow, coverage []censusCoverageRow) erro
 
 // SnapshotDelta returns sorted per-object differences between want and got.
 // Records are compared as a set.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.SnapshotDelta].
 func SnapshotDelta(want, got string) []string {
 	wantLines, gotLines := snapshotLines(want), snapshotLines(got)
 

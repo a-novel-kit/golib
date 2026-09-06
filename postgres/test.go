@@ -23,6 +23,8 @@ import (
 
 // TransactionalTestFunc is the body of a database-backed test, run with a
 // context carrying the connection isolated for that test.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.TransactionalTestFunc].
 type TransactionalTestFunc func(context.Context, *testing.T)
 
 // schemaDropper is the optional capability a Config offers to remove a schema created
@@ -35,6 +37,8 @@ type schemaDropper interface {
 // NewContextTest derives a context bound to a fresh, randomly named schema created
 // through config, isolating the test from others sharing the database. It returns the
 // schema name so the caller can drop it once done.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.NewContextTest].
 func NewContextTest(ctx context.Context, config Config) (context.Context, string, error) {
 	schemaName := "ta_" + strings.ToLower(rand.Text())
 	schemaName = fmt.Sprintf("%.*s", NameLen, schemaName)
@@ -54,6 +58,8 @@ func NewContextTest(ctx context.Context, config Config) (context.Context, string
 // The schema lives in the existing database, so its extensions remain available.
 // Each call reruns the whole migration set, which makes RunTransactionalTest the
 // cheaper default.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RunIsolatedTransactionalTest].
 func RunIsolatedTransactionalTest(t *testing.T, config Config, migrations fs.FS, callback TransactionalTestFunc) {
 	t.Helper()
 
@@ -83,6 +89,8 @@ func RunIsolatedTransactionalTest(t *testing.T, config Config, migrations fs.FS,
 // RunTransactionalTest runs callback inside a transaction that is rolled back on
 // cleanup. The context carries a PassthroughTx, which discards sub-transactions
 // so concurrent calls sharing the connection cannot deadlock.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RunTransactionalTest].
 func RunTransactionalTest(t *testing.T, config Config, callback TransactionalTestFunc) {
 	t.Helper()
 
@@ -176,6 +184,8 @@ var (
 // config must expose Options() []pgdriver.Option (postgrespresets.Default
 // does). callback receives a context carrying a real *bun.DB for the per-test
 // database, retrievable with GetContext.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RunDBTest].
 func RunDBTest(t *testing.T, config Config, migrations fs.FS, callback TransactionalTestFunc) {
 	t.Helper()
 
