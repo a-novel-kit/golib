@@ -11,6 +11,7 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 
 	"github.com/a-novel-kit/golib/postgres"
+	"github.com/a-novel-kit/golib/postgres/postgrestest"
 	postgrespresets "github.com/a-novel-kit/golib/postgres/presets"
 )
 
@@ -72,7 +73,7 @@ func TestWithinTxRollback(t *testing.T) {
 
 	id := "rollback"
 
-	postgres.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
 		t.Helper()
 
 		err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
@@ -91,7 +92,7 @@ func TestWithinTxCommit(t *testing.T) {
 
 	id := "commit"
 
-	postgres.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
 		t.Helper()
 
 		err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
@@ -114,7 +115,7 @@ func TestWithinTxNested(t *testing.T) {
 	outer := "nested-outer"
 	inner := "nested-inner"
 
-	postgres.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
 		t.Helper()
 
 		err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
@@ -138,7 +139,7 @@ func TestTransactorDelegates(t *testing.T) {
 
 	id := "transactor"
 
-	postgres.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
 		t.Helper()
 
 		err := postgres.NewTransactor(nil).WithinTx(ctx, func(ctx context.Context) error {
@@ -155,7 +156,7 @@ func TestTransactorDelegates(t *testing.T) {
 func TestInTx(t *testing.T) {
 	t.Parallel()
 
-	postgres.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
 		t.Helper()
 
 		require.False(t, postgres.InTx(ctx), "the pool is on the context outside a transaction")

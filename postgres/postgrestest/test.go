@@ -1,4 +1,4 @@
-package postgres
+package postgrestest
 
 import (
 	"context"
@@ -19,12 +19,12 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
+
+	"github.com/a-novel-kit/golib/postgres"
 )
 
 // TransactionalTestFunc is the body of a database-backed test, run with a
 // context carrying the connection isolated for that test.
-//
-// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.TransactionalTestFunc].
 type TransactionalTestFunc func(context.Context, *testing.T)
 
 // schemaDropper is the optional capability a Config offers to remove a schema created
@@ -37,18 +37,16 @@ type schemaDropper interface {
 // NewContextTest derives a context bound to a fresh, randomly named schema created
 // through config, isolating the test from others sharing the database. It returns the
 // schema name so the caller can drop it once done.
-//
-// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.NewContextTest].
-func NewContextTest(ctx context.Context, config Config) (context.Context, string, error) {
+func NewContextTest(ctx context.Context, config postgres.Config) (context.Context, string, error) {
 	schemaName := "ta_" + strings.ToLower(rand.Text())
-	schemaName = fmt.Sprintf("%.*s", NameLen, schemaName)
+	schemaName = fmt.Sprintf("%.*s", postgres.NameLen, schemaName)
 
 	db, err := config.DBSchema(ctx, schemaName, true)
 	if err != nil {
 		return nil, "", fmt.Errorf("get db from config: %w", err)
 	}
 
-	return context.WithValue(ctx, ContextKey{}, db), schemaName, nil
+	return context.WithValue(ctx, postgres.ContextKey{}, db), schemaName, nil
 }
 
 // RunIsolatedTransactionalTest runs callback in a throwaway schema, which admits
@@ -58,9 +56,12 @@ func NewContextTest(ctx context.Context, config Config) (context.Context, string
 // The schema lives in the existing database, so its extensions remain available.
 // Each call reruns the whole migration set, which makes RunTransactionalTest the
 // cheaper default.
-//
-// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RunIsolatedTransactionalTest].
-func RunIsolatedTransactionalTest(t *testing.T, config Config, migrations fs.FS, callback TransactionalTestFunc) {
+func RunIsolatedTransactionalTest(
+	t *testing.T,
+	config postgres.Config,
+	migrations fs.FS,
+	callback TransactionalTestFunc,
+) {
 	t.Helper()
 
 	ctx, schema, err := NewContextTest(t.Context(), config)
@@ -77,27 +78,25 @@ func RunIsolatedTransactionalTest(t *testing.T, config Config, migrations fs.FS,
 		})
 	}
 
-	require.NoError(t, RunMigrationsContext(ctx, migrations))
+	require.NoError(t, postgres.RunMigrationsContext(ctx, migrations))
 
-	db, err := GetContext(ctx)
+	db, err := postgres.GetContext(ctx)
 	require.NoError(t, err)
 
-	ctx = context.WithValue(ctx, ContextKey{}, db)
+	ctx = context.WithValue(ctx, postgres.ContextKey{}, db)
 	callback(ctx, t)
 }
 
 // RunTransactionalTest runs callback inside a transaction that is rolled back on
 // cleanup. The context carries a PassthroughTx, which discards sub-transactions
 // so concurrent calls sharing the connection cannot deadlock.
-//
-// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RunTransactionalTest].
-func RunTransactionalTest(t *testing.T, config Config, callback TransactionalTestFunc) {
+func RunTransactionalTest(t *testing.T, config postgres.Config, callback TransactionalTestFunc) {
 	t.Helper()
 
-	ctx, err := NewContext(t.Context(), config)
+	ctx, err := postgres.NewContext(t.Context(), config)
 	require.NoError(t, err)
 
-	db, err := GetContext(ctx)
+	db, err := postgres.GetContext(ctx)
 	require.NoError(t, err)
 
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -107,7 +106,7 @@ func RunTransactionalTest(t *testing.T, config Config, callback TransactionalTes
 		_ = tx.Rollback()
 	})
 
-	ctx = context.WithValue(ctx, ContextKey{}, NewPassthroughTx(tx))
+	ctx = context.WithValue(ctx, postgres.ContextKey{}, postgres.NewPassthroughTx(tx))
 	callback(ctx, t)
 }
 
@@ -184,9 +183,7 @@ var (
 // config must expose Options() []pgdriver.Option (postgrespresets.Default
 // does). callback receives a context carrying a real *bun.DB for the per-test
 // database, retrievable with GetContext.
-//
-// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RunDBTest].
-func RunDBTest(t *testing.T, config Config, migrations fs.FS, callback TransactionalTestFunc) {
+func RunDBTest(t *testing.T, config postgres.Config, migrations fs.FS, callback TransactionalTestFunc) {
 	t.Helper()
 
 	optionsConfig, ok := config.(dbTestOptionsConfig)
@@ -233,7 +230,7 @@ func RunDBTest(t *testing.T, config Config, migrations fs.FS, callback Transacti
 
 	t.Cleanup(func() { _ = db.Close() })
 
-	ctx := context.WithValue(t.Context(), ContextKey{}, db)
+	ctx := context.WithValue(t.Context(), postgres.ContextKey{}, db)
 	callback(ctx, t)
 }
 
@@ -341,7 +338,7 @@ func dbTestCreateTemplate(
 		return err
 	}
 
-	err = RunMigrations(ctx, templateDB, migrations)
+	err = postgres.RunMigrations(ctx, templateDB, migrations)
 	if err != nil {
 		_ = templateDB.Close()
 		_ = dbTestDropDatabase(ctx, maintenance, name)
@@ -418,7 +415,7 @@ func dbTestOpen(ctx context.Context, options []pgdriver.Option, database string)
 	db := bun.NewDB(sql.OpenDB(pgdriver.NewConnector(options...)), pgdialect.New(),
 		bun.WithDiscardUnknownColumns())
 
-	err := Ping(ctx, db)
+	err := postgres.Ping(ctx, db)
 	if err != nil {
 		_ = db.Close()
 
