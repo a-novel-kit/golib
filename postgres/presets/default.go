@@ -79,17 +79,8 @@ func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 	defer config.mu.Unlock()
 
 	if config.db == nil {
-		sqldb := sql.OpenDB(pgdriver.NewConnector(config.options...))
-		db := bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())
-		db.SetMaxIdleConns(config.maxIdleConns())
-		db.SetMaxOpenConns(config.MaxOpenConns)
-
-		err := postgres.Ping(ctx, db)
+		db, err := config.openDB(ctx, config.options)
 		if err != nil {
-			// The pool is not cached on this path, so nothing else will close it. Its
-			// idle connections would otherwise outlive the failed call.
-			_ = db.Close()
-
 			return nil, fmt.Errorf("ping database: %w", err)
 		}
 
@@ -129,15 +120,8 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 	options := append([]pgdriver.Option{}, config.options...)
 	options = append(options, pgdriver.WithConnParams(map[string]any{"search_path": schema}))
 
-	sqldb := sql.OpenDB(pgdriver.NewConnector(options...))
-	db = bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())
-	db.SetMaxIdleConns(config.maxIdleConns())
-
-	err = postgres.Ping(ctx, db)
+	db, err = config.openDB(ctx, options)
 	if err != nil {
-		// Not yet cached in config.schemas, so this call owns the only reference.
-		_ = db.Close()
-
 		return nil, fmt.Errorf("ping database schema %s: %w", schema, err)
 	}
 
@@ -197,4 +181,20 @@ func (config *Default) maxIdleConns() int {
 	}
 
 	return config.MaxIdleConns
+}
+
+func (config *Default) openDB(ctx context.Context, options []pgdriver.Option) (*bun.DB, error) {
+	sqldb := sql.OpenDB(pgdriver.NewConnector(options...))
+	db := bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())
+	db.SetMaxIdleConns(config.maxIdleConns())
+	db.SetMaxOpenConns(config.MaxOpenConns)
+
+	err := postgres.Ping(ctx, db)
+	if err != nil {
+		_ = db.Close()
+
+		return nil, err
+	}
+
+	return db, nil
 }

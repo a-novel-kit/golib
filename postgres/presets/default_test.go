@@ -2,7 +2,9 @@ package postgrespresets_test
 
 import (
 	"context"
+	"crypto/rand"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -142,4 +144,22 @@ func TestDefaultLeavesOpenConnectionsUnlimitedByDefault(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Zero(t, db.Stats().MaxOpenConnections, "0 is database/sql's encoding of unlimited")
+}
+
+func TestDefaultBoundsSchemaOpenConnections(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t)
+	config.MaxOpenConns = 2
+
+	schema := "max_open_connections_" + strings.ToLower(rand.Text())
+
+	t.Cleanup(func() {
+		require.NoError(t, config.DropSchema(context.Background(), schema))
+	})
+
+	db, err := config.DBSchema(t.Context(), schema, true)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, db.Stats().MaxOpenConnections)
 }
