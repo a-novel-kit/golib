@@ -1,4 +1,4 @@
-package postgres
+package postgrestest
 
 import (
 	"context"
@@ -20,6 +20,8 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/migrate"
+
+	"github.com/a-novel-kit/golib/postgres"
 )
 
 const (
@@ -37,8 +39,6 @@ const (
 var errMigrationDrift = errors.New("schema drift")
 
 // RoundtripOptions configures [RunMigrationRoundtripTest]. Its zero value is valid.
-//
-// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RoundtripOptions].
 type RoundtripOptions struct {
 	// Fixtures holds optional `<timestamp>_<name>.sql` files, applied after the named migration.
 	Fixtures fs.FS
@@ -54,9 +54,7 @@ type RoundtripOptions struct {
 // set. Fixtures run between steps. Snapshots bind each schema to its exact migration prefix.
 //
 // config must expose Options() []pgdriver.Option, as postgrespresets.Default does.
-//
-// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RunMigrationRoundtripTest].
-func RunMigrationRoundtripTest(t *testing.T, config Config, migrations fs.FS, opts *RoundtripOptions) {
+func RunMigrationRoundtripTest(t *testing.T, config postgres.Config, migrations fs.FS, opts *RoundtripOptions) {
 	t.Helper()
 
 	require.NoError(t, verifyRoundtrip(t.Context(), roundtripDatabase(t, config), migrations, opts))
@@ -376,12 +374,12 @@ func roundtripHashField(digest hash.Hash, field []byte) {
 	_, _ = digest.Write(field)
 }
 
-func roundtripDatabase(t *testing.T, config Config) *bun.DB {
+func roundtripDatabase(t *testing.T, config postgres.Config) *bun.DB {
 	t.Helper()
 
 	optionsConfig, ok := config.(dbTestOptionsConfig)
 	require.Truef(t, ok,
-		"RunMigrationRoundtripTest requires a Config exposing Options() []pgdriver.Option "+
+		"RunMigrationRoundtripTest requires a postgres.Config exposing Options() []pgdriver.Option "+
 			"(e.g. postgrespresets.Default)")
 
 	db, err := newRoundtripDatabase(t, optionsConfig.Options())

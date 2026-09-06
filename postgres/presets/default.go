@@ -132,7 +132,7 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 
 // DropSchema removes a schema created through DBSchema and releases the pool cached for
 // it. It is a test-support operation — production schemas are not dropped — and pairs
-// with the throwaway schema RunIsolatedTransactionalTest stands up.
+// with the throwaway schema the PostgreSQL test harness stands up.
 //
 // Without it, a randomly named schema and its pool are both kept forever: the schema
 // accumulates in the database, and the pool holds idle connections against a schema
@@ -164,7 +164,7 @@ func (config *Default) DropSchema(ctx context.Context, schema string) error {
 }
 
 // Options returns a copy of the driver options the config was built with.
-// postgres.RunDBTest reads them to derive sibling connections to other
+// The PostgreSQL test harness reads them to derive sibling connections to other
 // databases in the same cluster.
 func (config *Default) Options() []pgdriver.Option {
 	config.mu.RLock()

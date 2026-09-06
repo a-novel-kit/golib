@@ -13,7 +13,7 @@ import (
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 
-	"github.com/a-novel-kit/golib/postgres"
+	"github.com/a-novel-kit/golib/postgres/postgrestest"
 )
 
 // Use separate databases because extensions are database-scoped.
@@ -64,7 +64,7 @@ func probeDB(t *testing.T, statements ...string) *bun.DB {
 func probeSnapshot(t *testing.T, statements ...string) string {
 	t.Helper()
 
-	snapshot, err := postgres.SchemaSnapshot(t.Context(), probeDB(t, statements...), "public")
+	snapshot, err := postgrestest.SchemaSnapshot(t.Context(), probeDB(t, statements...), "public")
 	require.NoError(t, err)
 
 	return snapshot
@@ -217,7 +217,7 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			delta := postgres.SnapshotDelta(
+			delta := postgrestest.SnapshotDelta(
 				probeSnapshot(t, testCase.from...),
 				probeSnapshot(t, testCase.to...),
 			)
@@ -262,7 +262,7 @@ func TestSchemaSnapshotIgnoresNonDifferences(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			delta := postgres.SnapshotDelta(
+			delta := postgrestest.SnapshotDelta(
 				probeSnapshot(t, testCase.from...),
 				probeSnapshot(t, testCase.to...),
 			)
@@ -307,8 +307,8 @@ func TestSchemaSnapshotRejectsUnsupportedObjects(t *testing.T) {
 		`CREATE AGGREGATE total (int) (SFUNC = addint, STYPE = int, INITCOND = '0')`,
 	)
 
-	_, err := postgres.SchemaSnapshot(t.Context(), db, "public")
-	require.ErrorIs(t, err, postgres.ErrUnsupportedSchemaObject)
+	_, err := postgrestest.SchemaSnapshot(t.Context(), db, "public")
+	require.ErrorIs(t, err, postgrestest.ErrUnsupportedSchemaObject)
 	require.Contains(t, err.Error(), "aggregate")
 }
 
@@ -357,7 +357,7 @@ func TestSnapshotDelta(t *testing.T) {
 
 	t.Run("identical snapshots have no delta", func(t *testing.T) {
 		t.Parallel()
-		require.Empty(t, postgres.SnapshotDelta("a\nb\n", "b\na\n"))
+		require.Empty(t, postgrestest.SnapshotDelta("a\nb\n", "b\na\n"))
 	})
 
 	t.Run("reports both directions, sorted", func(t *testing.T) {
@@ -365,11 +365,11 @@ func TestSnapshotDelta(t *testing.T) {
 
 		require.Equal(t,
 			[]string{"missing: gone", "unexpected: added"},
-			postgres.SnapshotDelta("kept\ngone\n", "kept\nadded\n"))
+			postgrestest.SnapshotDelta("kept\ngone\n", "kept\nadded\n"))
 	})
 
 	t.Run("an empty snapshot against a populated one", func(t *testing.T) {
 		t.Parallel()
-		require.Equal(t, []string{"unexpected: only"}, postgres.SnapshotDelta("", "only\n"))
+		require.Equal(t, []string{"unexpected: only"}, postgrestest.SnapshotDelta("", "only\n"))
 	})
 }

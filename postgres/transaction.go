@@ -24,9 +24,9 @@ func WithTx(ctx context.Context, tx bun.IDB) context.Context {
 // Work that must not hold a pooled connection — any call to an external service
 // — guards itself with this.
 //
-// It reports true under [RunTransactionalTest], whose PassthroughTx is not a
-// *bun.DB. A test covering an outbound call must therefore use [RunDBTest],
-// which puts a real pool on the context.
+// It reports true when the PostgreSQL test harness installs a PassthroughTx
+// instead of a *bun.DB. Tests covering outbound calls use a harness with a real
+// pool on the context.
 func InTx(ctx context.Context) bool {
 	db, err := GetContext(ctx)
 	if err != nil {
