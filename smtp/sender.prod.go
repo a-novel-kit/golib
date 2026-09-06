@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/smtp"
+	"strings"
 	"text/template"
 	"time"
 )
@@ -25,7 +26,8 @@ var ErrNoAuthSupport = errors.New("SMTP server does not support AUTH")
 
 // ProdSender delivers mail through a real SMTP server using net/smtp. Email controls the envelope
 // sender and visible From header. Username controls SMTP authentication and falls back to Email
-// when empty. The password is never serialized back out.
+// when empty. The greeting uses the Email domain, or localhost for a domainless address.
+// Domain is the SMTP authentication host. The password is never serialized back out.
 type ProdSender struct {
 	Addr     string `json:"addr"     yaml:"addr"`
 	Name     string `json:"name"     yaml:"name"`
@@ -200,6 +202,18 @@ func (sender *ProdSender) dial() (*smtp.Client, string, error) {
 // The ordering is security-relevant. STARTTLS is attempted before any credential is offered, so
 // credentials only cross an upgraded connection.
 func (sender *ProdSender) negotiate(client *smtp.Client, host string) error {
+	// Relays may reject localhost. Use the sender domain, not the relay host or login domain.
+	localName := "localhost"
+	if at := strings.LastIndexByte(sender.Email, '@'); at >= 0 && at < len(sender.Email)-1 {
+		localName = sender.Email[at+1:]
+	}
+
+	// Extension hides greeting errors as absent capabilities, so greet explicitly first.
+	err := client.Hello(localName)
+	if err != nil {
+		return fmt.Errorf("greet SMTP server: %w", err)
+	}
+
 	ok, _ := client.Extension("STARTTLS")
 	if ok {
 		config := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
@@ -215,7 +229,7 @@ func (sender *ProdSender) negotiate(client *smtp.Client, host string) error {
 		return ErrNoAuthSupport
 	}
 
-	err := client.Auth(sender.auth())
+	err = client.Auth(sender.auth())
 	if err != nil {
 		return fmt.Errorf("authenticate with SMTP server: %w", err)
 	}
