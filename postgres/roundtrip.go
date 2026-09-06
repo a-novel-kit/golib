@@ -37,6 +37,8 @@ const (
 var errMigrationDrift = errors.New("schema drift")
 
 // RoundtripOptions configures [RunMigrationRoundtripTest]. Its zero value is valid.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RoundtripOptions].
 type RoundtripOptions struct {
 	// Fixtures holds optional `<timestamp>_<name>.sql` files, applied after the named migration.
 	Fixtures fs.FS
@@ -52,6 +54,8 @@ type RoundtripOptions struct {
 // set. Fixtures run between steps. Snapshots bind each schema to its exact migration prefix.
 //
 // config must expose Options() []pgdriver.Option, as postgrespresets.Default does.
+//
+// Deprecated: Use [github.com/a-novel-kit/golib/postgres/postgrestest.RunMigrationRoundtripTest].
 func RunMigrationRoundtripTest(t *testing.T, config Config, migrations fs.FS, opts *RoundtripOptions) {
 	t.Helper()
 
