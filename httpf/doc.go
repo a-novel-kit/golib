@@ -2,5 +2,6 @@
 //
 // Inbound, it writes handler responses that stay consistent with the service's OpenTelemetry
 // tracing and structured logging: every outcome is recorded on the request span. Outbound, it
-// builds the pooled, traced client a service calls other systems through.
+// builds the pooled, traced client a service calls other systems through. Serve runs an assembled
+// server under a bounded shutdown lifecycle.
 package httpf
