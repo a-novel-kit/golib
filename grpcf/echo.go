@@ -21,45 +21,21 @@ func (handler *echo) UnaryEcho(context.Context, *golibproto.UnaryEchoRequest) (*
 	}, nil
 }
 
-// SetEchoServersContext registers the built-in echo + health-check services
-// on the given gRPC server and starts a background goroutine that toggles the
-// SERVING/NOT_SERVING status every healthPing tick. The goroutine returns
-// when ctx is canceled, so the caller can tie its lifetime to graceful
-// shutdown.
-//
-// A non-positive healthPing degrades to a tight toggle loop that still
-// honors ctx cancellation.
-func SetEchoServersContext(ctx context.Context, server *grpc.Server, healthPing time.Duration) {
+// RegisterEchoServers registers the built-in echo and standard health services
+// and returns the health controller for caller-owned lifecycle updates.
+func RegisterEchoServers(server *grpc.Server) *health.Server {
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(server, healthcheck)
 
 	golibproto.RegisterEchoServiceServer(server, &echo{})
 
-	go func() {
-		next := healthpb.HealthCheckResponse_SERVING
+	return healthcheck
+}
 
-		for {
-			healthcheck.SetServingStatus("", next)
-
-			if next == healthpb.HealthCheckResponse_SERVING {
-				next = healthpb.HealthCheckResponse_NOT_SERVING
-			} else {
-				next = healthpb.HealthCheckResponse_SERVING
-			}
-
-			if healthPing > 0 {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(healthPing):
-				}
-			} else {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-			}
-		}
-	}()
+// SetEchoServersContext registers the built-in echo and standard health
+// services. It preserves the legacy serving default while leaving all later
+// health transitions to the caller; ctx and healthPing are retained for API
+// compatibility and do not start a background loop.
+func SetEchoServersContext(_ context.Context, server *grpc.Server, _ time.Duration) {
+	RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 }
