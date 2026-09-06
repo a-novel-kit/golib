@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"io"
 	"net"
+	"net/textproto"
 	"strings"
 	"testing"
 	"text/template"
@@ -208,6 +211,7 @@ func TestProdSenderSendMail(t *testing.T) {
 			server.wait()
 
 			joined := strings.Join(server.transcript, "\n")
+			require.Equal(t, "EHLO example.com", server.transcript[0])
 			require.Contains(t, joined, "MAIL FROM:<noreply@example.com>")
 			require.Contains(t, joined, "RCPT TO:<to@example.com>")
 			require.Contains(t, joined, "DATA")
@@ -223,6 +227,119 @@ func TestProdSenderSendMail(t *testing.T) {
 			mailAt := strings.Index(joined, "MAIL FROM")
 			require.Less(t, authAt, mailAt, "AUTH must precede MAIL FROM")
 		})
+	}
+}
+
+func TestProdSender(t *testing.T) {
+	t.Parallel()
+
+	testCases := map[string]struct {
+		email string
+		hello string
+	}{
+		"sender domain":       {email: "noreply@example.com", hello: "example.com"},
+		"quoted local part":   {email: `"no@reply"@example.org`, hello: "example.org"},
+		"domainless fallback": {email: "noreply", hello: "localhost"},
+		"empty fallback":      {hello: "localhost"},
+	}
+
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newFakeServer(t, false)
+			host, _, err := net.SplitHostPort(server.addr())
+			require.NoError(t, err)
+
+			sender := &smtp.ProdSender{
+				Addr:     server.addr(),
+				Email:    testCase.email,
+				Username: "relay-user@example.net",
+				Password: "hunter2",
+				Domain:   host,
+			}
+
+			require.NoError(t, sender.Ping())
+			server.wait()
+			require.Equal(t, "EHLO "+testCase.hello, server.transcript[0])
+			require.Len(t, server.transcript, 3)
+			require.Equal(t, "QUIT", server.transcript[2])
+		})
+	}
+
+	for _, operation := range []string{"ping", "send"} {
+		for _, disconnect := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s rejected greeting disconnect=%t", operation, disconnect), func(t *testing.T) {
+				t.Parallel()
+
+				listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = listener.Close() })
+
+				commands := make(chan []string, 1)
+
+				go func() {
+					var transcript []string
+					defer func() { commands <- transcript }()
+
+					conn, acceptErr := listener.Accept()
+					if acceptErr != nil {
+						return
+					}
+					defer func() { _ = conn.Close() }()
+
+					reader := bufio.NewReader(conn)
+					_, _ = conn.Write([]byte("220 fake ESMTP\r\n"))
+
+					for {
+						line, readErr := reader.ReadString('\n')
+						if readErr != nil {
+							return
+						}
+
+						transcript = append(transcript, strings.TrimSpace(line))
+						_, _ = conn.Write([]byte("421 4.7.0 Greeting rejected\r\n"))
+
+						if disconnect {
+							return
+						}
+					}
+				}()
+
+				sender := &smtp.ProdSender{
+					Addr:    listener.Addr().String(),
+					Email:   "noreply@example.com",
+					Timeout: time.Second,
+				}
+
+				if operation == "ping" {
+					err = sender.Ping()
+				} else {
+					err = sender.SendMail(
+						smtp.MailUsers{{Email: "to@example.com"}}, testTemplate(t), "mail", "world",
+					)
+				}
+
+				require.Error(t, err)
+				require.NotErrorIs(t, err, smtp.ErrNoAuthSupport)
+
+				if disconnect {
+					// net/smtp retries a failed EHLO as HELO, which sees the closed connection.
+					require.ErrorIs(t, err, io.EOF)
+				} else {
+					var replyErr *textproto.Error
+					require.ErrorAs(t, err, &replyErr)
+					require.Equal(t, 421, replyErr.Code)
+				}
+
+				transcript := <-commands
+				require.Equal(t, "EHLO example.com", transcript[0])
+
+				for _, command := range transcript {
+					require.True(t, strings.HasPrefix(command, "EHLO ") || strings.HasPrefix(command, "HELO "))
+				}
+			})
+		}
 	}
 }
 
