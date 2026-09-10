@@ -3,7 +3,9 @@ package postgres
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -109,7 +111,7 @@ func TestPing(t *testing.T) {
 				calls++
 
 				return testCase.pinger(ctx)
-			}), testCase.timeout, testCase.interval)
+			}), testCase.timeout, testCase.interval, nil)
 
 			if testCase.expectError == nil {
 				require.NoError(t, err)
@@ -119,6 +121,81 @@ func TestPing(t *testing.T) {
 			}
 
 			require.Equal(t, testCase.expectCalls, calls)
+		})
+	}
+}
+
+func TestPingRetries(t *testing.T) {
+	t.Parallel()
+
+	errPermanent := errors.New("permanent failure")
+	badConnection := func(err error) bool { return errors.Is(err, driver.ErrBadConn) }
+
+	testCases := []struct {
+		name        string
+		errors      []error
+		retryable   func(error) bool
+		cancel      bool
+		expectError error
+		expectCalls int
+	}{
+		{
+			name:   "DiscardedConnection",
+			errors: []error{driver.ErrBadConn, nil}, retryable: badConnection,
+			expectCalls: 2,
+		},
+		{
+			name:   "WrappedDiscardedConnection",
+			errors: []error{fmt.Errorf("wrapped: %w", driver.ErrBadConn), nil}, retryable: badConnection,
+			expectCalls: 2,
+		},
+		{
+			name:   "PermanentError",
+			errors: []error{errPermanent, nil}, retryable: badConnection,
+			expectError: errPermanent, expectCalls: 1,
+		},
+		{
+			name:   "PermanentErrorAfterDiscard",
+			errors: []error{driver.ErrBadConn, errPermanent, nil}, retryable: badConnection,
+			expectError: errPermanent, expectCalls: 2,
+		},
+		{
+			name:        "StartupStillRetriesOtherErrors",
+			errors:      []error{errPermanent, nil},
+			expectCalls: 2,
+		},
+		{
+			name:   "CancellationPreservesDiscardedError",
+			errors: []error{driver.ErrBadConn, nil}, retryable: badConnection, cancel: true,
+			expectError: context.Canceled, expectCalls: 1,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			calls := 0
+			err := ping(ctx, pingerFunc(func(context.Context) error {
+				if testCase.cancel {
+					cancel()
+				}
+
+				err := testCase.errors[calls]
+				calls++
+
+				return err
+			}), time.Second, time.Millisecond, testCase.retryable)
+
+			require.ErrorIs(t, err, testCase.expectError)
+			require.Equal(t, testCase.expectCalls, calls)
+
+			if testCase.cancel {
+				require.ErrorIs(t, err, driver.ErrBadConn)
+			}
 		})
 	}
 }

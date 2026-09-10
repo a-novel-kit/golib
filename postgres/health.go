@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,8 +15,9 @@ import (
 const HealthTimeout = time.Second
 
 // Health performs one context-aware health probe against the pooled database
-// connection carried by ctx. Missing and transaction-only contexts cannot
-// establish pool readiness and are reported as unhealthy.
+// connection carried by ctx. It retries discarded connections within the single
+// HealthTimeout budget, respecting earlier caller deadlines and cancellation.
+// Other errors, missing contexts and transaction-only contexts are unhealthy.
 func Health(ctx context.Context) error {
 	db, err := GetContext(ctx)
 	if err != nil {
@@ -26,13 +29,7 @@ func Health(ctx context.Context) error {
 		return ErrNoDbInContext
 	}
 
-	probeCtx, cancel := context.WithTimeout(ctx, HealthTimeout)
-	defer cancel()
-
-	err = pool.PingContext(probeCtx)
-	if err != nil {
-		return fmt.Errorf("ping database: %w", err)
-	}
-
-	return nil
+	return ping(ctx, pool, HealthTimeout, PingRetryInterval, func(err error) bool {
+		return errors.Is(err, driver.ErrBadConn)
+	})
 }
