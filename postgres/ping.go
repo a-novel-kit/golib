@@ -21,14 +21,18 @@ const (
 // Honors ctx cancellation both for the PingContext call and for the wait
 // between retries.
 func Ping(ctx context.Context, client *bun.DB) error {
-	return ping(ctx, client, PingTimeout, PingRetryInterval)
+	return ping(ctx, client, PingTimeout, PingRetryInterval, nil)
 }
 
 type pinger interface {
 	PingContext(ctx context.Context) error
 }
 
-func ping(ctx context.Context, client pinger, timeout time.Duration, retryInterval time.Duration) error {
+// A nil retryable predicate keeps the startup probe's retry-all behavior.
+func ping(
+	ctx context.Context, client pinger, timeout time.Duration, retryInterval time.Duration,
+	retryable func(error) bool,
+) error {
 	deadline := time.Now().Add(timeout)
 	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
 		deadline = callerDeadline
@@ -46,6 +50,10 @@ func ping(ctx context.Context, client pinger, timeout time.Duration, retryInterv
 		contextErr := pingContext.Err()
 		if contextErr != nil {
 			return fmt.Errorf("ping database: %w", errors.Join(err, contextErr))
+		}
+
+		if retryable != nil && !retryable(err) {
+			return fmt.Errorf("ping database: %w", err)
 		}
 
 		timer := time.NewTimer(retryInterval)
