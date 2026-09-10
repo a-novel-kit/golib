@@ -13,11 +13,7 @@ import (
 	"time"
 )
 
-// DefaultTimeout bounds a single delivery when ProdSender leaves Timeout unset.
-//
-// net/smtp dials with no deadline. An SMTP host that accepts the connection and then goes quiet
-// holds the calling goroutine. The request that spawned the send has already returned, so the leak
-// shows up only as a slow climb in memory.
+// DefaultTimeout is the network budget used when [ProdSender.Timeout] is non-positive.
 const DefaultTimeout = 30 * time.Second
 
 // ErrNoAuthSupport is returned when the server does not advertise the AUTH extension. Delivery
@@ -42,8 +38,9 @@ type ProdSender struct {
 	// only against a local test SMTP server; never enable it in production.
 	ForceUnencryptedTls bool `json:"forceUnencryptedTLS" yaml:"forceUnencryptedTLS"`
 
-	// Timeout bounds one delivery end to end. Connect, handshake, authentication and the message
-	// body share a single budget. Non-positive selects DefaultTimeout.
+	// Timeout is the shared network budget from DNS resolution through SMTP QUIT, for both
+	// SendMail and Ping. Template rendering happens before this budget starts.
+	// Non-positive selects [DefaultTimeout].
 	Timeout time.Duration `json:"timeout" yaml:"timeout"`
 }
 
@@ -111,8 +108,8 @@ func (sender *ProdSender) SendMail(to MailUsers, t *template.Template, tName str
 	return nil
 }
 
-// Ping reports whether the SMTP server is reachable and accepts the configured credentials. It
-// shares SendMail's timeout, so the probe always returns.
+// Ping reports whether the SMTP server is reachable and accepts the configured credentials,
+// within [ProdSender.Timeout].
 func (sender *ProdSender) Ping() error {
 	client, host, err := sender.dial()
 	if err != nil {
@@ -164,22 +161,21 @@ func (sender *ProdSender) auth() smtp.Auth {
 // subsequent read and write. The dialer takes a background context because [Sender] carries none;
 // the timeout is what bounds this.
 func (sender *ProdSender) dial() (*smtp.Client, string, error) {
-	timeout := sender.timeout()
+	deadline := time.Now().Add(sender.timeout())
 
 	host, _, err := net.SplitHostPort(sender.Addr)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse SMTP address: %w", err)
 	}
 
-	dialer := &net.Dialer{Timeout: timeout}
+	dialer := &net.Dialer{Deadline: deadline}
 
 	conn, err := dialer.DialContext(context.Background(), "tcp", sender.Addr)
 	if err != nil {
 		return nil, "", fmt.Errorf("dial SMTP server: %w", err)
 	}
 
-	// Measured from here, so one budget covers the whole exchange.
-	err = conn.SetDeadline(time.Now().Add(timeout))
+	err = conn.SetDeadline(deadline)
 	if err != nil {
 		_ = conn.Close()
 

@@ -230,8 +230,8 @@ func TestProdSenderSendMail(t *testing.T) {
 	}
 }
 
-func TestProdSender(t *testing.T) {
-	t.Parallel()
+func TestProdSender(t *testing.T) { //nolint:paralleltest,tparallel // Replaces net.DefaultResolver temporarily.
+	t.Run("shared network deadline", testProdSenderDeadline)
 
 	testCases := map[string]struct {
 		email string
