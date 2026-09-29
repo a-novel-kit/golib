@@ -1,36 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "gomod": {
-    "managerFilePatterns": [
-      "/(^|/)go\\.mod$/",
-      "/(^|/)golangci-lint\\.mod$/",
-      "/(^|/)gotestsum\\.mod$/",
-      "/(^|/)buf\\.mod$/"
-    ]
-  },
+  "extends": ["github>a-novel-kit/workflows//renovate/library#v1.31.0"],
   "packageRules": [
-    {
-      "matchFileNames": ["golangci-lint.mod"],
-      "additionalBranchPrefix": "golangci-lint-",
-      "goGetDirs": ["."],
-      "postUpgradeTasks": {
-        "commands": [
-          "rm -f golangci-lint.sum",
-          "go get -modfile=golangci-lint.mod -tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
-          "go tool -modfile=golangci-lint.mod golangci-lint run ./... --fix"
-        ],
-        "executionMode": "branch"
-      }
-    },
-    {
-      "matchFileNames": ["gotestsum.mod"],
-      "additionalBranchPrefix": "gotestsum-",
-      "goGetDirs": ["."],
-      "postUpgradeTasks": {
-        "commands": ["rm -f gotestsum.sum", "go get -modfile=gotestsum.mod -tool gotest.tools/gotestsum"],
-        "executionMode": "branch"
-      }
-    },
     {
       "matchFileNames": ["buf.mod"],
       "additionalBranchPrefix": "buf-",
@@ -48,12 +19,7 @@
       }
     },
     {
-      "matchFileNames": ["go.mod"],
-      "postUpdateOptions": ["gomodTidy"]
-    },
-    {
       "matchManagers": ["npm"],
-      "postUpdateOptions": ["pnpmDedupe"],
       "postUpgradeTasks": {
         "commands": ["pnpm format:prettier"],
         "executionMode": "branch"
