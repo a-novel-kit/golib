@@ -13,8 +13,10 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/otel"
 )
 
 // logEntry is one call recorded by recordingLog.
@@ -46,6 +48,8 @@ func TestHandleError(t *testing.T) {
 	errMapped := errors.New("mapped")
 	// A wrapped driver error is the shape that carries secrets.
 	errSecret := errors.New("dial tcp db.internal:5432: password authentication failed for user=admin")
+	// A child span already describes this one.
+	errReported := otel.ReportError(trace.SpanFromContext(context.Background()), errSecret)
 
 	testCases := []struct {
 		name string
@@ -53,14 +57,25 @@ func TestHandleError(t *testing.T) {
 		errMap httpf.ErrMap
 		err    error
 
-		expectStatus int
-		expectLevel  string
+		expectStatus          int
+		expectLevel           string
+		expectSpanStatus      codes.Code
+		expectSpanDescription string
 	}{
 		{
-			name:         "Error/Unmatched",
-			err:          fmt.Errorf("select user: %w", errSecret),
-			expectStatus: http.StatusInternalServerError,
-			expectLevel:  "error",
+			name:                  "Error/Unmatched",
+			err:                   fmt.Errorf("select user: %w", errSecret),
+			expectStatus:          http.StatusInternalServerError,
+			expectLevel:           "error",
+			expectSpanStatus:      codes.Error,
+			expectSpanDescription: "select user: " + errSecret.Error(),
+		},
+		{
+			name:             "Error/ReportedByChild",
+			err:              fmt.Errorf("select user: %w", errReported),
+			expectStatus:     http.StatusInternalServerError,
+			expectLevel:      "error",
+			expectSpanStatus: codes.Error,
 		},
 		{
 			name:         "Error/Mapped",
@@ -84,11 +99,13 @@ func TestHandleError(t *testing.T) {
 			expectLevel:  "warn",
 		},
 		{
-			name:         "Error/MappedServerError",
-			errMap:       httpf.ErrMap{errMapped: http.StatusServiceUnavailable},
-			err:          fmt.Errorf("%w: %w", errMapped, errSecret),
-			expectStatus: http.StatusServiceUnavailable,
-			expectLevel:  "error",
+			name:                  "Error/MappedServerError",
+			errMap:                httpf.ErrMap{errMapped: http.StatusServiceUnavailable},
+			err:                   fmt.Errorf("%w: %w", errMapped, errSecret),
+			expectStatus:          http.StatusServiceUnavailable,
+			expectLevel:           "error",
+			expectSpanStatus:      codes.Error,
+			expectSpanDescription: "mapped: " + errSecret.Error(),
 		},
 	}
 
@@ -116,8 +133,8 @@ func TestHandleError(t *testing.T) {
 
 			spans := recorder.Ended()
 			require.Len(t, spans, 1)
-			require.Equal(t, codes.Error, spans[0].Status().Code)
-			require.Equal(t, testCase.err.Error(), spans[0].Status().Description)
+			require.Equal(t, testCase.expectSpanStatus, spans[0].Status().Code)
+			require.Equal(t, testCase.expectSpanDescription, spans[0].Status().Description)
 		})
 	}
 }
