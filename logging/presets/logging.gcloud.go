@@ -2,53 +2,56 @@ package loggingpresets
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // LogGcloud implements the logging.Log interface for Google Cloud, writing
-// entries as structured JSON to stderr with a severity field that Cloud Logging
-// understands. ProjectId names the Google Cloud project, and scopes the trace
-// resource names the HTTP preset attaches to access logs.
+// entries as structured JSON with a severity field that Cloud Logging
+// understands. An entry logged under a span carries the fields Cloud Logging
+// reads to attach it to that span's trace.
 type LogGcloud struct {
+	// ProjectId names the Google Cloud project that scopes trace resource names.
 	ProjectId string `json:"projectID" yaml:"projectID"`
-	l         *slog.Logger
+	// Out receives the entries. It defaults to standard error, where Cloud
+	// Logging collects them.
+	Out io.Writer `json:"-" yaml:"-"`
 }
 
 func (logger *LogGcloud) Info(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, LogLevelInfo, msg, fields...)
+	logger.log(ctx, slog.LevelInfo, "INFO", msg, fields...)
 }
 
 func (logger *LogGcloud) Warn(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, LogLevelWarn, msg, fields...)
+	logger.log(ctx, slog.LevelWarn, "WARNING", msg, fields...)
 }
 
 func (logger *LogGcloud) Err(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, LogLevelError, msg, fields...)
+	logger.log(ctx, slog.LevelError, "ERROR", msg, fields...)
 }
 
-func (logger *LogGcloud) log(ctx context.Context, level LogLevel, msg string, fields ...any) {
-	if logger.l == nil {
-		logger.l = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+func (logger *LogGcloud) log(ctx context.Context, level slog.Level, severity, msg string, fields ...any) {
+	out := logger.Out
+	if out == nil {
+		out = os.Stderr
 	}
 
-	var (
-		gcloudLevel string
-		logFn       func(ctx context.Context, msg string, args ...any)
-	)
+	fields = append([]any{slog.String("severity", severity)}, fields...)
 
-	switch level {
-	case LogLevelInfo:
-		gcloudLevel = "INFO"
-		logFn = logger.l.InfoContext
-	case LogLevelWarn:
-		gcloudLevel = "WARNING"
-		logFn = logger.l.WarnContext
-	case LogLevelError:
-		gcloudLevel = "ERROR"
-		logFn = logger.l.ErrorContext
+	// The field names are the contract Cloud Logging reads to correlate an entry with its trace.
+	// https://docs.cloud.google.com/logging/docs/structured-logging
+	if span := trace.SpanContextFromContext(ctx); span.IsValid() {
+		fields = append(fields,
+			slog.String("logging.googleapis.com/trace",
+				fmt.Sprintf("projects/%s/traces/%s", logger.ProjectId, span.TraceID())),
+			slog.String("logging.googleapis.com/spanId", span.SpanID().String()),
+			slog.Bool("logging.googleapis.com/trace_sampled", span.IsSampled()),
+		)
 	}
 
-	fields = append([]any{slog.String("severity", gcloudLevel)}, fields...)
-	logFn(ctx, msg, fields...)
+	slog.New(slog.NewJSONHandler(out, nil)).Log(ctx, level, msg, fields...)
 }
