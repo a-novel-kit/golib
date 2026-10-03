@@ -13,8 +13,8 @@ import (
 // hijacking, as on HTTP/2.
 var ErrNotHijackable = errors.New("the underlying ResponseWriter does not support hijacking")
 
-// captureBodyFrom is the lowest status whose body is kept. Both HTTP logging presets
-// read Response() only to report a failure, so a successful response has nothing to keep
+// captureBodyFrom is the lowest status whose body is kept. The local HTTP logging preset
+// reads Response() only to report a failure, so a successful response has nothing to keep
 // it for.
 const captureBodyFrom = http.StatusBadRequest
 
@@ -103,7 +103,7 @@ func (w *CaptureHTTPResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error
 //
 // The forwarding path streams past this wrapper, so a body sent through it is counted
 // but not captured. It carries a successful response; the failing statuses whose body
-// the presets read are written as bytes.
+// the local preset reads are written as bytes.
 func (w *CaptureHTTPResponseWriter) ReadFrom(src io.Reader) (int64, error) {
 	readerFrom, ok := w.ResponseWriter.(io.ReaderFrom)
 	if !ok {
