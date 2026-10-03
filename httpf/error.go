@@ -19,6 +19,10 @@ type ErrMap map[error]int
 // HandleError writes a response for a failed handler. It records err on the span,
 // matches it against errMap (with errors.Is) to pick a status, logs it, and writes the
 // status text as the body. Unmatched errors default to 500 Internal Server Error.
+//
+// The body never carries err, which can hold internal detail such as a database
+// address; the span and the log keep it. A server error logs at error level and a
+// client error at warning level.
 func HandleError(
 	ctx context.Context, logger logging.Log, w http.ResponseWriter, span trace.Span, errMap ErrMap, err error,
 ) {
@@ -40,6 +44,11 @@ func HandleError(
 		}
 	}
 
-	logger.Err(ctx, err.Error())
+	if status >= http.StatusInternalServerError {
+		logger.Err(ctx, err.Error())
+	} else {
+		logger.Warn(ctx, err.Error())
+	}
+
 	http.Error(w, http.StatusText(status), status)
 }

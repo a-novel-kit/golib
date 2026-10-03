@@ -2,26 +2,28 @@ package loggingpresets
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
-	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/logging"
-	libotel "github.com/a-novel-kit/golib/otel"
 	"github.com/a-novel-kit/golib/otel/utils"
 )
 
 var _ logging.HTTPConfig = (*HTTPGcloud)(nil)
 
 // HTTPGcloud implements [logging.HTTPConfig] for Google Cloud. Its middleware
-// times each request, records a trace span, and emits a structured access log
-// whose fields Cloud Logging correlates with that trace. It logs through
+// times each request and emits a structured access log whose fields Cloud
+// Logging correlates with the request's server span. It logs through
 // BaseLogger.
+//
+// Install it inside the OpenTelemetry HTTP middleware, which opens that span.
+// HTTPGcloud passes the request on unchanged, so the server span takes its name
+// from the route the router matches.
 type HTTPGcloud struct {
 	BaseLogger *LogGcloud
 }
@@ -29,14 +31,11 @@ type HTTPGcloud struct {
 func (logger *HTTPGcloud) Logger() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx, span := libotel.Tracer().Start(r.Context(), fmt.Sprintf("[%s] %s.%s", r.Method, r.Host, r.URL.Path))
-			defer span.End()
-
 			wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: w}
 
 			start := time.Now()
 
-			next.ServeHTTP(wrapped, r.WithContext(ctx))
+			next.ServeHTTP(wrapped, r)
 
 			latency := time.Since(start)
 			status := wrapped.Status()
@@ -45,21 +44,14 @@ func (logger *HTTPGcloud) Logger() func(http.Handler) http.Handler {
 
 			switch {
 			case status >= http.StatusInternalServerError:
-				span.RecordError(errors.New(string(wrapped.Response())))
-				span.SetStatus(codes.Error, http.StatusText(status))
-
 				logFn = logger.BaseLogger.Err
 			case status >= http.StatusBadRequest:
-				span.SetStatus(codes.Error, http.StatusText(status))
-
 				logFn = logger.BaseLogger.Warn
 			default:
-				span.SetStatus(codes.Ok, http.StatusText(status))
-
 				logFn = logger.BaseLogger.Info
 			}
 
-			spanCtx := span.SpanContext()
+			spanCtx := trace.SpanContextFromContext(r.Context())
 			traceID := spanCtx.TraceID().String()
 			spanID := spanCtx.SpanID().String()
 			traceSampled := spanCtx.IsSampled()

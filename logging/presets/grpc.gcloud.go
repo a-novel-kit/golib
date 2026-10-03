@@ -37,13 +37,13 @@ func (logger *GRPCGcloud) StreamInterceptor() grpc.StreamServerInterceptor {
 func (logger *GRPCGcloud) PanicUnaryInterceptor() grpc.UnaryServerInterceptor {
 	logger.init()
 
-	return recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(panicInterceptor(logger.l)))
+	return recovery.UnaryServerInterceptor(recovery.WithRecoveryHandlerContext(panicInterceptor(logger.l)))
 }
 
 func (logger *GRPCGcloud) PanicStreamInterceptor() grpc.StreamServerInterceptor {
 	logger.init()
 
-	return recovery.StreamServerInterceptor(recovery.WithRecoveryHandler(panicInterceptor(logger.l)))
+	return recovery.StreamServerInterceptor(recovery.WithRecoveryHandlerContext(panicInterceptor(logger.l)))
 }
 
 func (logger *GRPCGcloud) init() {
