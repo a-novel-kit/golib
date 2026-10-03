@@ -50,7 +50,7 @@ func (logger *HTTPGcloud) Logger() func(http.Handler) http.Handler {
 			}
 
 			// The httpRequest group is the contract Cloud Logging reads to unpack the request.
-			// https://docs.cloud.google.com/logging/docs/structured-logging
+			// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
 			logFn(
 				r.Context(),
 				fmt.Sprintf("%s %s %d", r.Method, r.URL.Path, status),

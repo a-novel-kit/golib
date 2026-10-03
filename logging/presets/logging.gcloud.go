@@ -23,27 +23,25 @@ type LogGcloud struct {
 }
 
 func (logger *LogGcloud) Info(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, slog.LevelInfo, "INFO", msg, fields...)
+	logger.log(ctx, slog.LevelInfo, msg, fields...)
 }
 
 func (logger *LogGcloud) Warn(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, slog.LevelWarn, "WARNING", msg, fields...)
+	logger.log(ctx, slog.LevelWarn, msg, fields...)
 }
 
 func (logger *LogGcloud) Err(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, slog.LevelError, "ERROR", msg, fields...)
+	logger.log(ctx, slog.LevelError, msg, fields...)
 }
 
-func (logger *LogGcloud) log(ctx context.Context, level slog.Level, severity, msg string, fields ...any) {
+func (logger *LogGcloud) log(ctx context.Context, level slog.Level, msg string, fields ...any) {
 	out := logger.Out
 	if out == nil {
 		out = os.Stderr
 	}
 
-	fields = append([]any{slog.String("severity", severity)}, fields...)
-
 	// The field names are the contract Cloud Logging reads to correlate an entry with its trace.
-	// https://docs.cloud.google.com/logging/docs/structured-logging
+	// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
 	if span := trace.SpanContextFromContext(ctx); span.IsValid() {
 		fields = append(fields,
 			slog.String("logging.googleapis.com/trace",
@@ -53,5 +51,38 @@ func (logger *LogGcloud) log(ctx context.Context, level slog.Level, severity, ms
 		)
 	}
 
-	slog.New(slog.NewJSONHandler(out, nil)).Log(ctx, level, msg, fields...)
+	slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{ReplaceAttr: gcloudAttr})).
+		Log(ctx, level, msg, fields...)
+}
+
+// gcloudAttr renames slog's built-in keys to the ones Cloud Logging reads: the message becomes the
+// entry's display text, and the level its severity.
+func gcloudAttr(groups []string, attr slog.Attr) slog.Attr {
+	if len(groups) > 0 {
+		return attr
+	}
+
+	switch attr.Key {
+	case slog.MessageKey:
+		attr.Key = "message"
+	case slog.LevelKey:
+		level, _ := attr.Value.Any().(slog.Level)
+		attr = slog.String("severity", gcloudSeverity(level))
+	}
+
+	return attr
+}
+
+// gcloudSeverity maps a slog level to the Cloud Logging severity at or below it.
+func gcloudSeverity(level slog.Level) string {
+	switch {
+	case level >= slog.LevelError:
+		return "ERROR"
+	case level >= slog.LevelWarn:
+		return "WARNING"
+	case level >= slog.LevelInfo:
+		return "INFO"
+	default:
+		return "DEBUG"
+	}
 }

@@ -51,6 +51,6 @@ func (logger *GRPCGcloud) init() {
 		return
 	}
 
-	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{ReplaceAttr: gcloudAttr}))
 	logger.l = log.With("service", "gRPC/server", "component", logger.Component)
 }

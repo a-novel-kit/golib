@@ -17,7 +17,7 @@ import (
 
 // gcloudEntry holds the fields of a LogGcloud entry that Cloud Logging reads.
 type gcloudEntry struct {
-	Msg          string `json:"msg"`
+	Message      string `json:"message"`
 	Severity     string `json:"severity"`
 	Trace        string `json:"logging.googleapis.com/trace"`
 	SpanID       string `json:"logging.googleapis.com/spanId"`
@@ -92,7 +92,9 @@ func TestLogGcloud(t *testing.T) {
 			testCase.log(&loggingpresets.LogGcloud{ProjectId: "project", Out: out}, ctx)
 
 			entry := decodeGcloudEntry(t, out)
-			require.Equal(t, "message", entry.Msg)
+			require.Equal(t, "message", entry.Message)
+			require.NotContains(t, out.String(), `"msg"`)
+			require.NotContains(t, out.String(), `"level"`)
 			require.Equal(t, testCase.expectSeverity, entry.Severity)
 
 			if !testCase.inSpan {
