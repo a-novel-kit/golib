@@ -68,7 +68,7 @@ func runOnce(ctx context.Context, fn func(context.Context) (bool, error)) (bool,
 
 	span.SetAttributes(attribute.Bool("poll.worked", worked))
 
-	return otel.ReportSuccess(span, worked), nil
+	return worked, nil
 }
 
 // wait waits out duration, reporting whether it finished rather than the loop being stopped. Zero

@@ -64,72 +64,67 @@ func TestSendJSONStatus(t *testing.T) {
 		data     any
 		priorErr error
 
-		expectBody       string
-		expectSpanStatus codes.Code
-		expectEvents     int
+		expectBody            string
+		expectSpanStatus      codes.Code
+		expectSpanDescription string
 	}{
 		{
-			name:             "OK",
-			status:           http.StatusOK,
-			data:             map[string]string{"hello": "world"},
-			expectBody:       `{"hello":"world"}`,
-			expectSpanStatus: codes.Ok,
+			name:       "OK",
+			status:     http.StatusOK,
+			data:       map[string]string{"hello": "world"},
+			expectBody: `{"hello":"world"}`,
 		},
 		{
 			// The case the previous signature could not express. Both live 201 handlers
 			// declare content: application/json for it in their openapi.yaml.
-			name:             "Created",
-			status:           http.StatusCreated,
-			data:             map[string]string{"id": "abc"},
-			expectBody:       `{"id":"abc"}`,
-			expectSpanStatus: codes.Ok,
+			name:       "Created",
+			status:     http.StatusCreated,
+			data:       map[string]string{"id": "abc"},
+			expectBody: `{"id":"abc"}`,
 		},
 		{
-			name:             "Accepted",
-			status:           http.StatusAccepted,
-			data:             []string{"queued"},
-			expectBody:       `["queued"]`,
-			expectSpanStatus: codes.Ok,
+			name:       "Accepted",
+			status:     http.StatusAccepted,
+			data:       []string{"queued"},
+			expectBody: `["queued"]`,
 		},
 
 		{
-			name:             "Error/BadRequest",
-			status:           http.StatusBadRequest,
-			data:             map[string]string{"status": "invalid"},
-			expectBody:       `{"status":"invalid"}`,
-			expectSpanStatus: codes.Error,
-			expectEvents:     1,
+			// A client error status is an answer, not a fault.
+			name:       "ErrorStatus/BadRequest",
+			status:     http.StatusBadRequest,
+			data:       map[string]string{"status": "invalid"},
+			expectBody: `{"status":"invalid"}`,
 		},
 		{
-			name:             "Error/ServiceUnavailable",
-			status:           http.StatusServiceUnavailable,
-			data:             map[string]string{"status": "down"},
-			expectBody:       `{"status":"down"}`,
-			expectSpanStatus: codes.Error,
-			expectEvents:     1,
+			// The handler reports a fault's cause; the status alone carries none.
+			name:       "ErrorStatus/ServiceUnavailable",
+			status:     http.StatusServiceUnavailable,
+			data:       map[string]string{"status": "down"},
+			expectBody: `{"status":"down"}`,
 		},
 		{
-			name:             "Error/PreviouslyReportedDependency",
-			status:           http.StatusServiceUnavailable,
-			data:             map[string]string{"status": "down"},
-			priorErr:         errors.New("foo"),
-			expectBody:       `{"status":"down"}`,
-			expectSpanStatus: codes.Error,
-			expectEvents:     2,
+			name:                  "ErrorStatus/PreviouslyReportedDependency",
+			status:                http.StatusServiceUnavailable,
+			data:                  map[string]string{"status": "down"},
+			priorErr:              errors.New("foo"),
+			expectBody:            `{"status":"down"}`,
+			expectSpanStatus:      codes.Error,
+			expectSpanDescription: "foo",
 		},
 		{
-			name:             "Error/Encoding",
-			status:           http.StatusOK,
-			data:             make(chan int),
-			expectSpanStatus: codes.Error,
-			expectEvents:     1,
+			name:                  "Error/Encoding",
+			status:                http.StatusOK,
+			data:                  make(chan int),
+			expectSpanStatus:      codes.Error,
+			expectSpanDescription: "unsupported type",
 		},
 		{
-			name:             "Error/ResponseWrite",
-			status:           http.StatusNoContent,
-			data:             map[string]string{"status": "up"},
-			expectSpanStatus: codes.Error,
-			expectEvents:     1,
+			name:                  "Error/ResponseWrite",
+			status:                http.StatusNoContent,
+			data:                  map[string]string{"status": "up"},
+			expectSpanStatus:      codes.Error,
+			expectSpanDescription: "does not allow body",
 		},
 	}
 
@@ -165,11 +160,9 @@ func TestSendJSONStatus(t *testing.T) {
 			spans := recorder.Ended()
 			require.Len(t, spans, 1)
 			require.Equal(t, testCase.expectSpanStatus, spans[0].Status().Code)
-			require.Len(t, spans[0].Events(), testCase.expectEvents)
+			require.Empty(t, spans[0].Events())
 
-			if testCase.status >= http.StatusBadRequest {
-				require.Equal(t, http.StatusText(testCase.status), spans[0].Status().Description)
-			}
+			require.Contains(t, spans[0].Status().Description, testCase.expectSpanDescription)
 		})
 	}
 }

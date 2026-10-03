@@ -41,8 +41,6 @@ func RunMigrations(ctx context.Context, db *bun.DB, migrations fs.FS) error {
 		return otel.ReportError(span, fmt.Errorf("apply mig: %w", err))
 	}
 
-	otel.ReportSuccessNoContent(span)
-
 	return nil
 }
 
