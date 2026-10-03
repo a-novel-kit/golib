@@ -8,7 +8,6 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/log"
-	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -65,7 +64,7 @@ func Init(config Config) error {
 
 	otel.SetTextMapPropagator(tracePropagator)
 	otel.SetTracerProvider(traceProvider)
-	global.SetLoggerProvider(logger)
+	otel.SetLoggerProvider(logger)
 
 	return nil
 }
