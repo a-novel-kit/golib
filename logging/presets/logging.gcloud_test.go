@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -152,8 +153,9 @@ func TestLogGcloud(t *testing.T) {
 	t.Run("Concurrent", func(t *testing.T) {
 		t.Parallel()
 
-		// One logger serves every request; the race detector checks it holds no lazy state.
-		logger := &loggingpresets.LogGcloud{ProjectId: "project", Out: &lockedBuffer{}}
+		// One logger serves every request, over a writer with no lock of its own.
+		out := &bytes.Buffer{}
+		logger := &loggingpresets.LogGcloud{ProjectId: "project", Out: out}
 
 		var wg sync.WaitGroup
 		for range 8 {
@@ -161,18 +163,12 @@ func TestLogGcloud(t *testing.T) {
 		}
 
 		wg.Wait()
+
+		entries := strings.Split(strings.TrimSpace(out.String()), "\n")
+		require.Len(t, entries, 8)
+
+		for _, entry := range entries {
+			require.True(t, json.Valid([]byte(entry)), entry)
+		}
 	})
-}
-
-// lockedBuffer is a bytes.Buffer safe for concurrent writers.
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (buffer *lockedBuffer) Write(p []byte) (int, error) {
-	buffer.mu.Lock()
-	defer buffer.mu.Unlock()
-
-	return buffer.buf.Write(p)
 }

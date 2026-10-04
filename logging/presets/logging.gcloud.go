@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"sync"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -19,8 +20,12 @@ type LogGcloud struct {
 	// ProjectId names the Google Cloud project that scopes trace resource names.
 	ProjectId string `json:"projectID" yaml:"projectID"`
 	// Out receives the entries. It defaults to standard error, where Cloud
-	// Logging collects them.
+	// Logging collects them. Set it before the first entry.
 	Out io.Writer `json:"-" yaml:"-"`
+
+	// once builds logger on first use; its handler serializes writes to Out.
+	once   sync.Once
+	logger *slog.Logger
 }
 
 func (logger *LogGcloud) Info(ctx context.Context, msg string, fields ...any) {
@@ -36,10 +41,14 @@ func (logger *LogGcloud) Err(ctx context.Context, msg string, fields ...any) {
 }
 
 func (logger *LogGcloud) log(ctx context.Context, level slog.Level, msg string, fields ...any) {
-	out := logger.Out
-	if out == nil {
-		out = os.Stderr
-	}
+	logger.once.Do(func() {
+		out := logger.Out
+		if out == nil {
+			out = os.Stderr
+		}
+
+		logger.logger = slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{ReplaceAttr: gcloudAttr}))
+	})
 
 	// The field names are the contract Cloud Logging reads to correlate an entry with its trace.
 	// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
@@ -53,8 +62,7 @@ func (logger *LogGcloud) log(ctx context.Context, level slog.Level, msg string, 
 		)
 	}
 
-	slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{ReplaceAttr: gcloudAttr})).
-		Log(ctx, level, msg, fields...)
+	logger.logger.Log(ctx, level, msg, fields...)
 }
 
 // gcloudAttr renames slog's built-in keys to the ones Cloud Logging reads: the message becomes the
