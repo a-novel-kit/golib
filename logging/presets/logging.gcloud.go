@@ -2,53 +2,97 @@ package loggingpresets
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"slices"
+	"sync"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // LogGcloud implements the logging.Log interface for Google Cloud, writing
-// entries as structured JSON to stderr with a severity field that Cloud Logging
-// understands. ProjectId names the Google Cloud project, and scopes the trace
-// resource names the HTTP preset attaches to access logs.
+// entries as structured JSON with a severity field that Cloud Logging
+// understands. An entry logged under a span carries the fields Cloud Logging
+// reads to attach it to that span's trace.
 type LogGcloud struct {
+	// ProjectId names the Google Cloud project that scopes trace resource names.
 	ProjectId string `json:"projectID" yaml:"projectID"`
-	l         *slog.Logger
+	// Out receives the entries. It defaults to standard error, where Cloud
+	// Logging collects them. Set it before the first entry.
+	Out io.Writer `json:"-" yaml:"-"`
+
+	// once builds logger on first use; its handler serializes writes to Out.
+	once   sync.Once
+	logger *slog.Logger
 }
 
 func (logger *LogGcloud) Info(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, LogLevelInfo, msg, fields...)
+	logger.log(ctx, slog.LevelInfo, msg, fields...)
 }
 
 func (logger *LogGcloud) Warn(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, LogLevelWarn, msg, fields...)
+	logger.log(ctx, slog.LevelWarn, msg, fields...)
 }
 
 func (logger *LogGcloud) Err(ctx context.Context, msg string, fields ...any) {
-	logger.log(ctx, LogLevelError, msg, fields...)
+	logger.log(ctx, slog.LevelError, msg, fields...)
 }
 
-func (logger *LogGcloud) log(ctx context.Context, level LogLevel, msg string, fields ...any) {
-	if logger.l == nil {
-		logger.l = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}))
+func (logger *LogGcloud) log(ctx context.Context, level slog.Level, msg string, fields ...any) {
+	logger.once.Do(func() {
+		out := logger.Out
+		if out == nil {
+			out = os.Stderr
+		}
+
+		logger.logger = slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{ReplaceAttr: gcloudAttr}))
+	})
+
+	// The field names are the contract Cloud Logging reads to correlate an entry with its trace.
+	// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
+	if span := trace.SpanContextFromContext(ctx); span.IsValid() {
+		// Clip so the append copies, leaving the caller's backing array untouched.
+		fields = append(slices.Clip(fields),
+			slog.String("logging.googleapis.com/trace",
+				fmt.Sprintf("projects/%s/traces/%s", logger.ProjectId, span.TraceID())),
+			slog.String("logging.googleapis.com/spanId", span.SpanID().String()),
+			slog.Bool("logging.googleapis.com/trace_sampled", span.IsSampled()),
+		)
 	}
 
-	var (
-		gcloudLevel string
-		logFn       func(ctx context.Context, msg string, args ...any)
-	)
+	logger.logger.Log(ctx, level, msg, fields...)
+}
 
-	switch level {
-	case LogLevelInfo:
-		gcloudLevel = "INFO"
-		logFn = logger.l.InfoContext
-	case LogLevelWarn:
-		gcloudLevel = "WARNING"
-		logFn = logger.l.WarnContext
-	case LogLevelError:
-		gcloudLevel = "ERROR"
-		logFn = logger.l.ErrorContext
+// gcloudAttr renames slog's built-in keys to the ones Cloud Logging reads: the message becomes the
+// entry's display text, and the level its severity.
+func gcloudAttr(groups []string, attr slog.Attr) slog.Attr {
+	if len(groups) > 0 {
+		return attr
 	}
 
-	fields = append([]any{slog.String("severity", gcloudLevel)}, fields...)
-	logFn(ctx, msg, fields...)
+	switch attr.Key {
+	case slog.MessageKey:
+		attr.Key = "message"
+	case slog.LevelKey:
+		level, _ := attr.Value.Any().(slog.Level)
+		attr = slog.String("severity", gcloudSeverity(level))
+	}
+
+	return attr
+}
+
+// gcloudSeverity maps a slog level to the Cloud Logging severity at or below it.
+func gcloudSeverity(level slog.Level) string {
+	switch {
+	case level >= slog.LevelError:
+		return "ERROR"
+	case level >= slog.LevelWarn:
+		return "WARNING"
+	case level >= slog.LevelInfo:
+		return "INFO"
+	default:
+		return "DEBUG"
+	}
 }
