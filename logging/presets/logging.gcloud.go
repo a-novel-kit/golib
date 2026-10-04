@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"slices"
 	"sync"
 
 	"go.opentelemetry.io/otel/trace"
@@ -42,27 +41,53 @@ func (logger *LogGcloud) Err(ctx context.Context, msg string, fields ...any) {
 
 func (logger *LogGcloud) log(ctx context.Context, level slog.Level, msg string, fields ...any) {
 	logger.once.Do(func() {
-		out := logger.Out
-		if out == nil {
-			out = os.Stderr
-		}
-
-		logger.logger = slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{ReplaceAttr: gcloudAttr}))
+		logger.logger = slog.New(newGcloudHandler(logger.Out, logger.ProjectId))
 	})
 
+	logger.logger.Log(ctx, level, msg, fields...)
+}
+
+// gcloudHandler writes entries as the JSON Cloud Logging parses. An entry logged under a span
+// carries the fields Cloud Logging reads to attach it to that span's trace.
+type gcloudHandler struct {
+	slog.Handler
+
+	projectID string
+}
+
+// newGcloudHandler returns a gcloudHandler writing to out, or to standard error when out is nil.
+func newGcloudHandler(out io.Writer, projectID string) *gcloudHandler {
+	if out == nil {
+		out = os.Stderr
+	}
+
+	return &gcloudHandler{
+		Handler:   slog.NewJSONHandler(out, &slog.HandlerOptions{ReplaceAttr: gcloudAttr}),
+		projectID: projectID,
+	}
+}
+
+func (handler *gcloudHandler) Handle(ctx context.Context, record slog.Record) error {
 	// The field names are the contract Cloud Logging reads to correlate an entry with its trace.
 	// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
 	if span := trace.SpanContextFromContext(ctx); span.IsValid() {
-		// Clip so the append copies, leaving the caller's backing array untouched.
-		fields = append(slices.Clip(fields),
+		record.AddAttrs(
 			slog.String("logging.googleapis.com/trace",
-				fmt.Sprintf("projects/%s/traces/%s", logger.ProjectId, span.TraceID())),
+				fmt.Sprintf("projects/%s/traces/%s", handler.projectID, span.TraceID())),
 			slog.String("logging.googleapis.com/spanId", span.SpanID().String()),
 			slog.Bool("logging.googleapis.com/trace_sampled", span.IsSampled()),
 		)
 	}
 
-	logger.logger.Log(ctx, level, msg, fields...)
+	return handler.Handler.Handle(ctx, record)
+}
+
+func (handler *gcloudHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &gcloudHandler{Handler: handler.Handler.WithAttrs(attrs), projectID: handler.projectID}
+}
+
+func (handler *gcloudHandler) WithGroup(name string) slog.Handler {
+	return &gcloudHandler{Handler: handler.Handler.WithGroup(name), projectID: handler.projectID}
 }
 
 // gcloudAttr renames slog's built-in keys to the ones Cloud Logging reads: the message becomes the
