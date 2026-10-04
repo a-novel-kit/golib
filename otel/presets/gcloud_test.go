@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
@@ -69,6 +70,34 @@ func TestGcloud(t *testing.T) {
 				span.End()
 				require.True(t, found)
 				require.Equal(t, "configured-project", projectID.AsString())
+			},
+		},
+		{
+			name: "Error/LoggerMissingCredentials",
+			test: func(t *testing.T) {
+				t.Helper()
+				t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
+
+				config := &otelpresets.Gcloud{}
+				provider, err := config.GetLogger()
+
+				require.ErrorContains(t, err, "load Google application default credentials")
+				require.Nil(t, provider)
+			},
+		},
+		{
+			name: "Success/LoggerProvider",
+			test: func(t *testing.T) {
+				t.Helper()
+				setGoogleApplicationCredentials(t)
+
+				config := &otelpresets.Gcloud{ProjectID: "configured-project"}
+				provider, err := config.GetLogger()
+				require.NoError(t, err)
+
+				logProvider, ok := provider.(*sdklog.LoggerProvider)
+				require.True(t, ok)
+				require.NoError(t, logProvider.Shutdown(context.Background()))
 			},
 		},
 	}
