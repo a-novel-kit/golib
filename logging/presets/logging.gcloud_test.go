@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"slices"
 	"sync"
 	"testing"
 
@@ -111,6 +112,42 @@ func TestLogGcloud(t *testing.T) {
 			require.Equal(t, spanContext.IsSampled(), *entry.TraceSampled)
 		})
 	}
+
+	t.Run("KeepsCallerFields", func(t *testing.T) {
+		t.Parallel()
+
+		provider := sdktrace.NewTracerProvider()
+
+		t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+
+		// The shared slice leaves room for the trace fields, which must not land in it.
+		all := []any{"key", "value", "spare", "spare", "spare"}
+		original := slices.Clone(all)
+		fields := all[:2]
+
+		spanIDs := make([]string, 8)
+		outs := make([]*bytes.Buffer, 8)
+
+		var wg sync.WaitGroup
+		for i := range outs {
+			wg.Go(func() {
+				ctx, span := provider.Tracer("presets-test").Start(t.Context(), "operation")
+				defer span.End()
+
+				spanIDs[i] = span.SpanContext().SpanID().String()
+				outs[i] = &bytes.Buffer{}
+				(&loggingpresets.LogGcloud{ProjectId: "project", Out: outs[i]}).Err(ctx, "message", fields...)
+			})
+		}
+
+		wg.Wait()
+
+		require.Equal(t, original, all)
+
+		for i, out := range outs {
+			require.Equal(t, spanIDs[i], decodeGcloudEntry(t, out).SpanID)
+		}
+	})
 
 	t.Run("Concurrent", func(t *testing.T) {
 		t.Parallel()

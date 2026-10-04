@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -43,7 +44,8 @@ func (logger *LogGcloud) log(ctx context.Context, level slog.Level, msg string, 
 	// The field names are the contract Cloud Logging reads to correlate an entry with its trace.
 	// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
 	if span := trace.SpanContextFromContext(ctx); span.IsValid() {
-		fields = append(fields,
+		// Clip so the append copies, leaving the caller's backing array untouched.
+		fields = append(slices.Clip(fields),
 			slog.String("logging.googleapis.com/trace",
 				fmt.Sprintf("projects/%s/traces/%s", logger.ProjectId, span.TraceID())),
 			slog.String("logging.googleapis.com/spanId", span.SpanID().String()),
