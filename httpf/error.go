@@ -3,6 +3,7 @@ package httpf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"go.opentelemetry.io/otel/trace"
@@ -21,8 +22,11 @@ type ErrMap map[error]int
 // default to 500 Internal Server Error.
 //
 // The body never carries err, which can hold internal detail such as a database address; the log
-// and the trace keep it. A server error logs at error level and marks the span failed. A client
-// error logs at warning level and leaves the span status unset, since the handler answered it.
+// and the trace keep it. When err carries tags from [WithTag], the body is an RFC 9457 problem
+// details object holding those tags instead.
+//
+// A server error logs at error level and marks the span failed. A client error logs at warning
+// level and leaves the span status unset, since the handler answered it.
 func HandleError(
 	ctx context.Context, logger logging.Log, w http.ResponseWriter, span trace.Span, errMap ErrMap, err error,
 ) {
@@ -49,5 +53,19 @@ func HandleError(
 		logger.Warn(ctx, err.Error())
 	}
 
-	http.Error(w, http.StatusText(status), status)
+	body := problemBody(span, err, status)
+	if body == nil {
+		http.Error(w, http.StatusText(status), status)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+
+	_, err = w.Write(body)
+	if err != nil {
+		_ = otel.ReportError(span, fmt.Errorf("write problem body: %w", err))
+	}
 }
