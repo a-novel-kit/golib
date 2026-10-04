@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/codes"
@@ -53,6 +54,19 @@ func TestHandleError(t *testing.T) {
 	// A child span already describes this one.
 	errReported := otel.ReportError(trace.SpanFromContext(context.Background()), errSecret)
 
+	type profile struct {
+		DisplayName string `validate:"required"`
+	}
+
+	type request struct {
+		ID      string   `validate:"required"`
+		Email   string   `validate:"email"`
+		Roles   []string `validate:"dive,oneof=user admin"`
+		Profile profile
+	}
+
+	errValidation := validator.New(validator.WithRequiredStructEnabled()).
+		Struct(request{Email: "jane.doe", Roles: []string{"ghost"}})
 	errChan := &json.UnsupportedTypeError{Type: reflect.TypeFor[chan int]()}
 
 	testCases := []struct {
@@ -153,6 +167,37 @@ func TestHandleError(t *testing.T) {
 			expectSpanStatus:      codes.Error,
 			expectSpanDescription: fmt.Sprintf(`unencodable tag "bad": %v`, errChan),
 		},
+		{
+			name:         "Validator/ClientError",
+			errMap:       httpf.ErrMap{errMapped: http.StatusUnprocessableEntity},
+			err:          errors.Join(errValidation, errMapped),
+			expectStatus: http.StatusUnprocessableEntity,
+			expectBody: `{"type": "about:blank", "title": "Unprocessable Entity", "status": 422,
+				"tags": {"invalidFields": {
+					"id": "required", "email": "email", "roles[0]": "oneof", "profile.displayName": "required"
+				}}}`,
+			expectLevel: "warn",
+		},
+		{
+			// A server error can come from a validator rejecting the server's own data.
+			name:                  "Validator/ServerError",
+			err:                   errValidation,
+			expectStatus:          http.StatusInternalServerError,
+			expectLevel:           "error",
+			expectSpanStatus:      codes.Error,
+			expectSpanDescription: errValidation.Error(),
+		},
+		{
+			name:   "Validator/TagSetByHandler",
+			errMap: httpf.ErrMap{errMapped: http.StatusUnprocessableEntity},
+			err: httpf.WithTag(
+				errors.Join(errValidation, errMapped), httpf.InvalidFieldsTag, map[string]string{"email": "taken"},
+			),
+			expectStatus: http.StatusUnprocessableEntity,
+			expectBody: `{"type": "about:blank", "title": "Unprocessable Entity", "status": 422,
+				"tags": {"invalidFields": {"email": "taken"}}}`,
+			expectLevel: "warn",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -173,6 +218,7 @@ func TestHandleError(t *testing.T) {
 
 			require.Equal(t, testCase.expectStatus, w.Code)
 			require.NotContains(t, w.Body.String(), "password")
+			require.NotContains(t, w.Body.String(), "jane.doe")
 
 			if testCase.expectBody == "" {
 				require.Equal(t, http.StatusText(testCase.expectStatus)+"\n", w.Body.String())

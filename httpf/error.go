@@ -22,8 +22,8 @@ type ErrMap map[error]int
 // default to 500 Internal Server Error.
 //
 // The body never carries err, which can hold internal detail such as a database address; the log
-// and the trace keep it. When err carries tags from [WithTag], the body is an RFC 9457 problem
-// details object holding those tags instead.
+// and the trace keep it. When err carries tags from [WithTag], or a client error comes from a
+// validator, the body is an RFC 9457 problem details object holding those tags instead.
 //
 // A server error logs at error level and marks the span failed. A client error logs at warning
 // level and leaves the span status unset, since the handler answered it.
