@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
 )
@@ -27,9 +28,19 @@ type ErrMap map[error]int
 //
 // A server error logs at error level and marks the span failed. A client error logs at warning
 // level and leaves the span status unset, since the handler answered it.
+//
+// A gRPC dependency's planned downtime refusal anywhere in err wins over errMap: the response is
+// the one [downtime.Middleware] gives, logged as a warning, since the server did nothing wrong.
 func HandleError(
 	ctx context.Context, logger logging.Log, w http.ResponseWriter, span trace.Span, errMap ErrMap, err error,
 ) {
+	if window := downtime.FromError(err); window != nil {
+		logger.Warn(ctx, err.Error())
+		downtime.Respond(w, window)
+
+		return
+	}
+
 	status := http.StatusInternalServerError
 
 	for ref, refStatus := range errMap {
