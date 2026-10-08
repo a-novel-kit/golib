@@ -3,6 +3,7 @@ package downtime_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,66 +16,41 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 )
 
-// retryDelay returns the RetryInfo delay of err, or zero without one.
-func retryDelay(t *testing.T, err error) time.Duration {
-	t.Helper()
-
-	for _, detail := range status.Convert(err).Details() {
-		if info, ok := detail.(*errdetails.RetryInfo); ok {
-			return info.GetRetryDelay().AsDuration()
-		}
-	}
-
-	return 0
-}
-
 func TestUnaryServerInterceptor(t *testing.T) {
 	t.Parallel()
 
-	// RFC 3339 metadata keeps whole seconds.
-	now := time.Now().UTC().Truncate(time.Second)
-	inProgress := window(now, -time.Minute, time.Hour, "json-keys", "authentication")
-	pastEnd := window(now, -2*time.Hour, -time.Hour, "json-keys")
+	started := time.Now().Add(-time.Minute)
+	scheduled := time.Now().Add(time.Hour)
 
 	testCases := []struct {
 		name string
 
-		window *downtime.Window
+		start  *time.Time
 		method string
 
 		expectCalled bool
-		expectWindow *downtime.Window
-		expectRetry  bool
 	}{
 		{
-			name:         "Success/NoWindow",
+			name:         "Success/NoDowntime",
 			method:       "/anovel.jsonkeys.v2.ClaimsSignService/ClaimsSign",
 			expectCalled: true,
 		},
 		{
-			name:         "Success/Notice",
-			window:       window(now, time.Hour, 2*time.Hour, "json-keys"),
+			name:         "Success/Scheduled",
+			start:        &scheduled,
 			method:       "/anovel.jsonkeys.v2.ClaimsSignService/ClaimsSign",
 			expectCalled: true,
 		},
 		{
 			name:         "Success/OpenMethod",
-			window:       inProgress,
+			start:        &started,
 			method:       "/grpc.health.v1.Health/Check",
 			expectCalled: true,
 		},
 		{
-			name:         "Error/InProgress",
-			window:       inProgress,
-			method:       "/anovel.jsonkeys.v2.ClaimsSignService/ClaimsSign",
-			expectWindow: inProgress,
-			expectRetry:  true,
-		},
-		{
-			name:         "Error/PastEnd",
-			window:       pastEnd,
-			method:       "/anovel.jsonkeys.v2.ClaimsSignService/ClaimsSign",
-			expectWindow: pastEnd,
+			name:   "Error/Started",
+			start:  &started,
+			method: "/anovel.jsonkeys.v2.ClaimsSignService/ClaimsSign",
 		},
 	}
 
@@ -89,7 +65,7 @@ func TestUnaryServerInterceptor(t *testing.T) {
 				return "ok", nil
 			}
 
-			interceptor := downtime.UnaryServerInterceptor(testCase.window, "json-keys", "/grpc.health.v1.Health/")
+			interceptor := downtime.UnaryServerInterceptor(testCase.start, "/grpc.health.v1.Health/")
 			_, err := interceptor(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: testCase.method}, handler)
 
 			require.Equal(t, testCase.expectCalled, called)
@@ -101,8 +77,7 @@ func TestUnaryServerInterceptor(t *testing.T) {
 			}
 
 			require.Equal(t, codes.Unavailable, status.Code(err))
-			require.Equal(t, testCase.expectWindow, downtime.FromError(err))
-			require.Equal(t, testCase.expectRetry, retryDelay(t, err) > 0)
+			require.True(t, downtime.Refused(err))
 		})
 	}
 }
@@ -110,8 +85,7 @@ func TestUnaryServerInterceptor(t *testing.T) {
 func TestStreamServerInterceptor(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now().UTC().Truncate(time.Second)
-	inProgress := window(now, -time.Minute, time.Hour, "json-keys")
+	started := time.Now().Add(-time.Minute)
 
 	testCases := []struct {
 		name string
@@ -126,7 +100,7 @@ func TestStreamServerInterceptor(t *testing.T) {
 			expectCode: codes.OK,
 		},
 		{
-			name:       "Error/InProgress",
+			name:       "Error/Started",
 			method:     "/anovel.jsonkeys.v2.KeysService/Watch",
 			expectCode: codes.Unavailable,
 		},
@@ -136,7 +110,7 @@ func TestStreamServerInterceptor(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			interceptor := downtime.StreamServerInterceptor(inProgress, "json-keys", "/grpc.health.v1.Health/")
+			interceptor := downtime.StreamServerInterceptor(&started, "/grpc.health.v1.Health/")
 			handler := func(_ any, _ grpc.ServerStream) error { return nil }
 			err := interceptor(nil, nil, &grpc.StreamServerInfo{FullMethod: testCase.method}, handler)
 
@@ -145,39 +119,49 @@ func TestStreamServerInterceptor(t *testing.T) {
 	}
 }
 
-func TestFromError(t *testing.T) {
+func TestRefused(t *testing.T) {
 	t.Parallel()
+
+	started := time.Now().Add(-time.Minute)
+	_, refusal := downtime.UnaryServerInterceptor(&started)(
+		t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/anovel.jsonkeys.v2.ClaimsSignService/ClaimsSign"}, nil,
+	)
 
 	otherReason, err := status.New(codes.Unavailable, "overloaded").
 		WithDetails(&errdetails.ErrorInfo{Reason: "OVERLOADED"})
-	require.NoError(t, err)
-
-	badMetadata, err := status.New(codes.Unavailable, "planned downtime").WithDetails(&errdetails.ErrorInfo{
-		Reason:   downtime.Reason,
-		Metadata: map[string]string{"services": "json-keys", "start": "soon", "end": "later"},
-	})
 	require.NoError(t, err)
 
 	testCases := []struct {
 		name string
 
 		err error
+
+		expect bool
 	}{
 		{
-			name: "Success/NotStatus",
+			name:   "Refusal",
+			err:    refusal,
+			expect: true,
+		},
+		{
+			name:   "WrappedRefusal",
+			err:    fmt.Errorf("issue access token: %w", refusal),
+			expect: true,
+		},
+		{
+			name: "Nil",
+		},
+		{
+			name: "NotStatus",
 			err:  errors.New("foo"),
 		},
 		{
-			name: "Success/NoDetails",
+			name: "NoDetails",
 			err:  status.Error(codes.Unavailable, "unavailable"),
 		},
 		{
-			name: "Success/OtherReason",
+			name: "OtherReason",
 			err:  otherReason.Err(),
-		},
-		{
-			name: "Success/MalformedMetadata",
-			err:  badMetadata.Err(),
 		},
 	}
 
@@ -185,7 +169,7 @@ func TestFromError(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Nil(t, downtime.FromError(testCase.err))
+			require.Equal(t, testCase.expect, downtime.Refused(testCase.err))
 		})
 	}
 }

@@ -1,7 +1,6 @@
 package downtime_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,53 +14,44 @@ import (
 func TestMiddleware(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now().UTC().Truncate(time.Second)
-	inProgress := window(now, -time.Minute, time.Hour, "json-keys", "authentication")
+	started := time.Now().Add(-time.Minute)
+	scheduled := time.Now().Add(time.Hour)
 
 	testCases := []struct {
 		name string
 
-		window *downtime.Window
-		path   string
+		start *time.Time
+		path  string
 
-		expectStatus     int
-		expectRetryAfter string
+		expectStatus int
 	}{
 		{
-			name:         "Success/NoWindow",
+			name:         "Success/NoDowntime",
 			path:         "/v2/claims",
 			expectStatus: http.StatusOK,
 		},
 		{
-			name:         "Success/Notice",
-			window:       window(now, time.Hour, 2*time.Hour, "json-keys"),
-			path:         "/v2/claims",
-			expectStatus: http.StatusOK,
-		},
-		{
-			name:         "Success/Unlisted",
-			window:       window(now, -time.Minute, time.Hour, "authentication"),
+			name:         "Success/Scheduled",
+			start:        &scheduled,
 			path:         "/v2/claims",
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "Success/OpenPath",
-			window:       inProgress,
-			path:         "/v2/healthcheck",
+			start:        &started,
+			path:         "/v2/ping",
 			expectStatus: http.StatusOK,
 		},
 		{
-			name:             "Error/InProgress",
-			window:           inProgress,
-			path:             "/v2/claims",
-			expectStatus:     http.StatusServiceUnavailable,
-			expectRetryAfter: inProgress.End.Format(http.TimeFormat),
+			name:         "Error/Started",
+			start:        &started,
+			path:         "/v2/claims",
+			expectStatus: http.StatusServiceUnavailable,
 		},
 		{
-			// Past its end, a window keeps refusing work but no longer promises a time.
-			name:         "Error/PastEnd",
-			window:       window(now, -2*time.Hour, -time.Hour, "json-keys"),
-			path:         "/v2/claims",
+			name:         "Error/HealthIsNotLiveness",
+			start:        &started,
+			path:         "/v2/healthcheck",
 			expectStatus: http.StatusServiceUnavailable,
 		},
 	}
@@ -71,28 +61,21 @@ func TestMiddleware(t *testing.T) {
 			t.Parallel()
 
 			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-			handler := downtime.Middleware(testCase.window, "json-keys", "/v2/healthcheck", "/v2/ping")(next)
+			handler := downtime.Middleware(testCase.start, "/v2/ping")(next)
 
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, testCase.path, nil))
 
 			require.Equal(t, testCase.expectStatus, recorder.Code)
-			require.Equal(t, testCase.expectRetryAfter, recorder.Header().Get("Retry-After"))
 
 			if testCase.expectStatus != http.StatusServiceUnavailable {
 				return
 			}
 
-			// Clients read the window from the problem body.
-			var body struct {
-				Status int                         `json:"status"`
-				Tags   map[string]*downtime.Window `json:"tags"`
-			}
-
+			// Clients tell a planned downtime from an outage by the tag.
 			require.Equal(t, "application/problem+json", recorder.Header().Get("Content-Type"))
-			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
-			require.Equal(t, http.StatusServiceUnavailable, body.Status)
-			require.Equal(t, testCase.window, body.Tags[downtime.Tag])
+			require.JSONEq(t, `{"type": "about:blank", "title": "Service Unavailable", "status": 503,
+				"tags": {"downtime": true}}`, recorder.Body.String())
 		})
 	}
 }

@@ -9,15 +9,18 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/httpf"
 	"github.com/a-novel-kit/golib/otel"
 )
@@ -68,6 +71,12 @@ func TestHandleError(t *testing.T) {
 	errValidation := validator.New(validator.WithRequiredStructEnabled()).
 		Struct(request{Email: "jane.doe", Roles: []string{"ghost"}})
 	errChan := &json.UnsupportedTypeError{Type: reflect.TypeFor[chan int]()}
+
+	// The refusal a dependency in planned downtime sends.
+	started := time.Now().Add(-time.Minute)
+	_, errDowntime := downtime.UnaryServerInterceptor(&started)(
+		t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/jsonkeys.ClaimsSignService/ClaimsSign"}, nil,
+	)
 
 	testCases := []struct {
 		name string
@@ -125,6 +134,15 @@ func TestHandleError(t *testing.T) {
 			expectLevel:           "error",
 			expectSpanStatus:      codes.Error,
 			expectSpanDescription: "mapped: " + errSecret.Error(),
+		},
+		{
+			name:         "Downtime/Dependency",
+			errMap:       httpf.ErrMap{nil: http.StatusBadRequest},
+			err:          fmt.Errorf("issue access token: %w", errDowntime),
+			expectStatus: http.StatusServiceUnavailable,
+			expectBody: `{"type": "about:blank", "title": "Service Unavailable", "status": 503,
+				"tags": {"downtime": true}}`,
+			expectLevel: "warn",
 		},
 		{
 			name:   "Tagged/ClientError",
