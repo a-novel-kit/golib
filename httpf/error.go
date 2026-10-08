@@ -34,9 +34,9 @@ type ErrMap map[error]int
 func HandleError(
 	ctx context.Context, logger logging.Log, w http.ResponseWriter, span trace.Span, errMap ErrMap, err error,
 ) {
-	if window := downtime.FromError(err); window != nil {
+	if downtime.Refused(err) {
 		logger.Warn(ctx, err.Error())
-		downtime.Respond(w, window)
+		downtime.Respond(w)
 
 		return
 	}
