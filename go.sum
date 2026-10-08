@@ -34,8 +34,8 @@ github.com/getsentry/sentry-go v0.50.0 h1:gkO59rn/i0RCAXUUTflC5QVbTQGPXbaFabs2ol
 github.com/getsentry/sentry-go v0.50.0/go.mod h1:+xsDuN+SoRN/xfs1hdq78wnrE3omIZf+FCuh9FOW1C8=
 github.com/getsentry/sentry-go/otel v0.49.0 h1:BRMzf4PqYEGsgxNS8BMX54I0DYVcBWbCtQ1s+aS67n0=
 github.com/getsentry/sentry-go/otel v0.49.0/go.mod h1:FVrBdl+7ofh9neiuGLYtaGwEIv8fsW8LmV62pYMIrKk=
-github.com/getsentry/sentry-go/otel/otlp v0.49.0 h1:gZgeRBzBQ2utfwno7MqSGXXRLdxX+48pBjp1WDAcb00=
-github.com/getsentry/sentry-go/otel/otlp v0.49.0/go.mod h1:xq+r0C0F5T6JZwNOud7168JZLXXfPJ6jT0Y0vkrhAds=
+github.com/getsentry/sentry-go/otel/otlp v0.50.0 h1:mmKr7wsrSnleAabOTYzlNWrOzN5pdkl2IPV6as+W8iU=
+github.com/getsentry/sentry-go/otel/otlp v0.50.0/go.mod h1:3SLOxr/akXyaI5Qlb7aqhLIU4W3efiQTqINKORTVqDA=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
 github.com/go-errors/errors v1.4.2/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=

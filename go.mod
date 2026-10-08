@@ -6,7 +6,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/getsentry/sentry-go v0.50.0
 	github.com/getsentry/sentry-go/otel v0.49.0
-	github.com/getsentry/sentry-go/otel/otlp v0.49.0
+	github.com/getsentry/sentry-go/otel/otlp v0.50.0
 	github.com/go-playground/validator/v10 v10.30.5
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.4
 	github.com/samber/lo v1.53.0
