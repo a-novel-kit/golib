@@ -1,8 +1,10 @@
 package httpf_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +35,7 @@ func TestLimits(t *testing.T) {
 
 	visitor := request{path: "/items", visitor: "192.0.2.1"}
 	twoPerMinute := func(limits httpf.Limits) func(http.Handler) http.Handler {
-		return limits.By(2, time.Minute, httpf.VisitorKey)
+		return limits.By(httpf.Rate{Requests: 2, Window: time.Minute}, httpf.VisitorKey)
 	}
 
 	testCases := []struct {
@@ -166,6 +168,83 @@ func TestLimits(t *testing.T) {
 				require.Equal(t, http.StatusTooManyRequests, response.Code)
 				require.Equal(t, testCase.expectRetryAfter, response.Header().Get("Retry-After"))
 			}
+		})
+	}
+}
+
+func TestLimitConcurrency(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+
+	router := chi.NewRouter()
+	router.With(httpf.LimitConcurrency(2)).Get("/slow", func(w http.ResponseWriter, _ *http.Request) {
+		started <- struct{}{}
+
+		<-release
+		w.WriteHeader(http.StatusOK)
+	})
+
+	send := func() *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/slow", nil))
+
+		return response
+	}
+
+	held := make(chan *httptest.ResponseRecorder, 2)
+
+	for range 2 {
+		go func() { held <- send() }()
+	}
+
+	<-started
+	<-started
+
+	// Both slots are taken, so a third request is refused at once.
+	refused := send()
+	require.Equal(t, http.StatusTooManyRequests, refused.Code)
+	require.Equal(t, "1", refused.Header().Get("Retry-After"))
+
+	close(release)
+	require.Equal(t, http.StatusOK, (<-held).Code)
+	require.Equal(t, http.StatusOK, (<-held).Code)
+}
+
+func TestJSONFieldKey(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		body string
+
+		expect string
+	}{
+		{name: "Success", body: `{"email":"a@example.com"}`, expect: "email:a@example.com"},
+		{name: "Success/CaseAndSpace", body: `{"email":" A@Example.com "}`, expect: "email:a@example.com"},
+		{name: "Success/MissingField", body: `{"name":"a"}`, expect: "email:"},
+		{name: "Success/NotAString", body: `{"email":3}`, expect: "email:"},
+		{name: "Success/Malformed", body: `{"email":`, expect: "email:"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := httptest.NewRequestWithContext(
+				t.Context(), http.MethodPut, "/", strings.NewReader(testCase.body),
+			)
+
+			key, err := httpf.JSONFieldKey("email")(request)
+			require.NoError(t, err)
+			require.Equal(t, testCase.expect, key)
+
+			// The handler still reads the whole body.
+			body, err := io.ReadAll(request.Body)
+			require.NoError(t, err)
+			require.Equal(t, testCase.body, string(body))
 		})
 	}
 }
