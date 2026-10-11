@@ -8,11 +8,17 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/a-novel-kit/golib/grpcf"
+	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
+	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 )
 
 const grpcServerTestTimeout = 5 * time.Second
@@ -93,6 +99,103 @@ func TestServe(t *testing.T) {
 		_, err = watch.Recv()
 		require.Error(t, err)
 	})
+}
+
+func TestNewServer(t *testing.T) {
+	t.Parallel()
+
+	type contextKey struct{}
+
+	started := time.Now().Add(-time.Hour)
+
+	// probe answers with the base context's value, through the server's interceptors.
+	probe := &grpc.ServiceDesc{
+		ServiceName: "test.Probe",
+		HandlerType: (*any)(nil),
+		Methods: []grpc.MethodDesc{{
+			MethodName: "Call",
+			Handler: func(
+				_ any, ctx context.Context, decode func(any) error, interceptor grpc.UnaryServerInterceptor,
+			) (any, error) {
+				request := &emptypb.Empty{}
+
+				err := decode(request)
+				if err != nil {
+					return nil, err
+				}
+
+				info := &grpc.UnaryServerInfo{FullMethod: "/test.Probe/Call"}
+
+				return interceptor(ctx, request, info, func(ctx context.Context, _ any) (any, error) {
+					value, _ := ctx.Value(contextKey{}).(string)
+
+					return wrapperspb.String(value), nil
+				})
+			},
+		}},
+	}
+
+	testCases := []struct {
+		name string
+
+		downtimeStart *time.Time
+
+		expectCode  codes.Code
+		expectValue string
+	}{
+		{
+			name: "Success",
+
+			expectCode:  codes.OK,
+			expectValue: "process",
+		},
+		{
+			// A started downtime refuses the call, while health still answers.
+			name: "Error/Downtime",
+
+			downtimeStart: &started,
+
+			expectCode: codes.Unavailable,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := grpcf.NewServer(grpcf.ServerOptions{
+				Otel:          &otelpresets.Disabled{},
+				Logger:        &loggingpresets.GRPCLocal{},
+				DowntimeStart: testCase.downtimeStart,
+				BaseContext: func(ctx context.Context) context.Context {
+					return context.WithValue(ctx, contextKey{}, "process")
+				},
+			})
+			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+			server.RegisterService(probe, struct{}{})
+
+			address := freeGRPCAddress(t)
+			go func() { _ = grpcf.Serve(t.Context(), server, address, time.Second) }()
+
+			waitForGRPCServer(t, address)
+
+			connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+			ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
+			t.Cleanup(cancel)
+
+			healthResponse, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
+			require.NoError(t, err)
+			require.Equal(t, healthpb.HealthCheckResponse_SERVING, healthResponse.GetStatus())
+
+			response := &wrapperspb.StringValue{}
+			err = connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, response)
+			require.Equal(t, testCase.expectCode, status.Code(err))
+			require.Equal(t, testCase.expectValue, response.GetValue())
+		})
+	}
 }
 
 func freeGRPCAddress(t *testing.T) string {

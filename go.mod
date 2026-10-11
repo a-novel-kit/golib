@@ -7,6 +7,9 @@ require (
 	github.com/getsentry/sentry-go v0.50.0
 	github.com/getsentry/sentry-go/otel v0.50.0
 	github.com/getsentry/sentry-go/otel/otlp v0.50.0
+	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/cors v1.2.2
+	github.com/go-chi/httprate v0.16.1
 	github.com/go-playground/validator/v10 v10.30.5
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.4
 	github.com/samber/lo v1.53.0
@@ -60,6 +63,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-runewidth v0.0.24 // indirect
@@ -70,6 +74,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0 // indirect
