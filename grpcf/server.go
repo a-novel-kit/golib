@@ -8,7 +8,57 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+
+	"github.com/a-novel-kit/golib/downtime"
+	golibproto "github.com/a-novel-kit/golib/grpcf/proto/gen"
+	"github.com/a-novel-kit/golib/logging"
+	"github.com/a-novel-kit/golib/otel"
 )
+
+// ServerOptions holds what a server needs beyond its [ServerConfig].
+type ServerOptions struct {
+	// Otel traces every call.
+	Otel otel.Config
+	// Logger logs every call and recovers its panics.
+	Logger logging.RPCConfig
+	// DowntimeStart is when a planned downtime starts; nil when none is planned.
+	DowntimeStart *time.Time
+	// BaseContext derives each call's context, so calls reach process-wide values such as the
+	// database connection. Nil keeps the call's own context.
+	BaseContext func(ctx context.Context) context.Context
+}
+
+// NewServer returns a server with the standard interceptors, outermost first: tracing, the base
+// context, call logs, panic recovery and the planned downtime. The health and echo services that
+// [RegisterEchoServers] adds still answer during a downtime.
+func NewServer(options ServerOptions, extra ...grpc.ServerOption) *grpc.Server {
+	baseContext := options.BaseContext
+	if baseContext == nil {
+		baseContext = func(ctx context.Context) context.Context { return ctx }
+	}
+
+	open := []string{
+		"/" + healthpb.Health_ServiceDesc.ServiceName + "/",
+		"/" + golibproto.EchoService_ServiceDesc.ServiceName + "/",
+	}
+
+	return grpc.NewServer(append([]grpc.ServerOption{
+		options.Otel.RpcInterceptor(),
+		grpc.ChainUnaryInterceptor(
+			BaseContextUnaryInterceptor(baseContext),
+			options.Logger.UnaryInterceptor(),
+			options.Logger.PanicUnaryInterceptor(),
+			downtime.UnaryServerInterceptor(options.DowntimeStart, open...),
+		),
+		grpc.ChainStreamInterceptor(
+			BaseContextStreamInterceptor(baseContext),
+			options.Logger.StreamInterceptor(),
+			options.Logger.PanicStreamInterceptor(),
+			downtime.StreamServerInterceptor(options.DowntimeStart, open...),
+		),
+	}, extra...)...)
+}
 
 // Serve listens on address until ctx is canceled or the server stops. Cancellation lets active
 // RPCs finish within shutdownTimeout, then stops remaining RPCs. A forced shutdown returns an

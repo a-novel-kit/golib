@@ -1,8 +1,9 @@
 // Package httpf holds the HTTP glue a service needs on both sides of the wire.
 //
-// Inbound, it writes handler responses that stay consistent with the service's OpenTelemetry
-// tracing and structured logging: a server fault marks the request span failed, and every error
-// is logged once. Outbound, it
-// builds the pooled, traced client a service calls other systems through. Serve runs an assembled
-// server under a bounded shutdown lifecycle.
+// Inbound, it assembles a REST server from its REST_* configuration: the standard middleware
+// chain, rate limits, and the server itself, which Serve runs under a bounded shutdown lifecycle.
+// Handler responses stay consistent with the service's OpenTelemetry tracing and structured
+// logging: a server fault marks the request span failed, and every error is logged once.
+//
+// Outbound, it builds the pooled, traced client a service calls other systems through.
 package httpf
