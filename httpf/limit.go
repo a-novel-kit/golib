@@ -21,25 +21,19 @@ const maxBodyKeyLength = 1024
 // ErrInvalidBodyKey is returned by a [BodyKeyRate] key for a value too long to count.
 var ErrInvalidBodyKey = errors.New("invalid rate limit key")
 
-// Limits builds rate limits that refuse excess requests with 429 and Retry-After. Counters live in
-// the process, so each instance counts on its own.
+// Limits builds the rate limits a service adds to [NewRouter]'s standard one, refusing excess
+// requests with 429 and Retry-After. Counters live in the process, so each instance counts on its
+// own.
 //
-// Mount limits on a router group: chi knows a request's route pattern only once routing matched,
-// and limits count per route pattern, so path parameters share one budget.
+// Mount a limit on a route, with chi's With: it counts per route pattern, so path parameters share
+// one budget.
 type Limits struct {
-	enabled  bool
-	standard Rate
+	enabled bool
 }
 
 // NewLimits returns the limits, which let every request through when the config disables them.
 func NewLimits(config ServerConfig) Limits {
-	return Limits{enabled: config.RateLimitsEnabled, standard: config.RateLimit}
-}
-
-// Standard caps each visitor at the configured rate on each route, 5 requests per second by
-// default.
-func (limits Limits) Standard() func(http.Handler) http.Handler {
-	return limits.By(limits.standard, VisitorKey)
+	return Limits{enabled: config.RateLimitsEnabled}
 }
 
 // By caps the requests sharing key at rate on each route.

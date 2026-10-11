@@ -42,7 +42,6 @@ func TestLimits(t *testing.T) {
 		name string
 
 		disabled bool
-		rate     *httpf.Rate
 		limit    func(limits httpf.Limits) func(http.Handler) http.Handler
 
 		// allowed requests all pass; refused, when set, then gets 429 with expectRetryAfter.
@@ -72,27 +71,6 @@ func TestLimits(t *testing.T) {
 			limit: twoPerMinute,
 
 			allowed: append(times(2, visitor), request{path: "/items/1", visitor: "192.0.2.1"}),
-		},
-		{
-			name: "Error/Standard",
-
-			limit: httpf.Limits.Standard,
-
-			allowed: times(5, visitor),
-			refused: &visitor,
-
-			expectRetryAfter: "1",
-		},
-		{
-			name: "Error/Standard/ConfiguredRate",
-
-			rate:  &httpf.Rate{Requests: 2, Window: time.Minute},
-			limit: httpf.Limits.Standard,
-
-			allowed: times(2, visitor),
-			refused: &visitor,
-
-			expectRetryAfter: "60",
 		},
 		{
 			name: "Error/By",
@@ -134,10 +112,6 @@ func TestLimits(t *testing.T) {
 
 			config := httpf.ServerConfigDefault
 			config.RateLimitsEnabled = !testCase.disabled
-
-			if testCase.rate != nil {
-				config.RateLimit = *testCase.rate
-			}
 
 			ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 

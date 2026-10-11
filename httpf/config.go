@@ -1,6 +1,7 @@
 package httpf
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/a-novel-kit/golib/config"
@@ -11,6 +12,8 @@ import (
 type ServerConfig struct {
 	// Port is the port the server listens on.
 	Port int `json:"port" yaml:"port"`
+	// Liveness is the ping path, which answers during a planned downtime and is never rate-limited.
+	Liveness string `json:"liveness" yaml:"liveness"`
 	// Timeouts bound each phase of a request.
 	Timeouts ServerTimeouts `json:"timeouts" yaml:"timeouts"`
 	// MaxRequestSize caps a request body, in bytes. chi cannot raise the router's limit for one
@@ -39,11 +42,11 @@ type ServerTimeouts struct {
 	Shutdown time.Duration `json:"shutdown" yaml:"shutdown"`
 }
 
-// CorsConfig configures cross-origin requests. The methods a router allows are the service's to
-// choose, in [RouterOptions].
+// CorsConfig configures cross-origin requests.
 type CorsConfig struct {
 	AllowedOrigins   []string `json:"allowedOrigins"   yaml:"allowedOrigins"`
 	AllowedHeaders   []string `json:"allowedHeaders"   yaml:"allowedHeaders"`
+	AllowedMethods   []string `json:"allowedMethods"   yaml:"allowedMethods"`
 	AllowCredentials bool     `json:"allowCredentials" yaml:"allowCredentials"`
 	// MaxAge is how long a browser caches a preflight answer, in seconds.
 	MaxAge int `json:"maxAge" yaml:"maxAge"`
@@ -52,7 +55,8 @@ type CorsConfig struct {
 // ServerConfigDefault holds the values [LoadServerConfig] keeps for unset variables. A service
 // overrides a field on a copy before loading.
 var ServerConfigDefault = ServerConfig{
-	Port: 8080,
+	Port:     8080,
+	Liveness: "/ping",
 	Timeouts: ServerTimeouts{
 		Read:       15 * time.Second,
 		ReadHeader: 3 * time.Second,
@@ -67,7 +71,10 @@ var ServerConfigDefault = ServerConfig{
 	Cors: CorsConfig{
 		AllowedOrigins: []string{"*"},
 		AllowedHeaders: []string{"*"},
-		MaxAge:         3600,
+		AllowedMethods: []string{
+			http.MethodHead, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
+		},
+		MaxAge: 3600,
 	},
 }
 
@@ -77,7 +84,8 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 	stringSlice := config.SliceParser(config.StringParser)
 
 	return ServerConfig{
-		Port: config.LoadEnv(getenv("REST_PORT"), defaults.Port, config.IntParser),
+		Port:     config.LoadEnv(getenv("REST_PORT"), defaults.Port, config.IntParser),
+		Liveness: config.LoadEnv(getenv("REST_LIVENESS_PATH"), defaults.Liveness, config.StringParser),
 		Timeouts: ServerTimeouts{
 			Read:       config.LoadEnv(getenv("REST_TIMEOUT_READ"), defaults.Timeouts.Read, config.DurationParser),
 			ReadHeader: config.LoadEnv(getenv("REST_TIMEOUT_READ_HEADER"), defaults.Timeouts.ReadHeader, config.DurationParser),
@@ -93,6 +101,7 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 		Cors: CorsConfig{
 			AllowedOrigins: config.LoadEnv(getenv("REST_CORS_ALLOWED_ORIGINS"), defaults.Cors.AllowedOrigins, stringSlice),
 			AllowedHeaders: config.LoadEnv(getenv("REST_CORS_ALLOWED_HEADERS"), defaults.Cors.AllowedHeaders, stringSlice),
+			AllowedMethods: config.LoadEnv(getenv("REST_CORS_ALLOWED_METHODS"), defaults.Cors.AllowedMethods, stringSlice),
 			AllowCredentials: config.LoadEnv(
 				getenv("REST_CORS_ALLOW_CREDENTIALS"), defaults.Cors.AllowCredentials, config.BoolParser,
 			),

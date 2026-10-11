@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -16,24 +17,17 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// ServerOptions holds what a server needs beyond its [ServerConfig].
-type ServerOptions struct {
-	// Otel traces every call.
-	Otel otel.Config
-	// Logger logs every call and recovers its panics.
-	Logger logging.RPCConfig
-	// DowntimeStart is when a planned downtime starts; nil when none is planned.
-	DowntimeStart *time.Time
-	// BaseContext derives each call's context, so calls reach process-wide values such as the
-	// database connection. Nil keeps the call's own context.
-	BaseContext func(ctx context.Context) context.Context
-}
-
 // NewServer returns a server with the standard interceptors, outermost first: tracing, the base
-// context, call logs, panic recovery and the planned downtime. The health and echo services that
-// [RegisterEchoServers] adds still answer during a downtime.
-func NewServer(options ServerOptions, extra ...grpc.ServerOption) *grpc.Server {
-	baseContext := options.BaseContext
+// context, call logs, panic recovery and the planned downtime. baseContext derives each call's
+// context, so calls reach process-wide values such as the database connection; nil keeps the call's
+// own. The health and echo services that [RegisterEchoServers] adds still answer during a downtime.
+func NewServer(
+	tracing otel.Config,
+	logger logging.RPCConfig,
+	downtimeStart *time.Time,
+	baseContext func(ctx context.Context) context.Context,
+	extra ...grpc.ServerOption,
+) *grpc.Server {
 	if baseContext == nil {
 		baseContext = func(ctx context.Context) context.Context { return ctx }
 	}
@@ -44,20 +38,26 @@ func NewServer(options ServerOptions, extra ...grpc.ServerOption) *grpc.Server {
 	}
 
 	return grpc.NewServer(append([]grpc.ServerOption{
-		options.Otel.RpcInterceptor(),
+		tracing.RpcInterceptor(),
 		grpc.ChainUnaryInterceptor(
 			BaseContextUnaryInterceptor(baseContext),
-			options.Logger.UnaryInterceptor(),
-			options.Logger.PanicUnaryInterceptor(),
-			downtime.UnaryServerInterceptor(options.DowntimeStart, open...),
+			logger.UnaryInterceptor(),
+			logger.PanicUnaryInterceptor(),
+			downtime.UnaryServerInterceptor(downtimeStart, open...),
 		),
 		grpc.ChainStreamInterceptor(
 			BaseContextStreamInterceptor(baseContext),
-			options.Logger.StreamInterceptor(),
-			options.Logger.PanicStreamInterceptor(),
-			downtime.StreamServerInterceptor(options.DowntimeStart, open...),
+			logger.StreamInterceptor(),
+			logger.PanicStreamInterceptor(),
+			downtime.StreamServerInterceptor(downtimeStart, open...),
 		),
 	}, extra...)...)
+}
+
+// ListenAndServe serves server on the configured port until ctx is canceled, then drains active
+// calls within the configured shutdown timeout. See [Serve].
+func ListenAndServe(ctx context.Context, config ServerConfig, server *grpc.Server) error {
+	return Serve(ctx, server, ":"+strconv.Itoa(config.Port), config.Shutdown)
 }
 
 // Serve listens on address until ctx is canceled or the server stops. Cancellation lets active
