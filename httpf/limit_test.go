@@ -1,8 +1,10 @@
 package httpf_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +35,7 @@ func TestLimits(t *testing.T) {
 
 	visitor := request{path: "/items", visitor: "192.0.2.1"}
 	twoPerMinute := func(limits httpf.Limits) func(http.Handler) http.Handler {
-		return limits.By(2, time.Minute, httpf.VisitorKey)
+		return limits.By(httpf.Rate{Requests: 2, Window: time.Minute}, httpf.VisitorKey)
 	}
 
 	testCases := []struct {
@@ -168,4 +170,106 @@ func TestLimits(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLimitConcurrency(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+
+	router := chi.NewRouter()
+	router.With(httpf.LimitConcurrency(2)).Get("/slow", func(w http.ResponseWriter, _ *http.Request) {
+		started <- struct{}{}
+
+		<-release
+		w.WriteHeader(http.StatusOK)
+	})
+
+	send := func() *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/slow", nil))
+
+		return response
+	}
+
+	held := make(chan *httptest.ResponseRecorder, 2)
+
+	for range 2 {
+		go func() { held <- send() }()
+	}
+
+	<-started
+	<-started
+
+	// Both slots are taken, so a third request is refused at once.
+	refused := send()
+	require.Equal(t, http.StatusTooManyRequests, refused.Code)
+	require.Equal(t, "1", refused.Header().Get("Retry-After"))
+
+	close(release)
+	require.Equal(t, http.StatusOK, (<-held).Code)
+	require.Equal(t, http.StatusOK, (<-held).Code)
+}
+
+func TestBodyKeyRate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		body string
+
+		expect    string
+		expectErr error
+	}{
+		{name: "Success", body: `{"email":"a@example.com"}`, expect: "email:a@example.com"},
+		{name: "Success/CaseAndSpace", body: `{"email":" A@Example.com "}`, expect: "email:a@example.com"},
+		// Escapes cannot spell the same target a second way.
+		{name: "Success/Escapes", body: `{"email":"\u0041@example.com"}`, expect: "email:a@example.com"},
+		{name: "Success/Number", body: `{"email":3}`, expect: "email:3"},
+		{name: "Success/MissingField", body: `{"name":"a"}`, expect: "email:"},
+		{name: "Success/Malformed", body: `{"email":`, expect: "email:"},
+		{
+			name:      "Error/TooLong",
+			body:      `{"email":"` + strings.Repeat("a", 1024) + `"}`,
+			expectErr: httpf.ErrInvalidBodyKey,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := httptest.NewRequestWithContext(
+				t.Context(), http.MethodPut, "/", strings.NewReader(testCase.body),
+			)
+
+			key, err := httpf.BodyKeyRate("email")(request)
+			require.ErrorIs(t, err, testCase.expectErr)
+			require.Equal(t, testCase.expect, key)
+
+			// The handler still reads the whole body.
+			body, err := io.ReadAll(request.Body)
+			require.NoError(t, err)
+			require.Equal(t, testCase.body, string(body))
+		})
+	}
+
+	t.Run("Error/TooLong/Refused", func(t *testing.T) {
+		t.Parallel()
+
+		router := chi.NewRouter()
+		router.Group(func(api chi.Router) {
+			rate := httpf.Rate{Requests: 1, Window: time.Minute}
+			api.Use(httpf.NewLimits(httpf.ServerConfigDefault).By(rate, httpf.BodyKeyRate("email")))
+			api.Put("/", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+		})
+
+		body := strings.NewReader(`{"email":"` + strings.Repeat("a", 1024) + `"}`)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/", body))
+
+		require.Equal(t, http.StatusBadRequest, response.Code)
+	})
 }
