@@ -9,26 +9,25 @@ import (
 	"github.com/go-chi/httprate"
 )
 
-// standardRequests caps each visitor's requests per second on each route.
-const standardRequests = 5
-
 // Limits builds rate limits that refuse excess requests with 429 and Retry-After. Counters live in
 // the process, so each instance counts on its own.
 //
 // Mount limits on a router group: chi knows a request's route pattern only once routing matched,
 // and limits count per route pattern, so path parameters share one budget.
 type Limits struct {
-	enabled bool
+	enabled  bool
+	standard Rate
 }
 
 // NewLimits returns the limits, which let every request through when the config disables them.
 func NewLimits(config ServerConfig) Limits {
-	return Limits{enabled: config.RateLimitsEnabled}
+	return Limits{enabled: config.RateLimitsEnabled, standard: config.RateLimit}
 }
 
-// Standard caps each visitor at 5 requests per second on each route.
+// Standard caps each visitor at the configured rate on each route, 5 requests per second by
+// default.
 func (limits Limits) Standard() func(http.Handler) http.Handler {
-	return limits.By(standardRequests, time.Second, VisitorKey)
+	return limits.By(limits.standard.Requests, limits.standard.Window, VisitorKey)
 }
 
 // By caps the requests sharing key at limit per window on each route.

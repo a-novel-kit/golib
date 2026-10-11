@@ -46,6 +46,7 @@ func TestLoadServerConfig(t *testing.T) {
 				"REST_MAX_REQUEST_SIZE":       "1024",
 				"REST_CLIENT_IP_HEADER":       "X-Client-IP",
 				"REST_RATE_LIMITS_ENABLED":    "false",
+				"REST_RATE_LIMIT":             "10/1m",
 				"REST_CORS_ALLOWED_ORIGINS":   "https://a.test,https://b.test",
 				"REST_CORS_ALLOWED_HEADERS":   "Authorization",
 				"REST_CORS_ALLOW_CREDENTIALS": "true",
@@ -65,6 +66,7 @@ func TestLoadServerConfig(t *testing.T) {
 				},
 				MaxRequestSize: 1024,
 				ClientIPHeader: "X-Client-IP",
+				RateLimit:      httpf.Rate{Requests: 10, Window: time.Minute},
 				Cors: httpf.CorsConfig{
 					AllowedOrigins:   []string{"https://a.test", "https://b.test"},
 					AllowedHeaders:   []string{"Authorization"},

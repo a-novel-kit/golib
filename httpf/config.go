@@ -21,6 +21,8 @@ type ServerConfig struct {
 	ClientIPHeader string `json:"clientIPHeader" yaml:"clientIPHeader"`
 	// RateLimitsEnabled turns the rate limits on. Only test stacks turn them off.
 	RateLimitsEnabled bool `json:"rateLimitsEnabled" yaml:"rateLimitsEnabled"`
+	// RateLimit caps each visitor's requests on each route; see [Limits.Standard].
+	RateLimit Rate `json:"rateLimit" yaml:"rateLimit"`
 	// Cors configures cross-origin requests.
 	Cors CorsConfig `json:"cors" yaml:"cors"`
 }
@@ -61,6 +63,7 @@ var ServerConfigDefault = ServerConfig{
 	},
 	MaxRequestSize:    16 << 10,
 	RateLimitsEnabled: true,
+	RateLimit:         Rate{Requests: 5, Window: time.Second},
 	Cors: CorsConfig{
 		AllowedOrigins: []string{"*"},
 		AllowedHeaders: []string{"*"},
@@ -86,6 +89,7 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 		MaxRequestSize:    config.LoadEnv(getenv("REST_MAX_REQUEST_SIZE"), defaults.MaxRequestSize, config.Int64Parser),
 		ClientIPHeader:    config.LoadEnv(getenv("REST_CLIENT_IP_HEADER"), defaults.ClientIPHeader, config.StringParser),
 		RateLimitsEnabled: config.LoadEnv(getenv("REST_RATE_LIMITS_ENABLED"), defaults.RateLimitsEnabled, config.BoolParser),
+		RateLimit:         config.LoadEnv(getenv("REST_RATE_LIMIT"), defaults.RateLimit, ParseRate),
 		Cors: CorsConfig{
 			AllowedOrigins: config.LoadEnv(getenv("REST_CORS_ALLOWED_ORIGINS"), defaults.Cors.AllowedOrigins, stringSlice),
 			AllowedHeaders: config.LoadEnv(getenv("REST_CORS_ALLOWED_HEADERS"), defaults.Cors.AllowedHeaders, stringSlice),
