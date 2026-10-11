@@ -212,7 +212,7 @@ func TestLimitConcurrency(t *testing.T) {
 	require.Equal(t, http.StatusOK, (<-held).Code)
 }
 
-func TestJSONFieldKey(t *testing.T) {
+func TestBodyKeyRate(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -220,13 +220,21 @@ func TestJSONFieldKey(t *testing.T) {
 
 		body string
 
-		expect string
+		expect    string
+		expectErr error
 	}{
 		{name: "Success", body: `{"email":"a@example.com"}`, expect: "email:a@example.com"},
 		{name: "Success/CaseAndSpace", body: `{"email":" A@Example.com "}`, expect: "email:a@example.com"},
+		// Escapes cannot spell the same target a second way.
+		{name: "Success/Escapes", body: `{"email":"\u0041@example.com"}`, expect: "email:a@example.com"},
+		{name: "Success/Number", body: `{"email":3}`, expect: "email:3"},
 		{name: "Success/MissingField", body: `{"name":"a"}`, expect: "email:"},
-		{name: "Success/NotAString", body: `{"email":3}`, expect: "email:"},
 		{name: "Success/Malformed", body: `{"email":`, expect: "email:"},
+		{
+			name:      "Error/TooLong",
+			body:      `{"email":"` + strings.Repeat("a", 1024) + `"}`,
+			expectErr: httpf.ErrInvalidBodyKey,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -237,8 +245,8 @@ func TestJSONFieldKey(t *testing.T) {
 				t.Context(), http.MethodPut, "/", strings.NewReader(testCase.body),
 			)
 
-			key, err := httpf.JSONFieldKey("email")(request)
-			require.NoError(t, err)
+			key, err := httpf.BodyKeyRate("email")(request)
+			require.ErrorIs(t, err, testCase.expectErr)
 			require.Equal(t, testCase.expect, key)
 
 			// The handler still reads the whole body.
@@ -247,4 +255,21 @@ func TestJSONFieldKey(t *testing.T) {
 			require.Equal(t, testCase.body, string(body))
 		})
 	}
+
+	t.Run("Error/TooLong/Refused", func(t *testing.T) {
+		t.Parallel()
+
+		router := chi.NewRouter()
+		router.Group(func(api chi.Router) {
+			rate := httpf.Rate{Requests: 1, Window: time.Minute}
+			api.Use(httpf.NewLimits(httpf.ServerConfigDefault).By(rate, httpf.BodyKeyRate("email")))
+			api.Put("/", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+		})
+
+		body := strings.NewReader(`{"email":"` + strings.Repeat("a", 1024) + `"}`)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/", body))
+
+		require.Equal(t, http.StatusBadRequest, response.Code)
+	})
 }

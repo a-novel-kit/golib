@@ -3,6 +3,8 @@ package httpf
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -12,6 +14,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
 )
+
+// maxBodyKeyLength caps the value [BodyKeyRate] counts, read before the handler validates it.
+const maxBodyKeyLength = 1024
+
+// ErrInvalidBodyKey is returned by a [BodyKeyRate] key for a value too long to count.
+var ErrInvalidBodyKey = errors.New("invalid rate limit key")
 
 // Limits builds rate limits that refuse excess requests with 429 and Retry-After. Counters live in
 // the process, so each instance counts on its own.
@@ -40,7 +48,9 @@ func (limits Limits) By(rate Rate, key httprate.KeyFunc) func(http.Handler) http
 		return func(next http.Handler) http.Handler { return next }
 	}
 
-	return httprate.LimitBy(rate.Requests, rate.Window, httprate.JoinKeys(key, routeKey))
+	return httprate.LimitBy(
+		rate.Requests, rate.Window, httprate.JoinKeys(key, routeKey), httprate.WithErrorHandler(refuseKey),
+	)
 }
 
 // LimitConcurrency caps the requests a route handles at once, per instance, answering any beyond
@@ -59,23 +69,40 @@ func VisitorKey(r *http.Request) (string, error) {
 	return "visitor:" + httprate.CanonicalizeIP(middleware.GetClientIP(r.Context())), nil
 }
 
-// JSONFieldKey keys a limit by a string field of the JSON body, trimmed and case-folded, so many
-// callers cannot gang up on one target such as a mailbox. It puts the body back for the handler;
-// a body it cannot read or decode shares the empty value's budget until the handler refuses it.
-func JSONFieldKey(field string) httprate.KeyFunc {
+// BodyKeyRate keys a rate limit by a top-level field of the JSON body, so many callers cannot gang
+// up on one target such as a mailbox. A string counts trimmed and case-folded, its escapes decoded so
+// they cannot spell one target many ways; another value counts as written. It puts the body back
+// for the handler. A body it cannot read or decode shares the empty value's budget until the handler
+// refuses it; a value over 1 KiB is refused with 400, since nothing has validated it yet.
+func BodyKeyRate(field string) httprate.KeyFunc {
 	return func(r *http.Request) (string, error) {
 		body, err := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(bytes.NewReader(body))
 
-		var fields map[string]any
+		var fields map[string]json.RawMessage
 		if err == nil {
 			_ = json.Unmarshal(body, &fields) // A malformed body keeps the empty value.
 		}
 
-		value, _ := fields[field].(string)
+		raw := fields[field]
+		if len(raw) > maxBodyKeyLength {
+			return "", fmt.Errorf("%w: %q exceeds %d bytes", ErrInvalidBodyKey, field, maxBodyKeyLength)
+		}
+
+		value := string(raw)
+
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			value = text
+		}
 
 		return field + ":" + strings.ToLower(strings.TrimSpace(value)), nil
 	}
+}
+
+// refuseKey answers 400 to a request whose key cannot be computed, such as an oversized body key.
+func refuseKey(w http.ResponseWriter, _ *http.Request, _ error) {
+	http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 }
 
 func routeKey(r *http.Request) (string, error) {
