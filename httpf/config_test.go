@@ -37,6 +37,8 @@ func TestLoadServerConfig(t *testing.T) {
 
 			env: map[string]string{
 				"REST_PORT":                   "9090",
+				"REST_LIVENESS_PATH":          "/v2/ping",
+				"REST_CORS_ALLOWED_METHODS":   "GET,HEAD",
 				"REST_TIMEOUT_READ":           "1s",
 				"REST_TIMEOUT_READ_HEADER":    "2s",
 				"REST_TIMEOUT_WRITE":          "3s",
@@ -55,7 +57,8 @@ func TestLoadServerConfig(t *testing.T) {
 			defaults: httpf.ServerConfigDefault,
 
 			expect: httpf.ServerConfig{
-				Port: 9090,
+				Port:     9090,
+				Liveness: "/v2/ping",
 				Timeouts: httpf.ServerTimeouts{
 					Read:       time.Second,
 					ReadHeader: 2 * time.Second,
@@ -70,6 +73,7 @@ func TestLoadServerConfig(t *testing.T) {
 				Cors: httpf.CorsConfig{
 					AllowedOrigins:   []string{"https://a.test", "https://b.test"},
 					AllowedHeaders:   []string{"Authorization"},
+					AllowedMethods:   []string{"GET", "HEAD"},
 					AllowCredentials: true,
 					MaxAge:           60,
 				},

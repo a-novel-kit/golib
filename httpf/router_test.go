@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,12 +29,14 @@ func TestNewRouter(t *testing.T) {
 
 		clientIPHeader string
 		downtimeStart  *time.Time
+		rateLimited    bool
 
 		method  string
-		path    string
+		paths   []string
 		headers map[string]string
 		body    string
 
+		// The expectations apply to the response to the last path.
 		expectStatus  int
 		expectBody    string
 		expectHeaders map[string]string
@@ -42,7 +45,7 @@ func TestNewRouter(t *testing.T) {
 			name: "Success/VisitorFromPeer",
 
 			method: http.MethodGet,
-			path:   "/visitor",
+			paths:  []string{"/visitor"},
 
 			expectStatus: http.StatusOK,
 			expectBody:   "192.0.2.1",
@@ -53,7 +56,7 @@ func TestNewRouter(t *testing.T) {
 			clientIPHeader: "X-Client-Ip",
 
 			method:  http.MethodGet,
-			path:    "/visitor",
+			paths:   []string{"/visitor"},
 			headers: map[string]string{"X-Client-Ip": "203.0.113.7"},
 
 			expectStatus: http.StatusOK,
@@ -64,7 +67,7 @@ func TestNewRouter(t *testing.T) {
 			name: "Success/VisitorIgnoresUntrustedHeader",
 
 			method:  http.MethodGet,
-			path:    "/visitor",
+			paths:   []string{"/visitor"},
 			headers: map[string]string{"X-Client-Ip": "203.0.113.7"},
 
 			expectStatus: http.StatusOK,
@@ -74,7 +77,7 @@ func TestNewRouter(t *testing.T) {
 			name: "Success/CorsExposesRetryAfter",
 
 			method:  http.MethodGet,
-			path:    "/visitor",
+			paths:   []string{"/visitor"},
 			headers: map[string]string{"Origin": "https://studio.test"},
 
 			expectStatus:  http.StatusOK,
@@ -86,15 +89,48 @@ func TestNewRouter(t *testing.T) {
 			downtimeStart: &started,
 
 			method: http.MethodGet,
-			path:   "/ping",
+			paths:  []string{"/ping"},
 
 			expectStatus: http.StatusOK,
+		},
+		{
+			// Probes reach the liveness path whatever the budget.
+			name: "Success/RateLimit/Liveness",
+
+			rateLimited: true,
+
+			method: http.MethodGet,
+			paths:  []string{"/ping", "/ping", "/ping"},
+
+			expectStatus: http.StatusOK,
+		},
+		{
+			name: "Error/RateLimit",
+
+			rateLimited: true,
+
+			method: http.MethodGet,
+			paths:  []string{"/visitor", "/visitor", "/visitor"},
+
+			expectStatus:  http.StatusTooManyRequests,
+			expectHeaders: map[string]string{"Retry-After": "60"},
+		},
+		{
+			// Path parameters must not open a fresh budget per value.
+			name: "Error/RateLimit/PathParameters",
+
+			rateLimited: true,
+
+			method: http.MethodGet,
+			paths:  []string{"/items/1", "/items/2", "/items/3"},
+
+			expectStatus: http.StatusTooManyRequests,
 		},
 		{
 			name: "Error/BodyTooLarge",
 
 			method: http.MethodPost,
-			path:   "/body",
+			paths:  []string{"/body"},
 			body:   strings.Repeat("a", 17),
 
 			expectStatus: http.StatusRequestEntityTooLarge,
@@ -105,7 +141,7 @@ func TestNewRouter(t *testing.T) {
 			downtimeStart: &started,
 
 			method: http.MethodGet,
-			path:   "/visitor",
+			paths:  []string{"/visitor"},
 
 			expectStatus: http.StatusServiceUnavailable,
 		},
@@ -118,15 +154,18 @@ func TestNewRouter(t *testing.T) {
 			config := httpf.ServerConfigDefault
 			config.ClientIPHeader = testCase.clientIPHeader
 			config.MaxRequestSize = 16
+			config.RateLimitsEnabled = testCase.rateLimited
+			config.RateLimit = httpf.Rate{Requests: 2, Window: time.Minute}
 
-			router := httpf.NewRouter(config, httpf.RouterOptions{
-				Otel:          &otelpresets.Disabled{},
-				Logger:        &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}},
-				DowntimeStart: testCase.downtimeStart,
-				Liveness:      "/ping",
-				Methods:       []string{http.MethodGet, http.MethodPost},
-			})
-			router.Get("/ping", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+			router := httpf.NewRouter(
+				config,
+				&otelpresets.Disabled{},
+				&loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}},
+				testCase.downtimeStart,
+			)
+			ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
+			router.Get("/ping", ok)
+			router.Get("/items/{id}", ok)
 			router.Get("/visitor", func(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write([]byte(middleware.GetClientIP(r.Context())))
 			})
@@ -137,17 +176,21 @@ func TestNewRouter(t *testing.T) {
 				}
 			})
 
-			request := httptest.NewRequestWithContext(
-				t.Context(), testCase.method, testCase.path, strings.NewReader(testCase.body),
-			)
-			request.RemoteAddr = "192.0.2.1:41234"
+			var response *httptest.ResponseRecorder
 
-			for name, value := range testCase.headers {
-				request.Header.Set(name, value)
+			for _, path := range testCase.paths {
+				request := httptest.NewRequestWithContext(
+					t.Context(), testCase.method, path, strings.NewReader(testCase.body),
+				)
+				request.RemoteAddr = "192.0.2.1:41234"
+
+				for name, value := range testCase.headers {
+					request.Header.Set(name, value)
+				}
+
+				response = httptest.NewRecorder()
+				router.ServeHTTP(response, request)
 			}
-
-			response := httptest.NewRecorder()
-			router.ServeHTTP(response, request)
 
 			require.Equal(t, testCase.expectStatus, response.Code)
 
@@ -159,6 +202,34 @@ func TestNewRouter(t *testing.T) {
 				require.Equal(t, value, response.Header().Get(name))
 			}
 		})
+	}
+}
+
+func TestListenAndServe(t *testing.T) {
+	t.Parallel()
+
+	address := freeHTTPAddress(t)
+	_, port, err := net.SplitHostPort(address)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	config := httpf.ServerConfigDefault
+	config.Port, err = strconv.Atoi(port)
+	require.NoError(t, err)
+
+	config.Timeouts.Shutdown = time.Second
+
+	served := make(chan error, 1)
+	go func() { served <- httpf.ListenAndServe(ctx, config, http.NotFoundHandler()) }()
+
+	waitForHTTPServer(t, address)
+	cancel()
+
+	select {
+	case err := <-served:
+		require.NoError(t, err)
+	case <-time.After(serverTestTimeout):
+		require.FailNow(t, "the server did not stop after cancellation")
 	}
 }
 

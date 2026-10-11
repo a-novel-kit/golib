@@ -163,14 +163,13 @@ func TestNewServer(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			server := grpcf.NewServer(grpcf.ServerOptions{
-				Otel:          &otelpresets.Disabled{},
-				Logger:        &loggingpresets.GRPCLocal{},
-				DowntimeStart: testCase.downtimeStart,
-				BaseContext: func(ctx context.Context) context.Context {
-					return context.WithValue(ctx, contextKey{}, "process")
-				},
-			})
+			baseContext := func(ctx context.Context) context.Context {
+				return context.WithValue(ctx, contextKey{}, "process")
+			}
+
+			server := grpcf.NewServer(
+				&otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext,
+			)
 			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 			server.RegisterService(probe, struct{}{})
 
