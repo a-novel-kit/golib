@@ -10,6 +10,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	otelglobal "go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	"github.com/a-novel-kit/golib/worker"
 )
@@ -148,4 +152,61 @@ func TestPoll(t *testing.T) {
 			require.FailNow(t, "Poll never ran its callback")
 		}
 	})
+}
+
+//nolint:paralleltest // Replaces the process-wide tracer provider while the loop runs.
+func TestPollTelemetry(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otelglobal.GetTracerProvider()
+
+	otelglobal.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otelglobal.SetTracerProvider(previous)
+		require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context())))
+	})
+
+	// The process's own span: the runs must not gather under it.
+	ctx, process := provider.Tracer("worker-test").Start(t.Context(), "process")
+	defer process.End()
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var calls atomic.Int64
+
+	returned := make(chan struct{})
+
+	go func() {
+		defer close(returned)
+
+		// The first run reports work, so the second follows at once and stops the loop.
+		worker.Poll(ctx, discardLogger, "telemetry", time.Hour, 0, func(context.Context) (bool, error) {
+			if calls.Add(1) == 2 {
+				cancel()
+
+				return false, nil
+			}
+
+			return true, nil
+		})
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(pollTimeout):
+		require.FailNow(t, "Poll did not return")
+	}
+
+	// Two runs, and nothing else: no span outlives the loop.
+	spans := recorder.Ended()
+	require.Len(t, spans, 2)
+
+	for _, span := range spans {
+		require.Equal(t, "worker.Poll", span.Name())
+		require.False(t, span.Parent().IsValid())
+		require.NotEqual(t, process.SpanContext().TraceID(), span.SpanContext().TraceID())
+	}
+
+	require.NotEqual(t, spans[0].SpanContext().TraceID(), spans[1].SpanContext().TraceID())
 }
