@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 
 	"github.com/a-novel-kit/golib/downtime"
 	golibproto "github.com/a-novel-kit/golib/grpcf/proto/gen"
@@ -17,11 +19,19 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// NewServer returns a server with the standard interceptors, outermost first: tracing, the base
-// context, call logs, panic recovery and the planned downtime. baseContext derives each call's
+// errShuttingDown ends the streams a server holds when its shutdown begins.
+var errShuttingDown = errors.New("server shutting down")
+
+// NewServer returns a server with the standard interceptors, outermost first: tracing, the end of
+// streams at shutdown, the base context, call logs, panic recovery and the planned downtime.
+//
+// Its streams end when ctx is done, the context [Serve] drains the server under: a long-lived stream
+// would otherwise hold the drain to its deadline. Their clients receive Unavailable and resume on
+// another instance, while unary calls finish within the drain. baseContext derives each call's
 // context, so calls reach process-wide values such as the database connection; nil keeps the call's
 // own. The health and echo services that [RegisterEchoServers] adds still answer during a downtime.
 func NewServer(
+	ctx context.Context,
 	tracing otel.Config,
 	logger logging.RPCConfig,
 	downtimeStart *time.Time,
@@ -46,12 +56,33 @@ func NewServer(
 			downtime.UnaryServerInterceptor(downtimeStart, open...),
 		),
 		grpc.ChainStreamInterceptor(
+			endStreamsInterceptor(ctx),
 			BaseContextStreamInterceptor(baseContext),
 			logger.StreamInterceptor(),
 			logger.PanicStreamInterceptor(),
 			downtime.StreamServerInterceptor(downtimeStart, open...),
 		),
 	}, extra...)...)
+}
+
+// endStreamsInterceptor ends a stream once shutdown, the end of ctx, begins.
+//
+//nolint:contextcheck // A stream's context derives from the stream; ctx only signals its end.
+func endStreamsInterceptor(ctx context.Context) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		streamCtx, cancel := context.WithCancelCause(ss.Context())
+		defer cancel(nil)
+
+		stop := context.AfterFunc(ctx, func() { cancel(errShuttingDown) })
+		defer stop()
+
+		err := handler(srv, &wrappedStream{ss, func(context.Context) context.Context { return streamCtx }})
+		if err != nil && errors.Is(context.Cause(streamCtx), errShuttingDown) {
+			return status.Error(codes.Unavailable, "server shutting down: resume on another instance")
+		}
+
+		return err
+	}
 }
 
 // ListenAndServe serves server on the configured port until ctx is canceled, then drains active
