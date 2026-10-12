@@ -168,7 +168,7 @@ func TestNewServer(t *testing.T) {
 			}
 
 			server := grpcf.NewServer(
-				&otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext,
+				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext,
 			)
 			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 			server.RegisterService(probe, struct{}{})
@@ -195,6 +195,49 @@ func TestNewServer(t *testing.T) {
 			require.Equal(t, testCase.expectValue, response.GetValue())
 		})
 	}
+
+	t.Run("Success/StreamEndsWhenShutdownBegins", func(t *testing.T) {
+		t.Parallel()
+
+		// A stream would hold the drain to its deadline. It ends the moment shutdown begins, telling its
+		// client to resume elsewhere, and the drain completes at once.
+		ctx, cancel := context.WithCancel(t.Context())
+		server := grpcf.NewServer(ctx, &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
+		grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+
+		address := freeGRPCAddress(t)
+		serveErrors := make(chan error, 1)
+
+		go func() { serveErrors <- grpcf.Serve(ctx, server, address, grpcServerTestTimeout) }()
+
+		connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+		watchCtx, stopWatch := context.WithTimeout(t.Context(), grpcServerTestTimeout)
+		t.Cleanup(stopWatch)
+
+		watch, err := healthpb.NewHealthClient(connection).Watch(
+			watchCtx, &healthpb.HealthCheckRequest{}, grpc.WaitForReady(true),
+		)
+		require.NoError(t, err)
+
+		_, err = watch.Recv()
+		require.NoError(t, err)
+
+		cancel()
+
+		select {
+		case err = <-serveErrors:
+			// Not forced: the drain finished well inside its deadline.
+			require.NoError(t, err)
+		case <-time.After(2 * grpcServerTestTimeout):
+			require.FailNow(t, "gRPC server did not stop")
+		}
+
+		_, err = watch.Recv()
+		require.Equal(t, codes.Unavailable, status.Code(err))
+	})
 }
 
 func freeGRPCAddress(t *testing.T) string {
