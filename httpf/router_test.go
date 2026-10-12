@@ -238,7 +238,7 @@ func TestNewServer(t *testing.T) {
 
 	type contextKey struct{}
 
-	ctx := context.WithValue(t.Context(), contextKey{}, "process")
+	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), contextKey{}, "process"))
 	config := httpf.ServerConfigDefault
 	config.Port = 9090
 
@@ -249,5 +249,11 @@ func TestNewServer(t *testing.T) {
 	require.Equal(t, config.Timeouts.ReadHeader, server.ReadHeaderTimeout)
 	require.Equal(t, config.Timeouts.Write, server.WriteTimeout)
 	require.Equal(t, config.Timeouts.Idle, server.IdleTimeout)
-	require.Equal(t, "process", server.BaseContext(&net.TCPListener{}).Value(contextKey{}))
+
+	// Shutdown begins: requests keep the process values, and run on within the drain.
+	cancel()
+
+	base := server.BaseContext(&net.TCPListener{})
+	require.Equal(t, "process", base.Value(contextKey{}))
+	require.NoError(t, base.Err())
 }

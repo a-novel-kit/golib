@@ -84,8 +84,13 @@ func standardLimit(router *chi.Mux, config ServerConfig) func(http.Handler) http
 }
 
 // NewServer returns a server for handler on the configured port, with the configured timeouts.
-// Every request context derives from ctx.
+//
+// Every request context carries ctx's values, but not its cancellation: ctx is usually the process
+// context [Serve] drains the server under, and a request in flight when shutdown begins finishes
+// within the drain rather than being cut at once.
 func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *http.Server {
+	base := context.WithoutCancel(ctx)
+
 	return &http.Server{
 		Addr:              ":" + strconv.Itoa(config.Port),
 		Handler:           handler,
@@ -93,7 +98,7 @@ func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *
 		ReadHeaderTimeout: config.Timeouts.ReadHeader,
 		WriteTimeout:      config.Timeouts.Write,
 		IdleTimeout:       config.Timeouts.Idle,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		BaseContext:       func(net.Listener) context.Context { return base },
 	}
 }
 
