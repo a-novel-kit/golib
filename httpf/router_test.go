@@ -257,3 +257,65 @@ func TestNewServer(t *testing.T) {
 	require.Equal(t, "process", base.Value(contextKey{}))
 	require.NoError(t, base.Err())
 }
+
+func TestEndOnShutdown(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		// shutdown begins while the request runs.
+		shutdown bool
+
+		expectErr error
+	}{
+		{
+			name: "Success/ShutdownEndsTheRequest",
+
+			shutdown: true,
+
+			expectErr: context.Canceled,
+		},
+		{
+			name: "Success/RequestRunsWithoutShutdown",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			type contextKey struct{}
+
+			ctx, cancel := context.WithCancel(t.Context())
+			t.Cleanup(cancel)
+
+			var (
+				requestErr error
+				value      any
+			)
+
+			handler := httpf.EndOnShutdown(ctx)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				if testCase.shutdown {
+					cancel()
+
+					select {
+					case <-r.Context().Done():
+					case <-time.After(serverTestTimeout):
+					}
+				}
+
+				requestErr = r.Context().Err()
+				value = r.Context().Value(contextKey{})
+			}))
+
+			request := httptest.NewRequestWithContext(
+				context.WithValue(t.Context(), contextKey{}, "request"), http.MethodPost, "/", nil,
+			)
+			handler.ServeHTTP(httptest.NewRecorder(), request)
+
+			require.ErrorIs(t, requestErr, testCase.expectErr)
+			require.Equal(t, "request", value)
+		})
+	}
+}
