@@ -87,7 +87,7 @@ func standardLimit(router *chi.Mux, config ServerConfig) func(http.Handler) http
 //
 // Every request context carries ctx's values, but not its cancellation: ctx is usually the process
 // context [Serve] drains the server under, and a request in flight when shutdown begins finishes
-// within the drain rather than being cut at once.
+// within the drain rather than being cut at once. [EndOnShutdown] ends it instead.
 func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *http.Server {
 	base := context.WithoutCancel(ctx)
 
@@ -99,6 +99,25 @@ func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *
 		WriteTimeout:      config.Timeouts.Write,
 		IdleTimeout:       config.Timeouts.Idle,
 		BaseContext:       func(net.Listener) context.Context { return base },
+	}
+}
+
+// EndOnShutdown ends a request's context once ctx, the process context the server drains under, is
+// done. Mount it on a long request that keeps taking on work, such as a batch, so it stops at
+// shutdown and answers within the drain. Other requests keep their context until they finish.
+//
+//nolint:contextcheck // A request's context derives from the request; ctx only signals its end.
+func EndOnShutdown(ctx context.Context) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCtx, cancel := context.WithCancel(r.Context())
+			defer cancel()
+
+			stop := context.AfterFunc(ctx, cancel)
+			defer stop()
+
+			next.ServeHTTP(w, r.WithContext(requestCtx))
+		})
 	}
 }
 
