@@ -1,6 +1,6 @@
 # Contributing to golib
 
-The library taxonomy — what a library is, the aggregated-vs-graduated split, and the public-package obligations a graduated package takes on — lives in the [libraries, tooling & platform concepts](https://github.com/a-novel-kit/.github/blob/master/CONTRIBUTING.md); this file covers what's specific to `golib`. Platform setup and day-to-day commands are in the [developer onboarding guide](https://github.com/a-novel-kit/.github/blob/master/README.md).
+The library taxonomy — what a library is, the aggregated-vs-graduated split, and the public-package obligations a graduated package takes on — lives in the [libraries, tooling & platform concepts](https://github.com/a-novel-kit/.github/blob/master/CONTRIBUTING.md); this file covers what's specific to `golib`. Platform setup and day-to-day commands are in the [developer guide](https://a-novel-kit.github.io/stack/).
 
 ## The bar for additions
 

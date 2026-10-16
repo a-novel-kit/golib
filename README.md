@@ -45,4 +45,4 @@ Each **sub-package** is a directory-scoped, independently importable helper — 
 
 ## Contributing
 
-Setup and day-to-day commands are in the [developer onboarding guide](https://github.com/a-novel-kit/.github/blob/master/README.md); golib-specific notes are in [CONTRIBUTING.md](./CONTRIBUTING.md).
+Setup and day-to-day commands are in the [developer guide](https://a-novel-kit.github.io/stack/); golib-specific notes are in [CONTRIBUTING.md](./CONTRIBUTING.md).
