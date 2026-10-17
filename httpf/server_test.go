@@ -127,7 +127,8 @@ func TestServe(t *testing.T) {
 		releaseOnce.Do(func() { close(release) })
 
 		select {
-		case <-requestErrors:
+		case err := <-requestErrors:
+			require.Error(t, err)
 		case <-time.After(serverTestTimeout):
 			require.FailNow(t, "HTTP request did not finish after forced shutdown")
 		}
