@@ -195,7 +195,7 @@ func TestProdSenderSendMail(t *testing.T) {
 
 			sender := &smtp.ProdSender{
 				Addr:     server.addr(),
-				Name:     "Agora",
+				Name:     "A-Novel",
 				Email:    "noreply@example.com",
 				Username: testCase.username,
 				Password: "hunter2",
