@@ -300,7 +300,13 @@ func TestProdSender(t *testing.T) { //nolint:paralleltest,tparallel // Replaces 
 						transcript = append(transcript, strings.TrimSpace(line))
 						_, _ = conn.Write([]byte("421 4.7.0 Greeting rejected\r\n"))
 
+						// A half-close ends the session with FIN while the server keeps reading, so the
+						// client's HELO retry reads EOF. Closing with that retry unread resets the
+						// connection instead.
 						if disconnect {
+							_ = conn.(*net.TCPConn).CloseWrite()
+							_, _ = io.Copy(io.Discard, reader)
+
 							return
 						}
 					}
