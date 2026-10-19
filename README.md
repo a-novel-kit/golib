@@ -1,6 +1,6 @@
 # Go lib
 
-Shared Go library for the A-Novel backend services — the glue they'd otherwise copy between repos.
+Shared Go library of the A-Novel backend services, holding the glue each would otherwise copy.
 
 [![X (formerly Twitter) Follow](https://img.shields.io/twitter/follow/agorastoryverse)](https://twitter.com/agorastoryverse)
 [![Discord](https://img.shields.io/discord/1315240114691248138?logo=discord)](https://discord.gg/rp4Qr8cA)
@@ -15,9 +15,12 @@ Shared Go library for the A-Novel backend services — the glue they'd otherwise
 
 ## What this is
 
-Not a framework, and small on purpose: if a well-maintained library already covers it, it doesn't live here. A sub-package that grows a broad API of its own graduates to its own repo, as [`jwt`](https://github.com/a-novel-kit/jwt) did.
+golib collects the boilerplate the A-Novel backend services share, from server wiring to test
+harnesses, so each service imports it instead of keeping its own copy. It holds no business logic.
+Each sub-package covers one concern and imports on its own.
 
-Full reference: godoc on [pkg.go.dev](https://pkg.go.dev/github.com/a-novel-kit/golib).
+Services depend on a released version. The godoc on
+[pkg.go.dev](https://pkg.go.dev/github.com/a-novel-kit/golib) is the full reference.
 
 ## Installation
 
@@ -27,22 +30,24 @@ go get github.com/a-novel-kit/golib
 
 ## Sub-packages
 
-Each **sub-package** is a directory-scoped, independently importable helper — focused, dependency-light, and shared across services. One that grows a broad API of its own graduates to its own repo (see [What this is](#what-this-is)).
-
-| Path                    | What it's for                                                                                                                                                                                                                                                                                             |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config`                | Loads environment variables into typed config structs and fails fast at startup when one is missing or malformed, so a service never boots half-configured.                                                                                                                                               |
-| `otel`                  | Wires OpenTelemetry tracing and logging under a shared app identity and reports each operation's outcome on its span. Exporters ship for local development and hosted backends.                                                                                                                           |
-| `httpf`                 | Both sides of the HTTP wire: the REST server's configuration, middleware chain and rate limits; mapping domain error sentinels to status codes and writing JSON responses; and the pooled, traced client a service calls other systems through. `httpftest` scripts a server to test those calls against. |
-| `downtime`              | Honors a planned downtime: from its start until operators remove it, a service refuses HTTP and gRPC requests except liveness, with a marker clients use to tell it from an outage.                                                                                                                       |
-| `grpcf`                 | The gRPC equivalent of `httpf`: the server's configuration and interceptor chain, per-call context, client dial credentials (local or GCP), and a health/echo service for tests.                                                                                                                          |
-| `logging`               | Defines the interfaces the platform logs through, so a service can swap its log backend without touching call sites. Presets cover local and Google Cloud, for both HTTP and gRPC.                                                                                                                        |
-| `postgres`              | Opens the pool from a URL or discrete settings, carries the database handle on the request context, runs work inside transactions installed on it, and ships the migration runner.                                                                                                                        |
-| `postgres/postgrestest` | Provides disposable-database, isolated-schema, and migration-roundtrip harnesses for PostgreSQL-backed tests.                                                                                                                                                                                             |
-| `smtp`                  | Sends transactional mail behind one `Sender` interface, with a real SMTP sender for production and a debug sender for local runs and tests.                                                                                                                                                               |
-| `transaction`           | Declares what a unit of work is, in one interface that names no database — so business code can require atomicity without gaining a way to reach a driver. `postgres` implements it.                                                                                                                      |
-| `worker`                | Runs the loops that live beside the request path: an error keeps the loop alive, a busy tick skips the wait, and loops sharing an interval de-synchronize.                                                                                                                                                |
+| Path                          | What it's for                                                                                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config`                      | Parses environment variables into typed values. An unset one keeps its default and a malformed one panics at startup, so a service never boots half-configured.                                   |
+| `downtime`                    | Makes a service refuse every request but liveness from the start of a planned downtime until operators remove it. A marker in each refusal tells it apart from an outage.                         |
+| `grpcf`                       | The gRPC counterpart of `httpf`: the server with its standard interceptors and bounded shutdown, and the dial credentials of a local or Google Cloud target.                                      |
+| `httpf`                       | The HTTP glue on both sides of the wire: the REST server with its standard middleware and rate limits, the responses a handler writes, and the pooled, traced client a service calls others with. |
+| `httpf/httpftest`             | Scripts an HTTP server to test outbound calls against.                                                                                                                                            |
+| `logging`                     | Defines the interfaces a service logs through, so it can swap its log backend without touching call sites. Its presets cover a terminal and Google Cloud, for both HTTP and gRPC.                 |
+| `otel`                        | Wires OpenTelemetry tracing and logging under the service's name, and reports each operation's outcome on its span. Its presets export locally or to a hosted backend.                            |
+| `postgres`                    | Carries the database handle on the request context, runs work inside transactions installed on it, and applies migrations. Its presets open the pool from a URL or discrete settings.             |
+| `postgres/postgrestest`       | Isolates the database work of each test, in a migrated clone, a throwaway schema or a rolled-back transaction, and proves every down migration reverses its up.                                   |
+| `smtp`                        | Sends transactional mail behind one `Sender` interface, with a real SMTP sender for production and a debug sender for local runs.                                                                 |
+| `smtp/smtptest`               | Records sent mail in memory, for tests to assert on.                                                                                                                                              |
+| `transaction`                 | Declares a unit of work in one interface that names no database, so business code can require atomicity without reaching a driver. `postgres` implements it.                                      |
+| `transaction/transactiontest` | Runs a unit of work in memory, for tests to assert that a caller opened one.                                                                                                                      |
+| `worker`                      | Runs the background loops that live beside the request path, each run traced on its own.                                                                                                          |
 
 ## Contributing
 
-Setup and day-to-day commands are in the [developer guide](https://a-novel-kit.github.io/stack/); golib-specific notes are in [CONTRIBUTING.md](./CONTRIBUTING.md).
+Set up your machine with the [developer guide](https://a-novel-kit.github.io/stack/). The rules
+specific to golib are in [CONTRIBUTING.md](./CONTRIBUTING.md).
