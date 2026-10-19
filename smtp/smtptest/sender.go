@@ -6,6 +6,7 @@ package smtptest
 
 import (
 	"errors"
+	"slices"
 	"sync"
 	"text/template"
 
@@ -61,7 +62,7 @@ func (sender *Sender) Ping() error {
 // callers must not mutate it.
 func (sender *Sender) FindMail(cmp func(*Mail) bool) (*Mail, bool) {
 	sender.mu.RLock()
-	snapshot := append([]*Mail(nil), sender.mails...)
+	snapshot := slices.Clone(sender.mails)
 	sender.mu.RUnlock()
 
 	for _, mail := range snapshot {

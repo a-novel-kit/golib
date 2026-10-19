@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/smtp"
 	"strings"
@@ -49,58 +50,16 @@ type ProdSender struct {
 // This transcribes [smtp.SendMail], which dials internally with no deadline. Driving the exchange
 // here puts the delivery deadline on the connection.
 func (sender *ProdSender) SendMail(to MailUsers, t *template.Template, tName string, data any) error {
-	writer := bytes.NewBuffer(nil)
+	body := bytes.NewBuffer(nil)
 
-	err := t.ExecuteTemplate(writer, tName, data)
+	err := t.ExecuteTemplate(body, tName, data)
 	if err != nil {
 		return fmt.Errorf("execute template err: %w", err)
 	}
 
-	msg := fmt.Sprintf("From: %s <%s>\r\n", sender.Name, sender.Email)
-	msg += fmt.Sprintf("To: %s\r\n", to.String())
-	msg += writer.String()
+	msg := fmt.Sprintf("From: %s <%s>\r\nTo: %s\r\n%s", sender.Name, sender.Email, to.String(), body.String())
 
-	client, host, err := sender.dial()
-	if err != nil {
-		return fmt.Errorf("send email: %w", err)
-	}
-
-	defer func() { _ = client.Close() }()
-
-	err = sender.negotiate(client, host)
-	if err != nil {
-		return fmt.Errorf("send email: %w", err)
-	}
-
-	err = client.Mail(sender.Email)
-	if err != nil {
-		return fmt.Errorf("send email: %w", err)
-	}
-
-	for _, addr := range to.Emails() {
-		err = client.Rcpt(addr)
-		if err != nil {
-			return fmt.Errorf("send email: %w", err)
-		}
-	}
-
-	body, err := client.Data()
-	if err != nil {
-		return fmt.Errorf("send email: %w", err)
-	}
-
-	_, err = body.Write([]byte(msg))
-	if err != nil {
-		return fmt.Errorf("send email: %w", err)
-	}
-
-	// Closing the body commits the message, so its error is the server's verdict on the delivery.
-	err = body.Close()
-	if err != nil {
-		return fmt.Errorf("send email: %w", err)
-	}
-
-	err = client.Quit()
+	err = sender.deliver(to.Emails(), msg)
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
@@ -131,6 +90,52 @@ func (sender *ProdSender) Ping() error {
 	return nil
 }
 
+// deliver runs one SMTP exchange that sends msg to recipients.
+func (sender *ProdSender) deliver(recipients []string, msg string) error {
+	client, host, err := sender.dial()
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = client.Close() }()
+
+	err = sender.negotiate(client, host)
+	if err != nil {
+		return err
+	}
+
+	err = client.Mail(sender.Email)
+	if err != nil {
+		return err
+	}
+
+	for _, addr := range recipients {
+		err = client.Rcpt(addr)
+		if err != nil {
+			return err
+		}
+	}
+
+	data, err := client.Data()
+	if err != nil {
+		return err
+	}
+
+	_, err = io.WriteString(data, msg)
+	if err != nil {
+		return err
+	}
+
+	// Closing the data writer commits the message, so its error is the server's verdict on the
+	// delivery.
+	err = data.Close()
+	if err != nil {
+		return err
+	}
+
+	return client.Quit()
+}
+
 func (sender *ProdSender) timeout() time.Duration {
 	if sender.Timeout <= 0 {
 		return DefaultTimeout
@@ -142,8 +147,6 @@ func (sender *ProdSender) timeout() time.Duration {
 func (sender *ProdSender) auth() smtp.Auth {
 	username := sender.Username
 	if username == "" {
-		// Existing callers use the sender address as their SMTP login. Keep that contract while
-		// allowing relays such as Brevo to provide a separate account username.
 		username = sender.Email
 	}
 
