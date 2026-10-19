@@ -2,7 +2,6 @@ package smtp_test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -15,62 +14,64 @@ import (
 )
 
 func testProdSenderDeadline(t *testing.T) {
-	for _, operation := range []string{"send", "ping"} {
-		for _, greeting := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s greeting=%t", operation, greeting), func(t *testing.T) {
-				const timeout = 2 * time.Second
+	testCases := []struct {
+		name string
 
-				useDelayedResolver(t, timeout/2)
-				listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-				require.NoError(t, err)
-				t.Cleanup(func() { _ = listener.Close() })
+		operation string
+		greeting  bool
 
-				closed := make(chan error, 1)
+		expectErr string
+	}{
+		{name: "Send/NoGreeting", operation: "send", expectErr: "open SMTP client"},
+		{name: "Send/Greeting", operation: "send", greeting: true, expectErr: "greet SMTP server"},
+		{name: "Ping/NoGreeting", operation: "ping", expectErr: "open SMTP client"},
+		{name: "Ping/Greeting", operation: "ping", greeting: true, expectErr: "greet SMTP server"},
+	}
 
-				go func() {
-					closed <- stallSMTP(listener, greeting)
-				}()
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			const timeout = 2 * time.Second
 
-				_, port, err := net.SplitHostPort(listener.Addr().String())
-				require.NoError(t, err)
+			useDelayedResolver(t, timeout/2)
+			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = listener.Close() })
 
-				sender := &smtp.ProdSender{
-					Addr:    net.JoinHostPort("smtp-deadline.invalid.", port),
-					Email:   "noreply@example.com",
-					Timeout: timeout,
-				}
-				tmpl := testTemplate(t)
-				start := time.Now()
+			closed := make(chan error, 1)
 
-				if operation == "send" {
-					err = sender.SendMail(smtp.MailUsers{{Email: "to@example.com"}}, tmpl, "mail", "world")
-				} else {
-					err = sender.Ping()
-				}
+			go func() {
+				closed <- stallSMTP(listener, testCase.greeting)
+			}()
 
-				elapsed := time.Since(start)
+			_, port, err := net.SplitHostPort(listener.Addr().String())
+			require.NoError(t, err)
 
-				var timeoutErr net.Error
-				require.ErrorAs(t, err, &timeoutErr)
-				require.True(t, timeoutErr.Timeout())
+			sender := &smtp.ProdSender{
+				Addr:    net.JoinHostPort("smtp-deadline.invalid.", port),
+				Email:   "noreply@example.com",
+				Timeout: timeout,
+			}
+			start := time.Now()
 
-				if greeting {
-					require.ErrorContains(t, err, "greet SMTP server")
-				} else {
-					require.ErrorContains(t, err, "open SMTP client")
-				}
+			err = runOperation(t, sender, testCase.operation)
 
-				require.GreaterOrEqual(t, elapsed, timeout)
-				require.Less(t, elapsed, timeout+timeout/4, "DNS and SMTP must share one timeout")
+			elapsed := time.Since(start)
 
-				select {
-				case err := <-closed:
-					require.NoError(t, err, "the client must close the connection on timeout")
-				case <-time.After(time.Second):
-					t.Fatal("SMTP connection remained open after timeout")
-				}
-			})
-		}
+			var timeoutErr net.Error
+			require.ErrorAs(t, err, &timeoutErr)
+			require.True(t, timeoutErr.Timeout())
+			require.ErrorContains(t, err, testCase.expectErr)
+
+			require.GreaterOrEqual(t, elapsed, timeout)
+			require.Less(t, elapsed, timeout+timeout/4, "DNS and SMTP must share one timeout")
+
+			select {
+			case err := <-closed:
+				require.NoError(t, err, "the client must close the connection on timeout")
+			case <-time.After(time.Second):
+				t.Fatal("SMTP connection remained open after timeout")
+			}
+		})
 	}
 }
 

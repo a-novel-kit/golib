@@ -174,10 +174,12 @@ func TestRoundtripHistoryDigests(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, baseline, 2)
 
-	for _, sourcePath := range []string{
+	editedFiles := []string{
 		"20260725000001_first.up.sql",
 		"20260725000001_first.down.sql",
-	} {
+	}
+
+	for _, sourcePath := range editedFiles {
 		t.Run(sourcePath, func(t *testing.T) {
 			t.Parallel()
 

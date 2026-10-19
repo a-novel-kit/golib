@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/textproto"
@@ -145,6 +144,17 @@ func testTemplate(t *testing.T) *template.Template {
 	return tmpl
 }
 
+// runOperation sends a test mail through sender when operation is "send", and pings it otherwise.
+func runOperation(t *testing.T, sender *smtp.ProdSender, operation string) error {
+	t.Helper()
+
+	if operation == "send" {
+		return sender.SendMail(smtp.MailUsers{{Email: "to@example.com"}}, testTemplate(t), "mail", "world")
+	}
+
+	return sender.Ping()
+}
+
 func plainAuthCredentials(t *testing.T, transcript []string) (string, string, string) {
 	t.Helper()
 
@@ -175,11 +185,11 @@ func TestProdSenderSendMail(t *testing.T) {
 		username         string
 		expectedUsername string
 	}{
-		"distinct authentication username": {
+		"Success/DistinctUsername": {
 			username:         "relay-user@example.net",
 			expectedUsername: "relay-user@example.net",
 		},
-		"sender email fallback": {
+		"Success/EmailFallback": {
 			expectedUsername: "noreply@example.com",
 		},
 	}
@@ -231,16 +241,16 @@ func TestProdSenderSendMail(t *testing.T) {
 }
 
 func TestProdSender(t *testing.T) { //nolint:paralleltest,tparallel // Replaces net.DefaultResolver temporarily.
-	t.Run("shared network deadline", testProdSenderDeadline)
+	t.Run("SharedNetworkDeadline", testProdSenderDeadline)
 
 	testCases := map[string]struct {
 		email string
 		hello string
 	}{
-		"sender domain":       {email: "noreply@example.com", hello: "example.com"},
-		"quoted local part":   {email: `"no@reply"@example.org`, hello: "example.org"},
-		"domainless fallback": {email: "noreply", hello: "localhost"},
-		"empty fallback":      {hello: "localhost"},
+		"Greeting/SenderDomain":       {email: "noreply@example.com", hello: "example.com"},
+		"Greeting/QuotedLocalPart":    {email: `"no@reply"@example.org`, hello: "example.org"},
+		"Greeting/DomainlessFallback": {email: "noreply", hello: "localhost"},
+		"Greeting/EmptyFallback":      {hello: "localhost"},
 	}
 
 	for name, testCase := range testCases {
@@ -267,84 +277,89 @@ func TestProdSender(t *testing.T) { //nolint:paralleltest,tparallel // Replaces 
 		})
 	}
 
-	for _, operation := range []string{"ping", "send"} {
-		for _, disconnect := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s rejected greeting disconnect=%t", operation, disconnect), func(t *testing.T) {
-				t.Parallel()
+	rejectionCases := []struct {
+		name string
 
-				listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-				require.NoError(t, err)
-				t.Cleanup(func() { _ = listener.Close() })
+		operation  string
+		disconnect bool
+	}{
+		{name: "RejectedGreeting/Ping", operation: "ping"},
+		{name: "RejectedGreeting/Ping/Disconnect", operation: "ping", disconnect: true},
+		{name: "RejectedGreeting/Send", operation: "send"},
+		{name: "RejectedGreeting/Send/Disconnect", operation: "send", disconnect: true},
+	}
 
-				commands := make(chan []string, 1)
+	for _, testCase := range rejectionCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-				go func() {
-					var transcript []string
-					defer func() { commands <- transcript }()
+			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = listener.Close() })
 
-					conn, acceptErr := listener.Accept()
-					if acceptErr != nil {
-						return
-					}
-					defer func() { _ = conn.Close() }()
+			commands := make(chan []string, 1)
 
-					reader := bufio.NewReader(conn)
-					_, _ = conn.Write([]byte("220 fake ESMTP\r\n"))
+			go func() { commands <- rejectGreeting(listener, testCase.disconnect) }()
 
-					for {
-						line, readErr := reader.ReadString('\n')
-						if readErr != nil {
-							return
-						}
+			sender := &smtp.ProdSender{
+				Addr:    listener.Addr().String(),
+				Email:   "noreply@example.com",
+				Timeout: time.Second,
+			}
 
-						transcript = append(transcript, strings.TrimSpace(line))
-						_, _ = conn.Write([]byte("421 4.7.0 Greeting rejected\r\n"))
+			err = runOperation(t, sender, testCase.operation)
+			require.Error(t, err)
+			require.NotErrorIs(t, err, smtp.ErrNoAuthSupport)
 
-						// A half-close ends the session with FIN while the server keeps reading, so the
-						// client's HELO retry reads EOF. Closing with that retry unread resets the
-						// connection instead.
-						if disconnect {
-							_ = conn.(*net.TCPConn).CloseWrite()
-							_, _ = io.Copy(io.Discard, reader)
+			if testCase.disconnect {
+				// net/smtp retries a failed EHLO as HELO, which sees the closed connection.
+				require.ErrorIs(t, err, io.EOF)
+			} else {
+				var replyErr *textproto.Error
+				require.ErrorAs(t, err, &replyErr)
+				require.Equal(t, 421, replyErr.Code)
+			}
 
-							return
-						}
-					}
-				}()
+			transcript := <-commands
+			require.Equal(t, "EHLO example.com", transcript[0])
 
-				sender := &smtp.ProdSender{
-					Addr:    listener.Addr().String(),
-					Email:   "noreply@example.com",
-					Timeout: time.Second,
-				}
+			for _, command := range transcript {
+				require.True(t, strings.HasPrefix(command, "EHLO ") || strings.HasPrefix(command, "HELO "))
+			}
+		})
+	}
+}
 
-				if operation == "ping" {
-					err = sender.Ping()
-				} else {
-					err = sender.SendMail(
-						smtp.MailUsers{{Email: "to@example.com"}}, testTemplate(t), "mail", "world",
-					)
-				}
+// rejectGreeting answers every greeting of one connection with 421 and returns the commands it
+// received. With disconnect, it ends the session after the first rejection.
+func rejectGreeting(listener net.Listener, disconnect bool) []string {
+	var transcript []string
 
-				require.Error(t, err)
-				require.NotErrorIs(t, err, smtp.ErrNoAuthSupport)
+	conn, err := listener.Accept()
+	if err != nil {
+		return transcript
+	}
+	defer func() { _ = conn.Close() }()
 
-				if disconnect {
-					// net/smtp retries a failed EHLO as HELO, which sees the closed connection.
-					require.ErrorIs(t, err, io.EOF)
-				} else {
-					var replyErr *textproto.Error
-					require.ErrorAs(t, err, &replyErr)
-					require.Equal(t, 421, replyErr.Code)
-				}
+	reader := bufio.NewReader(conn)
+	_, _ = conn.Write([]byte("220 fake ESMTP\r\n"))
 
-				transcript := <-commands
-				require.Equal(t, "EHLO example.com", transcript[0])
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return transcript
+		}
 
-				for _, command := range transcript {
-					require.True(t, strings.HasPrefix(command, "EHLO ") || strings.HasPrefix(command, "HELO "))
-				}
-			})
+		transcript = append(transcript, strings.TrimSpace(line))
+		_, _ = conn.Write([]byte("421 4.7.0 Greeting rejected\r\n"))
+
+		// A half-close ends the session with FIN while the server keeps reading, so the client's
+		// HELO retry reads EOF. Closing with that retry unread resets the connection instead.
+		if disconnect {
+			_ = conn.(*net.TCPConn).CloseWrite()
+			_, _ = io.Copy(io.Discard, reader)
+
+			return transcript
 		}
 	}
 }
@@ -358,35 +373,7 @@ func TestProdSenderRefusesServerWithoutAuth(t *testing.T) {
 
 	t.Cleanup(func() { _ = listener.Close() })
 
-	go func() {
-		conn, acceptErr := listener.Accept()
-		if acceptErr != nil {
-			return
-		}
-
-		defer func() { _ = conn.Close() }()
-
-		reader := bufio.NewReader(conn)
-
-		_, _ = conn.Write([]byte("220 fake ESMTP\r\n"))
-
-		for {
-			line, readErr := reader.ReadString('\n')
-			if readErr != nil {
-				return
-			}
-
-			if strings.HasPrefix(line, "EHLO") {
-				_, _ = conn.Write([]byte("250 fake\r\n")) // no extensions at all
-
-				continue
-			}
-
-			_, _ = conn.Write([]byte("221 Bye\r\n"))
-
-			return
-		}
-	}()
+	go serveWithoutAuth(listener)
 
 	sender := &smtp.ProdSender{Addr: listener.Addr().String(), Email: "noreply@example.com"}
 
@@ -395,6 +382,38 @@ func TestProdSenderRefusesServerWithoutAuth(t *testing.T) {
 		testTemplate(t), "mail", "world",
 	)
 	require.ErrorIs(t, err, smtp.ErrNoAuthSupport)
+}
+
+// serveWithoutAuth greets one connection without advertising any extension, then says goodbye to
+// the first command past EHLO.
+func serveWithoutAuth(listener net.Listener) {
+	conn, err := listener.Accept()
+	if err != nil {
+		return
+	}
+
+	defer func() { _ = conn.Close() }()
+
+	reader := bufio.NewReader(conn)
+
+	_, _ = conn.Write([]byte("220 fake ESMTP\r\n"))
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+
+		if strings.HasPrefix(line, "EHLO") {
+			_, _ = conn.Write([]byte("250 fake\r\n"))
+
+			continue
+		}
+
+		_, _ = conn.Write([]byte("221 Bye\r\n"))
+
+		return
+	}
 }
 
 func TestProdSenderTimesOutOnStalledServer(t *testing.T) {
@@ -450,10 +469,7 @@ func TestProdSenderPingTimesOutOnStalledServer(t *testing.T) {
 func TestProdSenderDefaultTimeoutApplies(t *testing.T) {
 	t.Parallel()
 
-	// An unset Timeout selects DefaultTimeout.
-	sender := &smtp.ProdSender{Addr: "192.0.2.1:25", Email: "noreply@example.com"}
-
+	// An unset Timeout selects DefaultTimeout. Proving it on a dial would cost the whole
+	// DefaultTimeout, so the test holds the constant to its contract.
 	require.Positive(t, smtp.DefaultTimeout)
-
-	_ = sender // the constant is the contract; dialing TEST-NET-1 costs DefaultTimeout
 }
