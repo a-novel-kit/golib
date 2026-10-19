@@ -10,10 +10,9 @@ import (
 
 // WithTx derives a context carrying tx, so GetContext resolves that transaction.
 //
-// [WithinTx] applies this for you and is what callers normally want. WithTx is
-// exported for the cases that own the transaction lifecycle themselves — a test
-// harness wrapping a whole suite, or a caller bridging a transaction it opened
-// through some other API.
+// [WithinTx] applies it and is what callers normally want. WithTx serves a caller
+// that owns the transaction lifecycle itself, such as a test harness wrapping a
+// whole suite.
 func WithTx(ctx context.Context, tx bun.IDB) context.Context {
 	return context.WithValue(ctx, ContextKey{}, tx)
 }
@@ -21,8 +20,8 @@ func WithTx(ctx context.Context, tx bun.IDB) context.Context {
 // InTx reports whether ctx carries an open transaction. It reports false when
 // ctx carries the connection pool, and false when it carries no database at all.
 //
-// Work that must not hold a pooled connection — any call to an external service
-// — guards itself with this.
+// Work that must not hold a pooled connection, such as a call to an external
+// service, guards itself with it.
 //
 // It reports true under `postgrestest.RunTransactionalTest`, whose PassthroughTx is not a
 // *bun.DB. A test covering an outbound call must therefore use `postgrestest.RunDBTest`,

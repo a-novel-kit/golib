@@ -37,15 +37,7 @@ func NewRouter(
 	router.Use(middleware.Timeout(config.Timeouts.Request))
 	router.Use(middleware.RequestSize(config.MaxRequestSize))
 	router.Use(tracing.HttpHandler())
-	router.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   config.Cors.AllowedOrigins,
-		AllowedHeaders:   config.Cors.AllowedHeaders,
-		AllowedMethods:   config.Cors.AllowedMethods,
-		AllowCredentials: config.Cors.AllowCredentials,
-		// Browsers hide Retry-After from scripts unless it is exposed; every 429 sends it.
-		ExposedHeaders: []string{"Retry-After"},
-		MaxAge:         config.Cors.MaxAge,
-	}))
+	router.Use(cors.Handler(corsOptions(config.Cors)))
 	router.Use(logger.Logger())
 	router.Use(downtime.Middleware(downtimeStart, config.Liveness))
 
@@ -54,6 +46,19 @@ func NewRouter(
 	}
 
 	return router
+}
+
+// corsOptions translates config for the CORS middleware. Browsers hide Retry-After from scripts
+// unless it is exposed, and every 429 sends it.
+func corsOptions(config CorsConfig) cors.Options {
+	return cors.Options{
+		AllowedOrigins:   config.AllowedOrigins,
+		AllowedHeaders:   config.AllowedHeaders,
+		AllowedMethods:   config.AllowedMethods,
+		AllowCredentials: config.AllowCredentials,
+		ExposedHeaders:   []string{"Retry-After"},
+		MaxAge:           config.MaxAge,
+	}
 }
 
 // standardLimit caps each visitor at the configured rate on each route. Routing has not run yet,
@@ -85,9 +90,9 @@ func standardLimit(router *chi.Mux, config ServerConfig) func(http.Handler) http
 
 // NewServer returns a server for handler on the configured port, with the configured timeouts.
 //
-// Every request context carries ctx's values, but not its cancellation: ctx is usually the process
-// context [Serve] drains the server under, and a request in flight when shutdown begins finishes
-// within the drain rather than being cut at once. [EndOnShutdown] ends it instead.
+// Every request context carries the values of ctx but not its cancellation. ctx is usually the
+// process context [Serve] drains the server under, so a request in flight when shutdown begins
+// finishes within the drain. [EndOnShutdown] ends such a request at shutdown instead.
 func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *http.Server {
 	base := context.WithoutCancel(ctx)
 

@@ -1,17 +1,44 @@
 # Contributing to golib
 
-The library taxonomy — what a library is, the aggregated-vs-graduated split, and the public-package obligations a graduated package takes on — lives in the [libraries, tooling & platform concepts](https://github.com/a-novel-kit/.github/blob/master/CONTRIBUTING.md); this file covers what's specific to `golib`. Platform setup and day-to-day commands are in the [developer guide](https://a-novel-kit.github.io/stack/).
+Set up your machine with the [developer guide](https://a-novel-kit.github.io/stack/), and read the
+[README](./README.md) first. The
+[taxonomy](https://github.com/a-novel-kit/.github/blob/master/docs/taxonomy.md#libraries) defines
+what a library is and when one graduates. This file covers what is specific to `golib`.
 
 ## The bar for additions
 
-`golib` stays small on purpose. Weigh any addition against three questions:
+`golib` stays small. Weigh any addition against three questions.
 
-- Does a well-maintained library already do it? Use that library; don't wrap it here.
-- Does only one service need it? Keep it there until a second one does.
-- Has it grown a broad API of its own? Then it [graduates](https://github.com/a-novel-kit/.github/blob/master/CONTRIBUTING.md#libraries) to its own repo, like [`jwt`](https://github.com/a-novel-kit/jwt) did — taking on the public-package obligations that come with standing alone: its own README/CONTRIBUTING/SECURITY/CODE_OF_CONDUCT, Codecov, and a semver policy it holds to.
+- Does a well-maintained library already do it? Use that library directly, without a wrapper here.
+- Does only one service need it? Keep it in that service until a second one does.
+- Has it grown a broad API of its own? It then
+  [graduates](https://github.com/a-novel-kit/.github/blob/master/docs/taxonomy.md#libraries) to its
+  own repository, as [`jwt`](https://github.com/a-novel-kit/jwt) did.
 
-The sweet spot: a small, dependency-light helper several services share that nothing upstream covers cleanly.
+A good addition is a small, dependency-light helper that several services share and nothing
+upstream covers.
+
+## Breaking changes
+
+Services pin a released version, so every exported identifier, signature, error value and default
+is a contract. A release that asks anything of its consumers ships a migration guide in
+[`docs/migrations`](./docs/migrations), named after the version.
+
+## Run the PostgreSQL tests
+
+The `postgres` packages wrap a real database, so their tests need one. They create and drop
+databases and schemas on it, so point them at a throwaway server.
+
+```bash
+POSTGRES_PASSWORD="postgres"
+podman run -d --name golib-postgres -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+  -p 5432:5432 docker.io/library/postgres:18
+export POSTGRES_DSN="postgres://postgres:$POSTGRES_PASSWORD@localhost:5432/postgres?sslmode=disable"
+a-novel test --type=go -y
+```
+
+Remove the server once done with `podman rm -f golib-postgres`.
 
 ## Questions?
 
-[Open an issue](https://github.com/a-novel-kit/golib/issues) — include logs and environment details.
+[Open an issue](https://github.com/a-novel-kit/golib/issues) with logs and environment details.

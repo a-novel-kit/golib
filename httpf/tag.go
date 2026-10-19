@@ -36,7 +36,7 @@ func (err *taggedError) Unwrap() error {
 }
 
 // WithTag attaches a tag to err, which HandleError returns to the client in the response body. A
-// nil value sends key as true; any other value is sent as is, so it must hold only data the client
+// nil value sends key as true. Any other value is sent as is, so it must hold only data the client
 // may see. Tagging an error that already carries tags adds to them.
 //
 // Call it in the handler, on the error it is about to pass to HandleError.
@@ -86,29 +86,19 @@ func problemBody(span trace.Span, err error, status int) []byte {
 		tags[InvalidFieldsTag] = invalidFields(fields)
 	}
 
-	encoded := make(map[string]json.RawMessage, len(tags))
-
-	for key, value := range tags {
-		raw, encodeErr := json.Marshal(value)
-		if encodeErr != nil {
-			_ = otel.ReportError(span, fmt.Errorf("%w %q: %w", errUnencodableTag, key, encodeErr))
-
-			continue
-		}
-
-		encoded[key] = raw
-	}
-
+	encoded := encodeTags(span, tags)
 	if len(encoded) == 0 {
 		return nil
 	}
 
-	body, err := json.Marshal(problem{
+	document := problem{
 		Type:   "about:blank",
 		Title:  http.StatusText(status),
 		Status: status,
 		Tags:   encoded,
-	})
+	}
+
+	body, err := json.Marshal(document)
 	if err != nil {
 		_ = otel.ReportError(span, fmt.Errorf("encode problem body: %w", err))
 
@@ -116,6 +106,25 @@ func problemBody(span trace.Span, err error, status int) []byte {
 	}
 
 	return body
+}
+
+// encodeTags encodes each tag as JSON. It reports a tag json cannot encode on the span and leaves
+// it out.
+func encodeTags(span trace.Span, tags map[string]any) map[string]json.RawMessage {
+	encoded := make(map[string]json.RawMessage, len(tags))
+
+	for key, value := range tags {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			_ = otel.ReportError(span, fmt.Errorf("%w %q: %w", errUnencodableTag, key, err))
+
+			continue
+		}
+
+		encoded[key] = raw
+	}
+
+	return encoded
 }
 
 // invalidFields maps the lower camel path of each field in fields to the tag of the rule it broke.

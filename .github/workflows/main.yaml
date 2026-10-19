@@ -39,13 +39,12 @@ jobs:
     steps:
       - uses: a-novel-kit/workflows/node-actions/lint-node@v1.63.0
         with:
-          # `lint` is now the local umbrella (go + proto + prettier); the
-          # node CI runner has no Go/buf toolchain, so it runs the node-only
-          # lane. Functionally identical to the old bare `lint`.
+          # The node runner has no Go or buf toolchain, so it runs the
+          # prettier part of `lint` alone.
           lint_action: "lint:prettier"
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-  # Structural conventions golangci-lint cannot express.
+  # A library runs no semgrep ruleset, since golangci-lint covers its conventions.
   lint-semgrep:
     runs-on: ubuntu-latest
     permissions:
@@ -60,8 +59,7 @@ jobs:
           # renovate: datasource=docker depName=semgrep/semgrep
           version: "1.181.0"
 
-  # Replaces GitGuardian, which gated on a hosted service: when it saturated,
-  # every PR in the fleet became unmergeable. This runs offline.
+  # Runs offline, so no hosted scanner can block a merge.
   scan-secrets:
     runs-on: ubuntu-latest
     permissions:
@@ -75,8 +73,7 @@ jobs:
           # renovate: datasource=github-releases depName=gitleaks/gitleaks
           version: "8.30.1"
 
-  # Replaces CodeQL's actions analysis: excessive-permissions is the class it
-  # reported as actions/missing-workflow-permissions.
+  # Audits the workflows themselves, such as for excessive permissions.
   lint-workflows:
     runs-on: ubuntu-latest
     permissions:
@@ -94,9 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # The postgres package wraps a real database, so its tests need one. Without
-    # this the package cannot be tested at all, which is how a transaction
-    # helper that never opened a transaction survived here.
+    # The postgres package wraps a real database, so its tests need one.
     env:
       POSTGRES_DSN: "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
     services:
@@ -108,9 +103,8 @@ jobs:
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
-        # The job starts as soon as the container is up, which is earlier than
-        # the server accepts connections. Without the health gate the first test
-        # races the database and fails as a flake nobody can reproduce.
+        # The job starts once the container is up, before the server accepts
+        # connections. The health gate keeps the first test from racing the server.
         options: >-
           --health-cmd pg_isready
           --health-interval 5s

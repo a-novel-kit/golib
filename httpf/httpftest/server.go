@@ -1,8 +1,3 @@
-// Package httpftest scripts an HTTP server for testing outbound calls.
-//
-// Over a plain httptest server it saves writing a handler. Replies are declared up front and
-// returned in order, every request is recorded for later assertion, and a reply can hang until the
-// caller's context expires or drop the connection — the failures a handler cannot easily produce.
 package httpftest
 
 import (
@@ -48,7 +43,7 @@ type Request struct {
 }
 
 // A Server replays the responses it was built with, one per request in order, and records
-// everything it received. Build one with [NewServer]; it shuts down with the test that made it.
+// everything it received. Build one with [NewServer]. It shuts down with the test that made it.
 type Server struct {
 	t *testing.T
 
@@ -91,13 +86,15 @@ func (scripted *Server) handle(writer http.ResponseWriter, request *http.Request
 		scripted.t.Errorf("httpftest: read request body: %v", err)
 	}
 
-	response, ok := scripted.take(Request{
+	received := Request{
 		Method: request.Method,
 		Path:   request.URL.Path,
 		Query:  request.URL.Query(),
 		Header: request.Header.Clone(),
 		Body:   body,
-	})
+	}
+
+	response, ok := scripted.take(received)
 	if !ok {
 		// Errorf: only it is safe to call from a goroutine other than the test's own.
 		scripted.t.Errorf("httpftest: unscripted request %s %s", request.Method, request.URL.Path)
@@ -172,7 +169,7 @@ func (scripted *Server) take(request Request) (Response, bool) {
 	return response, true
 }
 
-// wait waits out duration, reporting whether it finished rather than the request going away.
+// wait waits out duration, and reports false when the request goes away first.
 func wait(request *http.Request, duration time.Duration) bool {
 	timer := time.NewTimer(duration)
 	defer timer.Stop()

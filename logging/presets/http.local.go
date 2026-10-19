@@ -21,54 +21,41 @@ type HTTPLocal struct {
 	BaseLogger *LogLocal
 }
 
+// localStatusPrefixes marks the request line of each level.
+var localStatusPrefixes = map[LogLevel]string{
+	LogLevelInfo:  "✓ ",
+	LogLevelWarn:  "⚠ ",
+	LogLevelError: "🗙 ",
+}
+
 func (logger *HTTPLocal) Logger() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: w}
-
-			start := time.Now()
-
-			next.ServeHTTP(wrapped, r)
-
-			latency := time.Since(start)
-
-			status := wrapped.Status()
-
-			lstyle := lipgloss.NewStyle()
-
-			var (
-				prefix string
-				body   string
-			)
-
-			switch {
-			case status >= http.StatusInternalServerError:
-				lstyle = lstyle.Foreground(LipColorError)
-				prefix = "🗙 "
-				body = string(wrapped.Response())
-			case status >= http.StatusBadRequest:
-				lstyle = lstyle.Foreground(LipColorWarn)
-				prefix = "⚠ "
-				body = string(wrapped.Response())
-			default:
-				lstyle = lstyle.Foreground(LipColorInfo)
-				prefix = "✓ "
-				// Don't print body to keep logs clean.
-			}
-
-			lstyleExtra := lipgloss.NewStyle().Faint(true)
-
-			message := lstyle.Render(fmt.Sprintf("%s %s %s", prefix, r.Method, r.URL.Path))
-			message += lstyleExtra.Render(fmt.Sprintf(" (%s)", latency))
-			message = lstyleExtra.Render(start.Format(time.StampNano)) + " " + message
-
-			if body != "" {
-				message += lstyle.Render("\n\t" + strings.ReplaceAll(body, "\n", "\n\t"))
-			}
-
-			// This preset only ever runs in local development, where dumping the
-			// raw response body is safe.
-			_, _ = fmt.Fprint(logger.BaseLogger.Out, strings.TrimSpace(message)+"\n")
+			logger.serve(next, w, r)
 		})
 	}
+}
+
+// serve runs next, then prints the request line, followed by the response body of a failed request.
+func (logger *HTTPLocal) serve(next http.Handler, w http.ResponseWriter, r *http.Request) {
+	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: w}
+	start := time.Now()
+
+	next.ServeHTTP(wrapped, r)
+
+	latency := time.Since(start)
+	level := statusLevel(wrapped.Status())
+	style := level.style()
+	faint := lipgloss.NewStyle().Faint(true)
+
+	message := faint.Render(start.Format(time.StampNano)) + " " +
+		style.Render(fmt.Sprintf("%s %s %s", localStatusPrefixes[level], r.Method, r.URL.Path)) +
+		faint.Render(fmt.Sprintf(" (%s)", latency))
+
+	if body := string(wrapped.Response()); level != LogLevelInfo && body != "" {
+		message += style.Render("\n\t" + strings.ReplaceAll(body, "\n", "\n\t"))
+	}
+
+	// This preset only ever runs in local development, where dumping the raw response body is safe.
+	_, _ = fmt.Fprint(logger.BaseLogger.Out, strings.TrimSpace(message)+"\n")
 }

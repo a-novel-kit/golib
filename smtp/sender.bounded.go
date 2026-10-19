@@ -4,14 +4,14 @@ import (
 	"text/template"
 )
 
-// BoundedSender is a [Sender] that caps concurrent deliveries; excess sends wait for a slot.
-// ProdSender holds one connection per delivery, so an unbounded burst piles up connections.
+// BoundedSender is a [Sender] that caps concurrent deliveries, so a burst of sends waits for a
+// slot instead of piling up connections. ProdSender holds one connection per delivery.
 type BoundedSender struct {
 	sender Sender
 	slots  chan struct{}
 }
 
-// NewBoundedSender caps sender at limit concurrent deliveries; a limit below one becomes one.
+// NewBoundedSender caps sender at limit concurrent deliveries. A limit below one becomes one.
 func NewBoundedSender(sender Sender, limit int) *BoundedSender {
 	return &BoundedSender{sender: sender, slots: make(chan struct{}, max(limit, 1))}
 }

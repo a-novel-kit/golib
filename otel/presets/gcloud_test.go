@@ -17,94 +17,68 @@ import (
 
 //nolint:paralleltest // Credential and resource cases change process-wide environment variables.
 func TestGcloud(t *testing.T) {
-	testCases := []struct {
-		name string
-		test func(t *testing.T)
-	}{
-		{
-			name: "Success/StandardPropagation",
-			test: func(t *testing.T) {
-				t.Helper()
+	t.Run("Success/StandardPropagation", func(t *testing.T) {
+		config := &otelpresets.Gcloud{}
+		propagators, err := config.GetPropagators()
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{"traceparent", "tracestate", "baggage"}, propagators.Fields())
+	})
 
-				config := &otelpresets.Gcloud{}
-				propagators, err := config.GetPropagators()
-				require.NoError(t, err)
-				require.ElementsMatch(t, []string{"traceparent", "tracestate", "baggage"}, propagators.Fields())
-			},
-		},
-		{
-			name: "Error/MissingCredentials",
-			test: func(t *testing.T) {
-				t.Helper()
-				t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
+	t.Run("Error/MissingCredentials", func(t *testing.T) {
+		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
 
-				config := &otelpresets.Gcloud{}
-				provider, err := config.GetTraceProvider()
+		config := &otelpresets.Gcloud{}
+		provider, err := config.GetTraceProvider()
 
-				require.ErrorContains(t, err, "load Google application default credentials")
-				require.Nil(t, provider)
-			},
-		},
-		{
-			name: "Success/TraceProvider",
-			test: func(t *testing.T) {
-				t.Helper()
-				setGoogleApplicationCredentials(t)
-				t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
-				t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "gcp.project_id=ambient-project,service.name=test-service")
+		require.ErrorContains(t, err, "load Google application default credentials")
+		require.Nil(t, provider)
+	})
 
-				config := &otelpresets.Gcloud{ProjectID: "configured-project"}
-				provider, err := config.GetTraceProvider()
-				require.NoError(t, err)
+	t.Run("Success/TraceProvider", func(t *testing.T) {
+		setGoogleApplicationCredentials(t)
+		t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+		t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "gcp.project_id=ambient-project,service.name=test-service")
 
-				traceProvider, ok := provider.(*sdktrace.TracerProvider)
-				require.True(t, ok)
+		config := &otelpresets.Gcloud{ProjectID: "configured-project"}
+		provider, err := config.GetTraceProvider()
+		require.NoError(t, err)
 
-				_, span := traceProvider.Tracer("gcloud-test").Start(context.Background(), "inspect-resource")
-				readWriteSpan, ok := span.(sdktrace.ReadWriteSpan)
-				require.True(t, ok)
+		traceProvider, ok := provider.(*sdktrace.TracerProvider)
+		require.True(t, ok)
 
-				projectID, found := readWriteSpan.Resource().Set().Value(attribute.Key("gcp.project_id"))
+		_, span := traceProvider.Tracer("gcloud-test").Start(context.Background(), "inspect-resource")
+		readWriteSpan, ok := span.(sdktrace.ReadWriteSpan)
+		require.True(t, ok)
 
-				require.NoError(t, traceProvider.Shutdown(context.Background()))
-				span.End()
-				require.True(t, found)
-				require.Equal(t, "configured-project", projectID.AsString())
-			},
-		},
-		{
-			name: "Error/LoggerMissingCredentials",
-			test: func(t *testing.T) {
-				t.Helper()
-				t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
+		projectID, found := readWriteSpan.Resource().Set().Value(attribute.Key("gcp.project_id"))
 
-				config := &otelpresets.Gcloud{}
-				provider, err := config.GetLogger()
+		require.NoError(t, traceProvider.Shutdown(context.Background()))
+		span.End()
+		require.True(t, found)
+		require.Equal(t, "configured-project", projectID.AsString())
+	})
 
-				require.ErrorContains(t, err, "load Google application default credentials")
-				require.Nil(t, provider)
-			},
-		},
-		{
-			name: "Success/LoggerProvider",
-			test: func(t *testing.T) {
-				t.Helper()
-				setGoogleApplicationCredentials(t)
+	t.Run("Error/LoggerMissingCredentials", func(t *testing.T) {
+		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
 
-				config := &otelpresets.Gcloud{ProjectID: "configured-project"}
-				provider, err := config.GetLogger()
-				require.NoError(t, err)
+		config := &otelpresets.Gcloud{}
+		provider, err := config.GetLogger()
 
-				logProvider, ok := provider.(*sdklog.LoggerProvider)
-				require.True(t, ok)
-				require.NoError(t, logProvider.Shutdown(context.Background()))
-			},
-		},
-	}
+		require.ErrorContains(t, err, "load Google application default credentials")
+		require.Nil(t, provider)
+	})
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, testCase.test)
-	}
+	t.Run("Success/LoggerProvider", func(t *testing.T) {
+		setGoogleApplicationCredentials(t)
+
+		config := &otelpresets.Gcloud{ProjectID: "configured-project"}
+		provider, err := config.GetLogger()
+		require.NoError(t, err)
+
+		logProvider, ok := provider.(*sdklog.LoggerProvider)
+		require.True(t, ok)
+		require.NoError(t, logProvider.Shutdown(context.Background()))
+	})
 }
 
 func setGoogleApplicationCredentials(t *testing.T) {

@@ -1,7 +1,6 @@
 package loggingpresets
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -29,45 +28,47 @@ type HTTPGcloud struct {
 func (logger *HTTPGcloud) Logger() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: w}
-
-			start := time.Now()
-
-			next.ServeHTTP(wrapped, r)
-
-			latency := time.Since(start)
-			status := wrapped.Status()
-
-			var logFn func(ctx context.Context, msg string, fields ...any)
-
-			switch {
-			case status >= http.StatusInternalServerError:
-				logFn = logger.BaseLogger.Err
-			case status >= http.StatusBadRequest:
-				logFn = logger.BaseLogger.Warn
-			default:
-				logFn = logger.BaseLogger.Info
-			}
-
-			// The httpRequest group is the contract Cloud Logging reads to unpack the request.
-			// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
-			logFn(
-				r.Context(),
-				fmt.Sprintf("%s %s %d", r.Method, r.URL.Path, status),
-				slog.Group(
-					"httpRequest",
-					slog.String("requestMethod", r.Method),
-					slog.String("requestUrl", r.URL.Path),
-					slog.Int("status", status),
-					slog.Int64("requestSize", r.ContentLength),
-					slog.String("remoteIp", r.RemoteAddr),
-					slog.String("userAgent", r.UserAgent()),
-					slog.String("referer", r.Referer()),
-					slog.String("protocol", r.Proto),
-					slog.String("latency", fmt.Sprintf("%.9fs", latency.Seconds())),
-					slog.String("responseSize", strconv.FormatInt(wrapped.Size(), 10)),
-				),
-			)
+			logger.serve(next, w, r)
 		})
 	}
+}
+
+// serve runs next, then writes the access log entry of the request at the level its status grades.
+func (logger *HTTPGcloud) serve(next http.Handler, w http.ResponseWriter, r *http.Request) {
+	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: w}
+	start := time.Now()
+
+	next.ServeHTTP(wrapped, r)
+
+	latency := time.Since(start)
+	status := wrapped.Status()
+
+	write := logger.BaseLogger.Info
+
+	switch statusLevel(status) {
+	case LogLevelError:
+		write = logger.BaseLogger.Err
+	case LogLevelWarn:
+		write = logger.BaseLogger.Warn
+	}
+
+	// The httpRequest group is the contract Cloud Logging reads to unpack the request.
+	// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
+	write(
+		r.Context(),
+		fmt.Sprintf("%s %s %d", r.Method, r.URL.Path, status),
+		slog.Group(
+			"httpRequest",
+			slog.String("requestMethod", r.Method),
+			slog.String("requestUrl", r.URL.Path),
+			slog.Int("status", status),
+			slog.Int64("requestSize", r.ContentLength),
+			slog.String("remoteIp", r.RemoteAddr),
+			slog.String("userAgent", r.UserAgent()),
+			slog.String("referer", r.Referer()),
+			slog.String("protocol", r.Proto),
+			slog.String("latency", fmt.Sprintf("%.9fs", latency.Seconds())),
+			slog.String("responseSize", strconv.FormatInt(wrapped.Size(), 10)),
+		),
+	)
 }

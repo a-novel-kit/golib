@@ -32,10 +32,9 @@ func RegisterEchoServers(server *grpc.Server) *health.Server {
 	return healthcheck
 }
 
-// SetEchoServersContext registers the built-in echo and standard health
-// services. It preserves the legacy serving default while leaving all later
-// health transitions to the caller; ctx and healthPing are retained for API
-// compatibility and do not start a background loop.
+// SetEchoServersContext registers the built-in echo and standard health services, and marks the
+// server as serving. Later health transitions belong to the caller. Its context and duration are
+// unused.
 func SetEchoServersContext(_ context.Context, server *grpc.Server, _ time.Duration) {
 	RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 }

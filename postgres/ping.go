@@ -17,9 +17,8 @@ const (
 	PingRetryInterval = 100 * time.Millisecond
 )
 
-// Ping a database connection until it succeeds or the timeout is reached.
-// Honors ctx cancellation both for the PingContext call and for the wait
-// between retries.
+// Ping retries a database connection until it answers or [PingTimeout] passes. It honors ctx
+// cancellation both for each attempt and for the wait between attempts.
 func Ping(ctx context.Context, client *bun.DB) error {
 	return ping(ctx, client, PingTimeout, PingRetryInterval, nil)
 }
@@ -28,47 +27,31 @@ type pinger interface {
 	PingContext(ctx context.Context) error
 }
 
-// A nil retryable predicate keeps the startup probe's retry-all behavior.
+// ping retries client until it answers, timeout passes or ctx ends. It stops at the first error
+// retryable rejects. A nil retryable retries every error.
 func ping(
 	ctx context.Context, client pinger, timeout time.Duration, retryInterval time.Duration,
 	retryable func(error) bool,
 ) error {
-	deadline := time.Now().Add(timeout)
-	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
-		deadline = callerDeadline
-	}
-
-	pingContext, cancel := context.WithDeadline(ctx, deadline)
+	pingContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	for {
 		err := client.PingContext(pingContext)
-		if err == nil {
+
+		switch {
+		case err == nil:
 			return nil
-		}
-
-		contextErr := pingContext.Err()
-		if contextErr != nil {
-			return fmt.Errorf("ping database: %w", errors.Join(err, contextErr))
-		}
-
-		if retryable != nil && !retryable(err) {
+		case pingContext.Err() != nil:
+			return fmt.Errorf("ping database: %w", errors.Join(err, pingContext.Err()))
+		case retryable != nil && !retryable(err):
 			return fmt.Errorf("ping database: %w", err)
 		}
 
-		timer := time.NewTimer(retryInterval)
-
 		select {
 		case <-pingContext.Done():
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-
 			return fmt.Errorf("ping database: %w", errors.Join(err, pingContext.Err()))
-		case <-timer.C:
+		case <-time.After(retryInterval):
 		}
 	}
 }

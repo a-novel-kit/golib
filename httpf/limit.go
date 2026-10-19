@@ -64,34 +64,41 @@ func VisitorKey(r *http.Request) (string, error) {
 }
 
 // BodyKeyRate keys a rate limit by a top-level field of the JSON body, so many callers cannot gang
-// up on one target such as a mailbox. A string counts trimmed and case-folded, its escapes decoded so
-// they cannot spell one target many ways; another value counts as written. It puts the body back
-// for the handler. A body it cannot read or decode shares the empty value's budget until the handler
-// refuses it; a value over 1 KiB is refused with 400, since nothing has validated it yet.
+// up on one target such as a mailbox. A string counts trimmed and case-folded, its escapes decoded
+// so they cannot spell one target many ways. Another value counts as written. It puts the body back
+// for the handler.
+//
+// A body it cannot read or decode shares the budget of the empty value until the handler refuses
+// it. A value over 1 KiB is refused with 400, since nothing has validated it yet.
 func BodyKeyRate(field string) httprate.KeyFunc {
 	return func(r *http.Request) (string, error) {
-		body, err := io.ReadAll(r.Body)
-		r.Body = io.NopCloser(bytes.NewReader(body))
-
-		var fields map[string]json.RawMessage
-		if err == nil {
-			_ = json.Unmarshal(body, &fields) // A malformed body keeps the empty value.
-		}
-
-		raw := fields[field]
-		if len(raw) > maxBodyKeyLength {
-			return "", fmt.Errorf("%w: %q exceeds %d bytes", ErrInvalidBodyKey, field, maxBodyKeyLength)
-		}
-
-		value := string(raw)
-
-		var text string
-		if json.Unmarshal(raw, &text) == nil {
-			value = text
-		}
-
-		return field + ":" + strings.ToLower(strings.TrimSpace(value)), nil
+		return bodyKey(r, field)
 	}
+}
+
+// bodyKey reads the key [BodyKeyRate] counts r under, then puts the body back.
+func bodyKey(r *http.Request, field string) (string, error) {
+	body, err := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	var fields map[string]json.RawMessage
+	if err == nil {
+		_ = json.Unmarshal(body, &fields) // A malformed body keeps the empty value.
+	}
+
+	raw := fields[field]
+	if len(raw) > maxBodyKeyLength {
+		return "", fmt.Errorf("%w: %q exceeds %d bytes", ErrInvalidBodyKey, field, maxBodyKeyLength)
+	}
+
+	value := string(raw)
+
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		value = text
+	}
+
+	return field + ":" + strings.ToLower(strings.TrimSpace(value)), nil
 }
 
 // refuseKey answers 400 to a request whose key cannot be computed, such as an oversized body key.

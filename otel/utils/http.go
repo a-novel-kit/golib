@@ -22,11 +22,9 @@ const captureBodyFrom = http.StatusBadRequest
 // byte count as the handler writes them, so middleware can report them after the handler
 // returns. The body is recorded only for a status of 400 or above.
 //
-// It forwards the optional interfaces a handler reaches for — [http.Flusher],
-// [http.Hijacker], [io.ReaderFrom] — and exposes Unwrap for [http.ResponseController].
-// Embedding the interface alone promotes only Header, Write and WriteHeader, and a
-// handler's own `w.(http.Flusher)` check would then take its no-flush branch against a
-// writer that can in fact flush.
+// It forwards the optional interfaces a handler reaches for, such as [http.Flusher], and exposes
+// Unwrap for [http.ResponseController]. A handler's own `w.(http.Flusher)` check therefore sees
+// what the wrapped writer can do.
 type CaptureHTTPResponseWriter struct {
 	http.ResponseWriter
 
@@ -70,8 +68,7 @@ func (w *CaptureHTTPResponseWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
 
-// Flush forwards to the wrapped writer when it can flush, and does nothing otherwise —
-// the same outcome a handler's own capability check would reach.
+// Flush forwards to the wrapped writer when it can flush, and does nothing otherwise.
 func (w *CaptureHTTPResponseWriter) Flush() {
 	flusher, ok := w.ResponseWriter.(http.Flusher)
 	if !ok {
@@ -102,8 +99,8 @@ func (w *CaptureHTTPResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error
 // copied through Write.
 //
 // The forwarding path streams past this wrapper, so a body sent through it is counted
-// but not captured. It carries a successful response; the failing statuses whose body
-// the local preset reads are written as bytes.
+// but not captured. The bodies the local preset reads belong to failed responses, which
+// are written as bytes.
 func (w *CaptureHTTPResponseWriter) ReadFrom(src io.Reader) (int64, error) {
 	readerFrom, ok := w.ResponseWriter.(io.ReaderFrom)
 	if !ok {
@@ -127,8 +124,8 @@ func (w *CaptureHTTPResponseWriter) ReadFrom(src io.Reader) (int64, error) {
 	return written, nil
 }
 
-// writerOnly exposes only Write, so io.Copy falls back to it rather than finding a
-// ReadFrom and calling back into its caller.
+// writerOnly exposes only Write, which keeps io.Copy from calling back into the ReadFrom that
+// uses it.
 type writerOnly struct {
 	io.Writer
 }

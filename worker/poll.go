@@ -1,4 +1,3 @@
-// Package worker holds the loops a service runs in the background, beside the request path.
 package worker
 
 import (
@@ -20,8 +19,7 @@ import (
 // stagger delays the first run, so loops sharing an interval de-synchronize. name identifies the
 // loop in its log lines and on its spans.
 //
-// Each run is a trace of its own: a span held open for the loop's life would gather every run under
-// it, and reach the exporter only when the process stops, if ever.
+// Each run is the root of its own trace, so each reaches the exporter as soon as it ends.
 //
 // Give it the boot context: a request context dies at the server's own timeout.
 func Poll(
@@ -74,9 +72,8 @@ func runOnce(
 	return worked
 }
 
-// wait waits out duration, reporting whether it finished rather than the loop being stopped. Zero
-// or less returns immediately, still honoring an already-stopped loop. It takes the cancellation
-// channel because waiting is not an operation worth a span.
+// wait waits out duration, and reports false when done closes first. A duration of zero or less
+// returns at once, reporting false for a loop already stopped.
 func wait(done <-chan struct{}, duration time.Duration) bool {
 	if duration <= 0 {
 		select {

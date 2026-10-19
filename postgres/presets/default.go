@@ -28,17 +28,16 @@ const (
 	// caller expresses no preference.
 	//
 	// database/sql keeps two, so past the second concurrent query every call opens
-	// a fresh connection — a TCP round trip, a TLS handshake and a PostgreSQL
-	// authentication exchange — and discards it on release, putting a silent
-	// latency floor under every query. Idle connections cost a file descriptor
-	// here and a backend on the server; ten stays well under a stock
-	// max_connections of 100 once multiplied by a service's replica count.
+	// a fresh connection and discards it on release. Each opening costs a TCP round
+	// trip, a TLS handshake and an authentication exchange. An idle connection costs
+	// a file descriptor here and a backend on the server, and ten stays well under a
+	// stock max_connections of 100 once multiplied by a service's replica count.
 	MaxIdleConnsDefault = 10
 )
 
 // Default is the standard postgres.Config implementation, backed by pgdriver.
-// It opens connections lazily and caches them: one for the primary database and
-// one per requested schema, all guarded by a single mutex.
+// It opens pools lazily and caches them, one for the primary database and one
+// per requested schema. It is safe for concurrent use.
 type Default struct {
 	options []pgdriver.Option
 
@@ -52,9 +51,8 @@ type Default struct {
 	// No default: the right number depends on how many replicas share the database,
 	// which a library cannot know.
 	//
-	// The limit applies as a pool opens. Setting it on the handle afterwards stops
-	// working once anything has taken a connection, because the handle is cached;
-	// past that point it applies to nothing and reports nothing.
+	// The limit applies when a pool opens. Pools are cached, so changing the field
+	// after the first connection has no effect.
 	MaxOpenConns int
 
 	// Cached connection to the primary database, opened on first use.
@@ -130,13 +128,9 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 	return db, nil
 }
 
-// DropSchema removes a schema created through DBSchema and releases the pool cached for
-// it. It is a test-support operation — production schemas are not dropped — and pairs
-// with the throwaway schema `postgrestest.RunIsolatedTransactionalTest` stands up.
-//
-// Without it, a randomly named schema and its pool are both kept forever: the schema
-// accumulates in the database, and the pool holds idle connections against a schema
-// nothing will query again.
+// DropSchema removes a schema created through DBSchema and closes the pool cached for
+// it. postgrestest.RunIsolatedTransactionalTest drops its throwaway schema with it, so
+// neither the schema nor its idle connections outlive the test.
 func (config *Default) DropSchema(ctx context.Context, schema string) error {
 	config.mu.Lock()
 

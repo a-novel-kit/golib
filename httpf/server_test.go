@@ -91,23 +91,7 @@ func TestServe(t *testing.T) {
 
 		waitForHTTPServer(t, server.Addr)
 
-		go func() {
-			request, requestErr := http.NewRequestWithContext(
-				t.Context(), http.MethodGet, "http://"+server.Addr, nil,
-			)
-			if requestErr != nil {
-				requestErrors <- requestErr
-
-				return
-			}
-
-			response, requestErr := http.DefaultClient.Do(request)
-			if response != nil {
-				requestErr = errors.Join(requestErr, response.Body.Close())
-			}
-
-			requestErrors <- requestErr
-		}()
+		go func() { requestErrors <- getHTTP(t.Context(), server.Addr) }()
 
 		select {
 		case <-started:
@@ -133,6 +117,21 @@ func TestServe(t *testing.T) {
 			require.FailNow(t, "HTTP request did not finish after forced shutdown")
 		}
 	})
+}
+
+// getHTTP sends one GET request to address, then closes the response it gets.
+func getHTTP(ctx context.Context, address string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address, nil)
+	if err != nil {
+		return err
+	}
+
+	response, err := http.DefaultClient.Do(request)
+	if response != nil {
+		err = errors.Join(err, response.Body.Close())
+	}
+
+	return err
 }
 
 func freeHTTPAddress(t *testing.T) string {
