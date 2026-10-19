@@ -33,6 +33,9 @@ const (
 	censusClassUnsupported = "unsupported"
 )
 
+// censusFieldEscaper escapes the characters that would split a record or a field.
+var censusFieldEscaper = strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\r", `\r`, "\n", `\n`)
+
 type censusRow struct {
 	Class      string `bun:"class"`
 	Catalog    string `bun:"catalog"`
@@ -70,13 +73,16 @@ func SchemaSnapshot(ctx context.Context, db bun.IDB, schema string) (string, err
 		return "", fmt.Errorf("check census coverage for schema %q: %w", schema, err)
 	}
 
+	return renderCensus(rows)
+}
+
+// renderCensus writes one tab-separated record per row, skipping the tables Bun keeps its
+// migration history in. It returns [ErrUnsupportedSchemaObject] naming every unsupported row.
+func renderCensus(rows []censusRow) (string, error) {
 	var (
 		unsupported []string
 		out         strings.Builder
 	)
-
-	fieldEscaper := strings.NewReplacer(
-		`\`, `\\`, "\t", `\t`, "\r", `\r`, "\n", `\n`)
 
 	for _, row := range rows {
 		if row.Class == censusClassUnsupported {
@@ -89,12 +95,8 @@ func SchemaSnapshot(ctx context.Context, db bun.IDB, schema string) (string, err
 			continue
 		}
 
-		out.WriteString(fieldEscaper.Replace(row.Class))
-		out.WriteByte('\t')
-		out.WriteString(fieldEscaper.Replace(row.Identity))
-		out.WriteByte('\t')
-		out.WriteString(fieldEscaper.Replace(row.Definition))
-		out.WriteByte('\n')
+		_, _ = fmt.Fprintf(&out, "%s\t%s\t%s\n", censusFieldEscaper.Replace(row.Class),
+			censusFieldEscaper.Replace(row.Identity), censusFieldEscaper.Replace(row.Definition))
 	}
 
 	if len(unsupported) > 0 {

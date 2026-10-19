@@ -57,22 +57,11 @@ func RunMigrations(ctx context.Context, db *bun.DB, migrations fs.FS) error {
 		return otel.ReportError(span, fmt.Errorf("discover mig: %w", err))
 	}
 
-	conn, err := db.Conn(ctx)
+	release, err := lockMigrations(ctx, db)
 	if err != nil {
-		return otel.ReportError(span, fmt.Errorf("open lock connection: %w", err))
+		return otel.ReportError(span, err)
 	}
-
-	// The session holds the lock and runs with lock_timeout lifted, so it never goes back to the
-	// pool: closing it releases the lock. PostgreSQL releases it the same way if the runner dies.
-	defer func() {
-		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-		_ = conn.Close()
-	}()
-
-	_, err = conn.ExecContext(ctx, migrationLockQuery)
-	if err != nil {
-		return otel.ReportError(span, fmt.Errorf("lock migrations: %w", err))
-	}
+	defer release()
 
 	migrator := migrate.NewMigrator(db, mig, migrate.WithMarkAppliedOnSuccess(true))
 
@@ -81,24 +70,54 @@ func RunMigrations(ctx context.Context, db *bun.DB, migrations fs.FS) error {
 		return otel.ReportError(span, fmt.Errorf("create migrator: %w", err))
 	}
 
-	for attempt := 1; ; attempt++ {
-		_, err = migrator.Migrate(ctx)
-		if err == nil || attempt == lockAttempts || !lockTimedOut(err) {
-			break
-		}
-
-		select {
-		case <-ctx.Done():
-			return otel.ReportError(span, fmt.Errorf("apply mig: %w", errors.Join(err, ctx.Err())))
-		case <-time.After(lockRetryDelay):
-		}
-	}
-
+	err = applyMigrations(ctx, migrator)
 	if err != nil {
 		return otel.ReportError(span, fmt.Errorf("apply mig: %w", err))
 	}
 
 	return nil
+}
+
+// lockMigrations takes the migration lock of the connection's schema on a session of its own, and
+// returns the function that releases it.
+func lockMigrations(ctx context.Context, db *bun.DB) (func(), error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("open lock connection: %w", err)
+	}
+
+	// The session holds the lock and runs with lock_timeout lifted, so it never goes back to the
+	// pool: closing it releases the lock. PostgreSQL releases it the same way if the runner dies.
+	release := func() {
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		_ = conn.Close()
+	}
+
+	_, err = conn.ExecContext(ctx, migrationLockQuery)
+	if err != nil {
+		release()
+
+		return nil, fmt.Errorf("lock migrations: %w", err)
+	}
+
+	return release, nil
+}
+
+// applyMigrations applies the pending migrations. A migration that gives up waiting for a lock
+// runs again after lockRetryDelay, up to lockAttempts runs in all.
+func applyMigrations(ctx context.Context, migrator *migrate.Migrator) error {
+	for attempt := 1; ; attempt++ {
+		_, err := migrator.Migrate(ctx)
+		if err == nil || attempt == lockAttempts || !lockTimedOut(err) {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return errors.Join(err, ctx.Err())
+		case <-time.After(lockRetryDelay):
+		}
+	}
 }
 
 // lockTimedOut reports whether a statement gave up waiting for a lock after lock_timeout.

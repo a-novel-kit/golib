@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"io"
+	"hash"
 	"io/fs"
 	"strings"
 	"sync"
@@ -28,8 +28,8 @@ import (
 type TransactionalTestFunc func(context.Context, *testing.T)
 
 // schemaDropper is the optional capability a Config offers to remove a schema created
-// through DBSchema. The bundled Default implements it; a Config that does not simply
-// leaves its throwaway schemas in place, as before.
+// through DBSchema. The bundled Default implements it. A Config without it leaves its
+// throwaway schemas in place.
 type schemaDropper interface {
 	DropSchema(ctx context.Context, schema string) error
 }
@@ -80,10 +80,6 @@ func RunIsolatedTransactionalTest(
 
 	require.NoError(t, postgres.RunMigrationsContext(ctx, migrations))
 
-	db, err := postgres.GetContext(ctx)
-	require.NoError(t, err)
-
-	ctx = context.WithValue(ctx, postgres.ContextKey{}, db)
 	callback(ctx, t)
 }
 
@@ -197,41 +193,68 @@ func RunDBTest(t *testing.T, config postgres.Config, migrations fs.FS, callback 
 
 	instance := dbTestInstancePrefix + strings.ToLower(rand.Text())
 
-	maintenance, err := dbTestOpen(t.Context(), options, dbTestMaintenanceDatabase)
-	require.NoError(t, err)
-
-	err = dbTestCreateInstance(t.Context(), maintenance, instance, template)
-	require.NoError(t, err)
-
-	// Register the drop the instant the database exists, before the maintenance
-	// pool is closed, so a Close error (which fails the test via the require
-	// below) cannot strand the per-test database. t.Cleanup is LIFO, so the
-	// per-test pool opened further down is closed first, then the database is
-	// dropped.
-	t.Cleanup(func() {
-		// t.Context() is already canceled by the time cleanups run.
-		ctx := context.Background()
-
-		cleanup, cleanupErr := dbTestOpen(ctx, options, dbTestMaintenanceDatabase)
-		if cleanupErr != nil {
-			return
-		}
-		defer func() { _ = cleanup.Close() }()
-
-		_ = dbTestDropDatabase(ctx, cleanup, instance)
+	db, err := dbTestNewDatabase(t, options, instance, func(ctx context.Context, maintenance *bun.DB) error {
+		return dbTestCreateInstance(ctx, maintenance, instance, template)
 	})
+	require.NoError(t, err)
 
-	// The maintenance pool is only needed for the CREATE; close it so it does
-	// not idle for the lifetime of the test.
-	require.NoError(t, maintenance.Close())
+	callback(context.WithValue(t.Context(), postgres.ContextKey{}, db), t)
+}
+
+// dbTestNewDatabase runs create on a maintenance connection to make the database called instance,
+// then opens it. The test's cleanup closes the returned pool, then drops the database.
+func dbTestNewDatabase(
+	t *testing.T,
+	options []pgdriver.Option,
+	instance string,
+	create func(ctx context.Context, maintenance *bun.DB) error,
+) (*bun.DB, error) {
+	t.Helper()
+
+	maintenance, err := dbTestOpen(t.Context(), options, dbTestMaintenanceDatabase)
+	if err != nil {
+		return nil, err
+	}
+
+	err = create(t.Context(), maintenance)
+	if err != nil {
+		_ = maintenance.Close()
+
+		return nil, err
+	}
+
+	// The drop is registered as soon as the database exists, so no later failure strands it.
+	// Cleanups run last-in first-out, so the pool opened below closes before the drop runs.
+	t.Cleanup(func() { dbTestDropInstance(options, instance) })
+
+	err = maintenance.Close()
+	if err != nil {
+		return nil, err
+	}
 
 	db, err := dbTestOpen(t.Context(), options, instance)
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 
 	t.Cleanup(func() { _ = db.Close() })
 
-	ctx := context.WithValue(t.Context(), postgres.ContextKey{}, db)
-	callback(ctx, t)
+	return db, nil
+}
+
+// dbTestDropInstance drops the database called instance from a test cleanup, on a maintenance
+// connection of its own. It takes a background context, since t.Context is cancelled by the time
+// cleanups run.
+func dbTestDropInstance(options []pgdriver.Option, instance string) {
+	ctx := context.Background()
+
+	maintenance, err := dbTestOpen(ctx, options, dbTestMaintenanceDatabase)
+	if err != nil {
+		return
+	}
+	defer func() { _ = maintenance.Close() }()
+
+	_ = dbTestDropDatabase(ctx, maintenance, instance)
 }
 
 // dbTestEnsureTemplate returns the name of a migrated template database for the
@@ -278,13 +301,10 @@ func dbTestConnKey(options []pgdriver.Option) string {
 
 // dbTestCreateTemplate creates and migrates the template database called name,
 // unless another test binary already did. It holds a Postgres session-level
-// advisory lock for the duration so concurrent `go test` package binaries
-// cannot race on the same template; the lock is keyed by a hash of the name and
-// scoped to the maintenance connection (closing the connection releases it even
-// if the explicit unlock is skipped on an error path).
-//
-// The migration pool is fully closed before returning. A database can only serve as a
-// CREATE … TEMPLATE source while no session is connected to it.
+// advisory lock for the duration, so concurrent `go test` package binaries
+// cannot race on the same template. The lock is keyed by a hash of the name and
+// scoped to the maintenance connection, whose close releases it even when the
+// explicit unlock is skipped on an error path.
 func dbTestCreateTemplate(
 	ctx context.Context, options []pgdriver.Option, name string, migrations fs.FS,
 ) error {
@@ -327,32 +347,36 @@ func dbTestCreateTemplate(
 		return fmt.Errorf("create template database: %w", err)
 	}
 
-	// The template database now exists but is unmigrated, so any failure from
-	// here must drop it; otherwise the existence probe in a later call adopts the
-	// partial database as a valid template and every test runs against a broken
-	// schema.
-	templateDB, err := dbTestOpen(ctx, options, name)
+	// The existence probe of a later call adopts any database under this name as
+	// a valid template, so a partially migrated one is dropped.
+	err = dbTestMigrateTemplate(ctx, options, name, migrations)
 	if err != nil {
 		_ = dbTestDropDatabase(ctx, maintenance, name)
 
 		return err
 	}
 
+	return nil
+}
+
+// dbTestMigrateTemplate migrates the template database called name, then closes
+// its pool. A database serves as a CREATE … TEMPLATE source only while no session
+// is connected to it, so a pool that fails to close fails the template.
+func dbTestMigrateTemplate(ctx context.Context, options []pgdriver.Option, name string, migrations fs.FS) error {
+	templateDB, err := dbTestOpen(ctx, options, name)
+	if err != nil {
+		return err
+	}
+
 	err = postgres.RunMigrations(ctx, templateDB, migrations)
 	if err != nil {
 		_ = templateDB.Close()
-		_ = dbTestDropDatabase(ctx, maintenance, name)
 
 		return fmt.Errorf("migrate template database: %w", err)
 	}
 
-	// An open connection to the template makes every subsequent CREATE … TEMPLATE
-	// fail with "source database is being accessed", so a template whose
-	// connection cannot be closed is dropped.
 	err = templateDB.Close()
 	if err != nil {
-		_ = dbTestDropDatabase(ctx, maintenance, name)
-
 		return fmt.Errorf("close template connection: %w", err)
 	}
 
@@ -429,54 +453,55 @@ func dbTestOpen(ctx context.Context, options []pgdriver.Option, database string)
 // file in the migration set (path and content), so any migration change
 // produces a different template and never reuses a stale schema.
 func dbTestTemplateName(migrations fs.FS) (string, error) {
-	digest := sha256.New()
-
-	err := fs.WalkDir(migrations, ".", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if entry.IsDir() {
-			return nil
-		}
-
-		file, err := migrations.Open(path)
-		if err != nil {
-			return err
-		}
-
-		fileDigest := sha256.New()
-
-		_, err = io.Copy(fileDigest, file)
-		// Closing here keeps one migration file open at a time, however large the
-		// migration set.
-		_ = file.Close()
-
-		if err != nil {
-			return err
-		}
-
-		// Frame each entry as a length-prefixed path followed by a fixed-size
-		// (32-byte) content digest, so a shifting path/content boundary cannot
-		// give two distinct migration sets the same byte stream. fs.WalkDir
-		// visits entries in lexical order, so the digest is stable across runs
-		// without an explicit sort.
-		var pathLen [8]byte
-
-		binary.BigEndian.PutUint64(pathLen[:], uint64(len(path)))
-		_, _ = digest.Write(pathLen[:])
-		_, _ = digest.Write([]byte(path))
-		_, _ = digest.Write(fileDigest.Sum(nil))
-
-		return nil
-	})
+	paths, err := migrationFiles(migrations)
 	if err != nil {
 		return "", fmt.Errorf("hash migrations: %w", err)
+	}
+
+	digest := sha256.New()
+
+	for _, path := range paths {
+		body, err := fs.ReadFile(migrations, path)
+		if err != nil {
+			return "", fmt.Errorf("hash migrations: %w", err)
+		}
+
+		// Each file contributes its length-prefixed path, then a fixed-size content
+		// digest, so a shifting path/content boundary cannot give two distinct
+		// migration sets the same byte stream.
+		content := sha256.Sum256(body)
+
+		hashField(digest, []byte(path))
+		_, _ = digest.Write(content[:])
 	}
 
 	sum := digest.Sum(nil)
 
 	return dbTestTemplatePrefix + hex.EncodeToString(sum[:8]), nil
+}
+
+// migrationFiles lists the paths of the files in migrations, in lexical order.
+func migrationFiles(migrations fs.FS) ([]string, error) {
+	var paths []string
+
+	err := fs.WalkDir(migrations, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() {
+			paths = append(paths, path)
+		}
+
+		return err
+	})
+
+	return paths, err
+}
+
+// hashField writes field to digest behind its length, so consecutive fields keep their boundary.
+func hashField(digest hash.Hash, field []byte) {
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(field)))
+
+	_, _ = digest.Write(size[:])
+	_, _ = digest.Write(field)
 }
 
 // dbTestAdvisoryKey maps a database name to the int64 key used with
