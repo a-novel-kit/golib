@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"time"
 
@@ -47,7 +48,7 @@ func NewServer(
 		"/" + golibproto.EchoService_ServiceDesc.ServiceName + "/",
 	}
 
-	return grpc.NewServer(append([]grpc.ServerOption{
+	options := []grpc.ServerOption{
 		tracing.RpcInterceptor(),
 		grpc.ChainUnaryInterceptor(
 			BaseContextUnaryInterceptor(baseContext),
@@ -62,7 +63,9 @@ func NewServer(
 			logger.PanicStreamInterceptor(),
 			downtime.StreamServerInterceptor(downtimeStart, open...),
 		),
-	}, extra...)...)
+	}
+
+	return grpc.NewServer(slices.Concat(options, extra)...)
 }
 
 // endStreamsInterceptor ends a stream once shutdown, the end of ctx, begins.
@@ -120,49 +123,57 @@ func Serve(ctx context.Context, server *grpc.Server, address string, shutdownTim
 
 	select {
 	case err = <-serveErrors:
-		if err == nil || errors.Is(err, grpc.ErrServerStopped) {
-			return nil
+		err = serveError(err)
+		if err != nil {
+			server.Stop()
 		}
 
-		server.Stop()
-
-		return fmt.Errorf("serve gRPC: %w", err)
+		return err
 	case <-ctx.Done():
 	}
 
-	gracefulStopDone := make(chan struct{})
+	shutdownErr := drain(ctx, server, shutdownTimeout)
+
+	return errors.Join(serveError(<-serveErrors), shutdownErr)
+}
+
+// drain stops server gracefully, then forcefully once shutdownTimeout passes. A forced stop returns
+// an error wrapping [context.DeadlineExceeded].
+func drain(ctx context.Context, server *grpc.Server, shutdownTimeout time.Duration) error {
+	stopped := make(chan struct{})
 
 	go func() {
 		server.GracefulStop()
-		close(gracefulStopDone)
+		close(stopped)
 	}()
 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 
-	var shutdownErr error
-
 	select {
-	case <-gracefulStopDone:
+	case <-stopped:
+		return nil
 	case <-shutdownCtx.Done():
-		select {
-		case <-gracefulStopDone:
-		default:
-			shutdownErr = fmt.Errorf("shut down gRPC server: %w", shutdownCtx.Err())
-
-			server.Stop()
-			<-gracefulStopDone
-		}
 	}
 
-	serveErr := <-serveErrors
-	if errors.Is(serveErr, grpc.ErrServerStopped) {
-		serveErr = nil
+	// The graceful stop can finish as the timeout fires.
+	select {
+	case <-stopped:
+		return nil
+	default:
 	}
 
-	if serveErr != nil {
-		serveErr = fmt.Errorf("serve gRPC: %w", serveErr)
+	server.Stop()
+	<-stopped
+
+	return fmt.Errorf("shut down gRPC server: %w", shutdownCtx.Err())
+}
+
+// serveError wraps the error server.Serve returned, which [grpc.ErrServerStopped] ends normally.
+func serveError(err error) error {
+	if err == nil || errors.Is(err, grpc.ErrServerStopped) {
+		return nil
 	}
 
-	return errors.Join(serveErr, shutdownErr)
+	return fmt.Errorf("serve gRPC: %w", err)
 }
