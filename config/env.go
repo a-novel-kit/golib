@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,41 +29,43 @@ func LoadEnv[T any](value string, fallback T, parser func(string) (T, error)) T 
 	return parsedValue
 }
 
-// SliceParser builds a [LoadEnv] parser for a comma-separated list, delegating each
-// element to parser.
+// SliceParser builds a [LoadEnv] parser for a comma-separated list, delegating each trimmed
+// element to parser. One bad element fails the whole list, and so does a value holding no element.
+// The literal "[]" yields an empty list, overriding the fallback.
 func SliceParser[T any](parser func(string) (T, error)) func(string) ([]T, error) {
 	return func(value string) ([]T, error) {
-		// The literal "[]" selects an empty result, overriding any fallback.
-		if value == "[]" {
-			return nil, nil
-		}
-
-		parts := strings.Split(value, ",")
-
-		parsedValues := make([]T, 0, len(parts))
-
-		for _, part := range parts {
-			trimmedPart := strings.TrimSpace(part)
-			if trimmedPart == "" {
-				continue
-			}
-
-			parsedValue, err := parser(trimmedPart)
-			if err != nil {
-				// One bad element invalidates the whole slice.
-				return nil, err
-			}
-
-			parsedValues = append(parsedValues, parsedValue)
-		}
-
-		// A non-empty value that resolves to no elements is treated as invalid.
-		if len(parsedValues) == 0 {
-			return nil, fmt.Errorf(`value "%s" is empty`, value)
-		}
-
-		return parsedValues, nil
+		return parseSlice(value, parser)
 	}
+}
+
+// parseSlice parses value as the parser [SliceParser] builds.
+func parseSlice[T any](value string, parser func(string) (T, error)) ([]T, error) {
+	if value == "[]" {
+		return nil, nil
+	}
+
+	parts := strings.Split(value, ",")
+	parsedValues := make([]T, 0, len(parts))
+
+	for _, part := range parts {
+		trimmedPart := strings.TrimSpace(part)
+		if trimmedPart == "" {
+			continue
+		}
+
+		parsedValue, err := parser(trimmedPart)
+		if err != nil {
+			return nil, err
+		}
+
+		parsedValues = append(parsedValues, parsedValue)
+	}
+
+	if len(parsedValues) == 0 {
+		return nil, fmt.Errorf(`value "%s" is empty`, value)
+	}
+
+	return parsedValues, nil
 }
 
 // StringParser returns the raw value unchanged, for [LoadEnv].
@@ -74,14 +77,8 @@ func StringParser(value string) (string, error) {
 func EnumParser[T comparable](parser func(string) (T, error), allow ...T) func(string) (T, error) {
 	return func(value string) (T, error) {
 		raw, err := parser(value)
-		if err != nil {
+		if err != nil || slices.Contains(allow, raw) {
 			return raw, err
-		}
-
-		for _, allowed := range allow {
-			if raw == allowed {
-				return raw, nil
-			}
 		}
 
 		return raw, fmt.Errorf(`value "%s" is not allowed`, value)
