@@ -6,7 +6,11 @@
 // environment offers a base logger plus HTTP and gRPC middleware built on it.
 package loggingpresets
 
-import "charm.land/lipgloss/v2"
+import (
+	"net/http"
+
+	"charm.land/lipgloss/v2"
+)
 
 // Terminal colors the Local presets use to distinguish log severities.
 var (
@@ -28,3 +32,27 @@ const (
 	// LogLevelError marks a failure.
 	LogLevelError
 )
+
+// statusLevel grades an HTTP response status: a server error is an error, a client error a warning.
+func statusLevel(status int) LogLevel {
+	switch {
+	case status >= http.StatusInternalServerError:
+		return LogLevelError
+	case status >= http.StatusBadRequest:
+		return LogLevelWarn
+	default:
+		return LogLevelInfo
+	}
+}
+
+// style returns the terminal style the Local presets render an entry of level in.
+func (level LogLevel) style() lipgloss.Style {
+	switch level {
+	case LogLevelWarn:
+		return lipgloss.NewStyle().Foreground(LipColorWarn)
+	case LogLevelError:
+		return lipgloss.NewStyle().Foreground(LipColorError)
+	default:
+		return lipgloss.NewStyle().Foreground(LipColorInfo)
+	}
+}
