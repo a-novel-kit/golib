@@ -36,7 +36,7 @@ func (err *taggedError) Unwrap() error {
 }
 
 // WithTag attaches a tag to err, which HandleError returns to the client in the response body. A
-// nil value sends key as true; any other value is sent as is, so it must hold only data the client
+// nil value sends key as true. Any other value is sent as is, so it must hold only data the client
 // may see. Tagging an error that already carries tags adds to them.
 //
 // Call it in the handler, on the error it is about to pass to HandleError.

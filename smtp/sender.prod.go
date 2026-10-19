@@ -21,22 +21,27 @@ const DefaultTimeout = 30 * time.Second
 // stops there: every message goes out authenticated.
 var ErrNoAuthSupport = errors.New("SMTP server does not support AUTH")
 
-// ProdSender delivers mail through a real SMTP server using net/smtp. Email controls the envelope
-// sender and visible From header. Username controls SMTP authentication and falls back to Email
-// when empty. The greeting uses the Email domain, or localhost for a domainless address.
-// Domain is the SMTP authentication host. The password is never serialized back out.
+// ProdSender delivers mail through a real SMTP server using net/smtp.
 type ProdSender struct {
-	Addr     string `json:"addr"     yaml:"addr"`
-	Name     string `json:"name"     yaml:"name"`
-	Email    string `json:"email"    yaml:"email"`
+	// Addr is the host:port of the SMTP server.
+	Addr string `json:"addr" yaml:"addr"`
+	// Name is the display name of the From header.
+	Name string `json:"name" yaml:"name"`
+	// Email is the envelope sender and the address of the From header. Its domain names the client
+	// in the greeting, which falls back to localhost for a domainless address.
+	Email string `json:"email" yaml:"email"`
+	// Username is the SMTP login. Empty falls back to Email.
 	Username string `json:"username" yaml:"username"`
-	Domain   string `json:"domain"   yaml:"domain"`
+	// Domain is the server name authentication is bound to. It must match the host of Addr, since
+	// PlainAuth sends credentials to that server only.
+	Domain string `json:"domain" yaml:"domain"`
 
+	// Password is the SMTP credential. It is never serialized.
 	Password string `json:"-" yaml:"-"`
 
 	// ForceUnencryptedTls allows plaintext authentication over a connection the
 	// server has not secured with TLS, sending credentials in the clear. Use it
-	// only against a local test SMTP server; never enable it in production.
+	// only against a local test SMTP server, never in production.
 	ForceUnencryptedTls bool `json:"forceUnencryptedTLS" yaml:"forceUnencryptedTLS"`
 
 	// Timeout is the shared network budget from DNS resolution through SMTP QUIT, for both
@@ -161,8 +166,8 @@ func (sender *ProdSender) auth() smtp.Auth {
 // dial connects to the SMTP server with the delivery's deadline already set on the connection.
 //
 // net/smtp offers no context and no cancellation, so the connection's own deadline reaches every
-// subsequent read and write. The dialer takes a background context because [Sender] carries none;
-// the timeout is what bounds this.
+// subsequent read and write. The dialer takes a background context because [Sender] carries none,
+// and the deadline bounds the dial instead.
 func (sender *ProdSender) dial() (*smtp.Client, string, error) {
 	deadline := time.Now().Add(sender.timeout())
 
@@ -201,7 +206,7 @@ func (sender *ProdSender) dial() (*smtp.Client, string, error) {
 // The ordering is security-relevant. STARTTLS is attempted before any credential is offered, so
 // credentials only cross an upgraded connection.
 func (sender *ProdSender) negotiate(client *smtp.Client, host string) error {
-	// Relays may reject localhost. Use the sender domain, not the relay host or login domain.
+	// Relays may reject localhost, so the greeting names the domain of the sender address.
 	localName := "localhost"
 	if at := strings.LastIndexByte(sender.Email, '@'); at >= 0 && at < len(sender.Email)-1 {
 		localName = sender.Email[at+1:]

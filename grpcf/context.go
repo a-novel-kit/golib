@@ -21,7 +21,7 @@ func BaseContextUnaryInterceptor(
 }
 
 // wrappedStream overrides a ServerStream's Context so the transformed context
-// reaches the handler; gRPC exposes no other hook to replace a stream's context.
+// reaches the handler. gRPC exposes no other hook to replace a stream's context.
 type wrappedStream struct {
 	grpc.ServerStream
 

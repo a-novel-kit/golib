@@ -45,7 +45,7 @@ type Gcloud struct {
 	// project is detected from Google Application Default Credentials or the
 	// runtime environment.
 	ProjectID string `json:"projectID" yaml:"projectID"`
-	// FlushTimeout bounds how long Flush waits for buffered data to drain; zero
+	// FlushTimeout bounds how long Flush waits for buffered data to drain. Zero
 	// waits indefinitely.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 

@@ -64,10 +64,12 @@ func VisitorKey(r *http.Request) (string, error) {
 }
 
 // BodyKeyRate keys a rate limit by a top-level field of the JSON body, so many callers cannot gang
-// up on one target such as a mailbox. A string counts trimmed and case-folded, its escapes decoded so
-// they cannot spell one target many ways; another value counts as written. It puts the body back
-// for the handler. A body it cannot read or decode shares the empty value's budget until the handler
-// refuses it; a value over 1 KiB is refused with 400, since nothing has validated it yet.
+// up on one target such as a mailbox. A string counts trimmed and case-folded, its escapes decoded
+// so they cannot spell one target many ways. Another value counts as written. It puts the body back
+// for the handler.
+//
+// A body it cannot read or decode shares the budget of the empty value until the handler refuses
+// it. A value over 1 KiB is refused with 400, since nothing has validated it yet.
 func BodyKeyRate(field string) httprate.KeyFunc {
 	return func(r *http.Request) (string, error) {
 		return bodyKey(r, field)

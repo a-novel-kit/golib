@@ -27,7 +27,7 @@ var _ otel.Config = (*Local)(nil)
 // Local is a Config that writes traces and logs to standard output, for local
 // development.
 type Local struct {
-	// FlushTimeout bounds how long Flush waits for buffered data to drain; zero
+	// FlushTimeout bounds how long Flush waits for buffered data to drain. Zero
 	// waits indefinitely.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 

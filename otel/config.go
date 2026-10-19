@@ -13,9 +13,9 @@ import (
 )
 
 // Config wires one OpenTelemetry backend into the process. Each implementation
-// targets a single destination for traces and logs; the presets subpackage ships
-// the ready-made ones (standard output, Google Cloud, Sentry, and a disabled
-// no-op). Pass a Config to Init to install its providers as the global state.
+// targets a single destination for traces and logs, and the presets subpackage
+// ships ready-made ones. Pass a Config to Init to install its providers as the
+// global state.
 type Config interface {
 	// Init sets up the backend's SDK clients and prints its startup banner.
 	Init() error

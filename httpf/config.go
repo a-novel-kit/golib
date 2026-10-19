@@ -24,7 +24,8 @@ type ServerConfig struct {
 	ClientIPHeader string `json:"clientIPHeader" yaml:"clientIPHeader"`
 	// RateLimitsEnabled turns the rate limits on. Only test stacks turn them off.
 	RateLimitsEnabled bool `json:"rateLimitsEnabled" yaml:"rateLimitsEnabled"`
-	// RateLimit caps each visitor's requests on each route; see [Limits.Standard].
+	// RateLimit caps each visitor's requests on each route, through the standard limit [NewRouter]
+	// installs.
 	RateLimit Rate `json:"rateLimit" yaml:"rateLimit"`
 	// Cors configures cross-origin requests.
 	Cors CorsConfig `json:"cors" yaml:"cors"`

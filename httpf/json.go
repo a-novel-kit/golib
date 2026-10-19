@@ -13,11 +13,8 @@ import (
 // SendJSONStatus encodes data as JSON to w under status. It leaves the span status to the
 // handler, which knows whether an error status stems from a fault.
 //
-// The status is a parameter rather than something the caller sends first, because
-// net/http freezes the outbound header set when the status line goes out. A caller that
-// writes the status first has its Content-Type discarded and answers text/plain; one
-// that writes it afterwards gets a "superfluous WriteHeader" and keeps the 200. Owning
-// both is the only order that answers JSON under a status other than 200.
+// It writes the status line itself, after the Content-Type header, since net/http freezes the
+// headers once the status goes out. Call it on a writer that has written nothing yet.
 //
 // An encoding failure is reported on the span. The status line is already sent by then,
 // so the body may be truncated.

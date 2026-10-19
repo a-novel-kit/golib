@@ -14,15 +14,15 @@ import (
 )
 
 // ErrMap maps sentinel errors to the HTTP status HandleError returns for them. A nil
-// key sets the fallback status for unmatched errors; without one, they fall back to
-// 500 Internal Server Error.
+// key sets the status of unmatched errors, which is 500 Internal Server Error without
+// one.
 type ErrMap map[error]int
 
 // HandleError writes a response for a failed handler. It matches err against errMap (with
 // errors.Is) to pick a status, logs err, and writes the status text as the body. Unmatched errors
 // default to 500 Internal Server Error.
 //
-// The body never carries err, which can hold internal detail such as a database address; the log
+// The body never carries err, which can hold internal detail such as a database address. The log
 // and the trace keep it. When err carries tags from [WithTag], or a client error comes from a
 // validator, the body is an RFC 9457 problem details object holding those tags instead.
 //

@@ -1,7 +1,3 @@
-// Package smtptest provides an in-memory smtp.Sender for unit and integration
-// tests. Its Sender records every SendMail call in memory,
-// so a test can substitute *smtptest.Sender wherever an smtp.Sender is expected
-// and later assert on what was sent.
 package smtptest
 
 import (

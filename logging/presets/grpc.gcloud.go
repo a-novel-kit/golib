@@ -15,9 +15,9 @@ var _ logging.RPCConfig = (*GRPCGcloud)(nil)
 
 // GRPCGcloud implements [logging.RPCConfig] for Google Cloud, producing gRPC
 // interceptors that write entries Cloud Logging parses and recover from
-// handler panics. Component labels every entry with the emitting subsystem,
-// and an entry logged under the RPC's span links to its trace.
+// handler panics. An entry logged under the RPC's span links to its trace.
 type GRPCGcloud struct {
+	// Component labels every entry with the emitting subsystem.
 	Component string `json:"component" yaml:"component"`
 	// ProjectId names the Google Cloud project that scopes trace resource names.
 	ProjectId string `json:"projectID" yaml:"projectID"`

@@ -1,15 +1,3 @@
-// Package transactiontest provides an in-memory [transaction.Transactor] for
-// unit tests.
-//
-// A test substitutes *transactiontest.Transactor wherever a
-// [transaction.Transactor] is expected, so an operation under test runs its
-// body without a database while the test can still assert that the body ran
-// inside a transaction at all.
-//
-// Nothing is rolled back: an in-memory double cannot undo what the callback did
-// to the fakes around it. It verifies that the caller opened a scope and
-// propagated the callback's outcome; that a rollback discards writes belongs in
-// a test that has a database.
 package transactiontest
 
 import (
@@ -17,7 +5,7 @@ import (
 	"sync"
 )
 
-// A Transactor is an in-memory [transaction.Transactor] that runs the callback
+// A Transactor is an in-memory transaction.Transactor that runs the callback
 // inline and counts how many times it was entered. Safe for concurrent use.
 type Transactor struct {
 	err   error
@@ -38,7 +26,7 @@ func NewFailingTransactor(err error) *Transactor {
 	return &Transactor{err: err}
 }
 
-// WithinTx satisfies [transaction.Transactor] by invoking fn with the context
+// WithinTx satisfies transaction.Transactor by invoking fn with the context
 // it was given, unless the Transactor was built to fail.
 func (transactor *Transactor) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
 	transactor.mu.Lock()

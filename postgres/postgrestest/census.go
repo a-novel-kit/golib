@@ -52,7 +52,7 @@ type censusCoverageRow struct {
 // PostgreSQL renders definitions, so statement order and DDL spelling do not affect the result.
 //
 // It includes database-scoped extensions and schemas, reads no row data, and returns
-// [ErrUnsupportedSchemaObject] rather than omitting an unsupported class.
+// [ErrUnsupportedSchemaObject] for an object class it cannot render.
 func SchemaSnapshot(ctx context.Context, db bun.IDB, schema string) (string, error) {
 	var rows []censusRow
 

@@ -22,9 +22,8 @@ func rendered(t *testing.T, msg string, fields []any) string {
 	return strings.TrimSpace(out.String())
 }
 
-// A message with no operands goes out as written. Passing it through Sprintf would
-// rewrite any % it contains, and the path that reaches here with none —
-// httpf.HandleError, with an error text — is the one whose detail matters most.
+// A message with no operands goes out as written, so a % in the error text httpf.HandleError
+// logs survives.
 func TestLogLocalDoesNotFormatWithoutFields(t *testing.T) {
 	t.Parallel()
 

@@ -30,14 +30,18 @@ var _ otel.Config = (*Sentry)(nil)
 type Sentry struct {
 	// DSN is the Sentry project's ingest URL, which selects the project events are
 	// sent to.
-	DSN         string `json:"dsn"         yaml:"dsn"`
-	ServerName  string `json:"serverName"  yaml:"serverName"`
-	Release     string `json:"release"     yaml:"release"`
+	DSN string `json:"dsn" yaml:"dsn"`
+	// ServerName names the host in every event.
+	ServerName string `json:"serverName" yaml:"serverName"`
+	// Release names the deployed version in every event.
+	Release string `json:"release" yaml:"release"`
+	// Environment names the deployment environment in every event.
 	Environment string `json:"environment" yaml:"environment"`
 	// FlushTimeout bounds how long Flush waits for buffered data to drain. Zero waits
 	// indefinitely for spans and logs, and gives the events of the Sentry SDK no time to send.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
-	Debug        bool          `json:"debug"        yaml:"debug"`
+	// Debug makes the Sentry SDK log its own activity to standard error.
+	Debug bool `json:"debug" yaml:"debug"`
 
 	tp *sdktrace.TracerProvider
 	lp *sdklog.LoggerProvider

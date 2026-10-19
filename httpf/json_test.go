@@ -19,10 +19,9 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// Every case here goes through a real server, because httptest.ResponseRecorder cannot
-// show the defect: its Header() stays live after WriteHeader, so a discarded
-// Content-Type still reads back as set. Only a response that has crossed a socket
-// reports what a client would actually receive.
+// Every case here goes through a real server. The Header() of an httptest.ResponseRecorder
+// stays live after WriteHeader, so a discarded Content-Type still reads back as set there.
+// Only a response that has crossed a socket shows what a client receives.
 
 type response struct {
 	status      int
@@ -167,12 +166,9 @@ func TestSendJSONStatus(t *testing.T) {
 	}
 }
 
-// Pins the behaviour the new signature exists to make unreachable: net/http freezes the
-// header set at WriteHeader, so a Content-Type written afterwards never leaves the
-// process and the client is told text/plain.
-//
-// This is what both live 201 handlers do today, and what SendJSON's own doc used to
-// prescribe.
+// net/http freezes the headers at WriteHeader, so a Content-Type written afterwards never
+// leaves the process and the client is told text/plain. SendJSONStatus takes the status
+// so that its callers never write in this order.
 func TestWritingTheStatusFirstDiscardsTheContentType(t *testing.T) {
 	t.Parallel()
 
@@ -188,7 +184,7 @@ func TestWritingTheStatusFirstDiscardsTheContentType(t *testing.T) {
 	require.Contains(t, got.contentType, "text/plain")
 }
 
-// The recorder is why no existing test caught this.
+// The recorder reports the header a real response drops, so tests of this order need a server.
 func TestResponseRecorderCannotObserveTheDiscard(t *testing.T) {
 	t.Parallel()
 
@@ -196,8 +192,7 @@ func TestResponseRecorderCannotObserveTheDiscard(t *testing.T) {
 	recorder.WriteHeader(http.StatusCreated)
 	recorder.Header().Set("Content-Type", "application/json")
 
-	// A naive assertion against the recorder passes, while a real client is served
-	// text/plain — see the test above.
+	// An assertion against the recorder passes, while a real client is served text/plain.
 	require.Equal(t, "application/json", recorder.Header().Get("Content-Type"),
 		"the recorder reports the header a real response would have dropped")
 }

@@ -15,8 +15,9 @@ var _ logging.RPCConfig = (*GRPCLocal)(nil)
 
 // GRPCLocal implements [logging.RPCConfig] for local development, producing
 // gRPC interceptors that emit human-readable text to stdout and recover from
-// handler panics. Component labels every entry with the emitting subsystem.
+// handler panics.
 type GRPCLocal struct {
+	// Component labels every entry with the emitting subsystem.
 	Component string `json:"component" yaml:"component"`
 
 	l *slog.Logger

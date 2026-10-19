@@ -26,8 +26,8 @@ var errShuttingDown = errors.New("server shutting down")
 // NewServer returns a server with the standard interceptors, outermost first: tracing, the end of
 // streams at shutdown, the base context, call logs, panic recovery and the planned downtime.
 //
-// Its streams end when ctx is done, the context [Serve] drains the server under: a long-lived stream
-// would otherwise hold the drain to its deadline. Their clients receive Unavailable and resume on
+// Its streams end when ctx, the context [Serve] drains the server under, is done, so a long-lived
+// stream cannot hold the drain to its deadline. Their clients receive Unavailable and resume on
 // another instance, while unary calls finish within the drain. baseContext derives each call's
 // context, so calls reach process-wide values such as the database connection; nil keeps the call's
 // own. The health and echo services that [RegisterEchoServers] adds still answer during a downtime.

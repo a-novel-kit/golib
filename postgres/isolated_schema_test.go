@@ -38,8 +38,8 @@ func TestRunIsolatedTransactionalTestDropsItsSchema(t *testing.T) {
 
 	var schema string
 
-	// Registered before the helper, so by cleanup LIFO it runs after the helper's own
-	// drop — this is the assertion that the drop happened.
+	// Cleanups run last-in first-out, so this one, registered before the helper, checks
+	// the drop the helper registers.
 	t.Cleanup(func() {
 		require.NotEmpty(t, schema)
 		require.False(t, schemaExists(context.Background(), t, config, schema),
