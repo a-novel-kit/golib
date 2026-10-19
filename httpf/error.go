@@ -41,22 +41,7 @@ func HandleError(
 		return
 	}
 
-	status := http.StatusInternalServerError
-
-	for ref, refStatus := range errMap {
-		// A nil key only sets the fallback status; keep scanning, since a concrete match wins.
-		if ref == nil {
-			status = refStatus
-
-			continue
-		}
-
-		if errors.Is(err, ref) {
-			status = refStatus
-
-			break
-		}
-	}
+	status := errMap.status(err)
 
 	if status >= http.StatusInternalServerError {
 		logger.Err(ctx, otel.ReportError(span, err).Error())
@@ -79,4 +64,20 @@ func HandleError(
 	if err != nil {
 		_ = otel.ReportError(span, fmt.Errorf("write problem body: %w", err))
 	}
+}
+
+// status returns the status mapped to a sentinel err matches. An unmatched err takes the status of
+// the nil key, or 500 Internal Server Error without one.
+func (errMap ErrMap) status(err error) int {
+	status := http.StatusInternalServerError
+
+	for ref, refStatus := range errMap {
+		if ref == nil {
+			status = refStatus
+		} else if errors.Is(err, ref) {
+			return refStatus
+		}
+	}
+
+	return status
 }

@@ -27,17 +27,15 @@ func DecodeJSON(body io.Reader, destination any) error {
 		return fmt.Errorf("decode JSON request body: %w", err)
 	}
 
+	// A body holding nothing past the first value ends in io.EOF.
 	err = decoder.Decode(&struct{}{})
-	// Decode returns io.EOF after one JSON value and trailing whitespace.
-	if !errors.Is(err, io.EOF) {
-		if err == nil {
-			// A successful second decode means the body held another JSON value.
-			return ErrJSONMultipleValues
-		}
 
-		// Preserve parsing and body-size errors for callers that classify them with errors.Is or errors.As.
+	switch {
+	case errors.Is(err, io.EOF):
+		return nil
+	case err == nil:
+		return ErrJSONMultipleValues
+	default:
 		return fmt.Errorf("decode JSON request body: %w", err)
 	}
-
-	return nil
 }

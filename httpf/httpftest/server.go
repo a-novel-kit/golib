@@ -91,13 +91,15 @@ func (scripted *Server) handle(writer http.ResponseWriter, request *http.Request
 		scripted.t.Errorf("httpftest: read request body: %v", err)
 	}
 
-	response, ok := scripted.take(Request{
+	received := Request{
 		Method: request.Method,
 		Path:   request.URL.Path,
 		Query:  request.URL.Query(),
 		Header: request.Header.Clone(),
 		Body:   body,
-	})
+	}
+
+	response, ok := scripted.take(received)
 	if !ok {
 		// Errorf: only it is safe to call from a goroutine other than the test's own.
 		scripted.t.Errorf("httpftest: unscripted request %s %s", request.Method, request.URL.Path)

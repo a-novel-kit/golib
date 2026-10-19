@@ -37,15 +37,7 @@ func NewRouter(
 	router.Use(middleware.Timeout(config.Timeouts.Request))
 	router.Use(middleware.RequestSize(config.MaxRequestSize))
 	router.Use(tracing.HttpHandler())
-	router.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   config.Cors.AllowedOrigins,
-		AllowedHeaders:   config.Cors.AllowedHeaders,
-		AllowedMethods:   config.Cors.AllowedMethods,
-		AllowCredentials: config.Cors.AllowCredentials,
-		// Browsers hide Retry-After from scripts unless it is exposed; every 429 sends it.
-		ExposedHeaders: []string{"Retry-After"},
-		MaxAge:         config.Cors.MaxAge,
-	}))
+	router.Use(cors.Handler(corsOptions(config.Cors)))
 	router.Use(logger.Logger())
 	router.Use(downtime.Middleware(downtimeStart, config.Liveness))
 
@@ -54,6 +46,19 @@ func NewRouter(
 	}
 
 	return router
+}
+
+// corsOptions translates config for the CORS middleware. Browsers hide Retry-After from scripts
+// unless it is exposed, and every 429 sends it.
+func corsOptions(config CorsConfig) cors.Options {
+	return cors.Options{
+		AllowedOrigins:   config.AllowedOrigins,
+		AllowedHeaders:   config.AllowedHeaders,
+		AllowedMethods:   config.AllowedMethods,
+		AllowCredentials: config.AllowCredentials,
+		ExposedHeaders:   []string{"Retry-After"},
+		MaxAge:           config.MaxAge,
+	}
 }
 
 // standardLimit caps each visitor at the configured rate on each route. Routing has not run yet,
