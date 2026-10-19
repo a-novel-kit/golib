@@ -2,7 +2,6 @@ package otelpresets
 
 import (
 	"context"
-	stdlog "log"
 	"net/http"
 	"os"
 	"time"
@@ -35,8 +34,8 @@ type Sentry struct {
 	ServerName  string `json:"serverName"  yaml:"serverName"`
 	Release     string `json:"release"     yaml:"release"`
 	Environment string `json:"environment" yaml:"environment"`
-	// FlushTimeout bounds how long Flush waits for buffered data to drain; zero
-	// waits indefinitely.
+	// FlushTimeout bounds how long Flush waits for buffered data to drain. Zero waits
+	// indefinitely for spans and logs, and gives the events of the Sentry SDK no time to send.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 	Debug        bool          `json:"debug"        yaml:"debug"`
 
@@ -45,7 +44,7 @@ type Sentry struct {
 }
 
 func (config *Sentry) Init() error {
-	return sentry.Init(sentry.ClientOptions{
+	options := sentry.ClientOptions{
 		Dsn:              config.DSN,
 		EnableTracing:    true,
 		TracesSampleRate: 1.0,
@@ -57,18 +56,10 @@ func (config *Sentry) Init() error {
 		Integrations: func(integrations []sentry.Integration) []sentry.Integration {
 			return append(integrations, sentryotel.NewOtelIntegration())
 		},
-		BeforeSend: func(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
-			if hint == nil || hint.Context == nil {
-				return event
-			}
+		BeforeSend: sentryEventIP,
+	}
 
-			if req, ok := hint.Context.Value(sentry.RequestContextKey).(*http.Request); ok {
-				event.User.IPAddress = req.RemoteAddr
-			}
-
-			return event
-		},
-	})
+	return sentry.Init(options)
 }
 
 func (config *Sentry) GetPropagators() (propagation.TextMapPropagator, error) {
@@ -106,32 +97,7 @@ func (config *Sentry) GetLogger() (log.LoggerProvider, error) {
 }
 
 func (config *Sentry) Flush() {
-	ctx := context.Background()
-
-	if config.FlushTimeout > 0 {
-		var cancel context.CancelFunc
-
-		ctx, cancel = context.WithTimeout(ctx, config.FlushTimeout)
-		defer cancel()
-	}
-
-	// A failed drain drops whatever spans or logs were still buffered. On this
-	// backend that is the production telemetry, and dropping it silently is what the
-	// local and gcloud presets already log against.
-	if config.tp != nil {
-		err := config.tp.Shutdown(ctx)
-		if err != nil {
-			stdlog.Printf("failed to shutdown tracer provider: %v\n", err)
-		}
-	}
-
-	if config.lp != nil {
-		err := config.lp.Shutdown(ctx)
-		if err != nil {
-			stdlog.Printf("failed to shutdown logger provider: %v\n", err)
-		}
-	}
-
+	shutdownProviders(config.FlushTimeout, config.tp, config.lp)
 	sentry.Flush(config.FlushTimeout)
 }
 
@@ -143,4 +109,18 @@ func (config *Sentry) HttpHandler() func(http.Handler) http.Handler {
 
 func (config *Sentry) RpcInterceptor() grpc.ServerOption {
 	return grpc.StatsHandler(otelgrpc.NewServerHandler())
+}
+
+// sentryEventIP sets the user IP of an event captured during a request to that request's peer
+// address.
+func sentryEventIP(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
+	if hint == nil || hint.Context == nil {
+		return event
+	}
+
+	if req, ok := hint.Context.Value(sentry.RequestContextKey).(*http.Request); ok {
+		event.User.IPAddress = req.RemoteAddr
+	}
+
+	return event
 }

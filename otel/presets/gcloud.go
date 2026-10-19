@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	stdlog "log"
 	"net/http"
 	"os"
 	"time"
@@ -127,28 +126,7 @@ func (config *Gcloud) GetLogger() (log.LoggerProvider, error) {
 
 // Flush shuts down tracer and logger providers.
 func (config *Gcloud) Flush() {
-	ctx := context.Background()
-
-	if config.FlushTimeout > 0 {
-		var cancel context.CancelFunc
-
-		ctx, cancel = context.WithTimeout(ctx, config.FlushTimeout)
-		defer cancel()
-	}
-
-	if config.tp != nil {
-		err := config.tp.Shutdown(ctx)
-		if err != nil {
-			stdlog.Printf("failed to shutdown tracer provider: %v\n", err)
-		}
-	}
-
-	if config.lp != nil {
-		err := config.lp.Shutdown(ctx)
-		if err != nil {
-			stdlog.Printf("failed to shutdown logger provider: %v\n", err)
-		}
-	}
+	shutdownProviders(config.FlushTimeout, config.tp, config.lp)
 }
 
 func (config *Gcloud) HttpHandler() func(http.Handler) http.Handler {

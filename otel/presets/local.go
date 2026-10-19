@@ -1,9 +1,7 @@
 package otelpresets
 
 import (
-	"context"
 	"fmt"
-	stdlog "log"
 	"net/http"
 	"os"
 	"time"
@@ -83,28 +81,7 @@ func (config *Local) GetLogger() (log.LoggerProvider, error) {
 }
 
 func (config *Local) Flush() {
-	ctx := context.Background()
-
-	if config.FlushTimeout > 0 {
-		var cancel context.CancelFunc
-
-		ctx, cancel = context.WithTimeout(ctx, config.FlushTimeout)
-		defer cancel()
-	}
-
-	if config.tp != nil {
-		err := config.tp.Shutdown(ctx)
-		if err != nil {
-			stdlog.Printf("failed to shutdown tracer provider: %v\n", err)
-		}
-	}
-
-	if config.lp != nil {
-		err := config.lp.Shutdown(ctx)
-		if err != nil {
-			stdlog.Printf("failed to shutdown logger provider: %v\n", err)
-		}
-	}
+	shutdownProviders(config.FlushTimeout, config.tp, config.lp)
 }
 
 func (config *Local) HttpHandler() func(http.Handler) http.Handler {
