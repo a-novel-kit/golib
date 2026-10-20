@@ -25,7 +25,7 @@ type Response struct {
 	// deadline without a real server's latency.
 	Delay time.Duration
 
-	// Hang holds the reply open until the request's context is cancelled, standing for a server
+	// Hang holds the reply open until the request's context is canceled, standing for a server
 	// that accepted the request and then stopped answering.
 	Hang bool
 
@@ -80,6 +80,7 @@ func (scripted *Server) Requests() []Request {
 	return slices.Clone(scripted.requests)
 }
 
+// handle records request, then plays the reply scripted for it.
 func (scripted *Server) handle(writer http.ResponseWriter, request *http.Request) {
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
@@ -96,7 +97,7 @@ func (scripted *Server) handle(writer http.ResponseWriter, request *http.Request
 
 	response, ok := scripted.take(received)
 	if !ok {
-		// Errorf: only it is safe to call from a goroutine other than the test's own.
+		// The handler runs on the server's goroutine, where Errorf is safe and FailNow is not.
 		scripted.t.Errorf("httpftest: unscripted request %s %s", request.Method, request.URL.Path)
 		writer.WriteHeader(http.StatusInternalServerError)
 
@@ -133,6 +134,7 @@ func (scripted *Server) handle(writer http.ResponseWriter, request *http.Request
 	}
 }
 
+// drop closes the connection under writer without a reply.
 func (scripted *Server) drop(writer http.ResponseWriter) {
 	hijacker, ok := writer.(http.Hijacker)
 	if !ok {

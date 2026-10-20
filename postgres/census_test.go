@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,22 @@ import (
 	"github.com/a-novel-kit/golib/postgres/postgrestest"
 )
 
-// Use separate databases because extensions are database-scoped.
+// openProbeDB opens a pool from options, without pinging it.
+func openProbeDB(options ...pgdriver.Option) *bun.DB {
+	return bun.NewDB(sql.OpenDB(pgdriver.NewConnector(options...)), pgdialect.New())
+}
+
+// dropProbeDB drops the probe database called name from a test cleanup, on a connection of its
+// own. It takes a background context, since t.Context is canceled by the time cleanups run.
+func dropProbeDB(dsn, name string) {
+	maintenance := openProbeDB(pgdriver.WithDSN(dsn))
+	defer func() { _ = maintenance.Close() }()
+
+	_, _ = maintenance.NewRaw("DROP DATABASE IF EXISTS ? WITH (FORCE)", bun.Ident(name)).Exec(context.Background())
+}
+
+// probeDB creates a database, runs statements in it, and returns a pool on it. Each probe gets a
+// database of its own because extensions are database-scoped.
 func probeDB(t *testing.T, statements ...string) *bun.DB {
 	t.Helper()
 
@@ -25,31 +41,18 @@ func probeDB(t *testing.T, statements ...string) *bun.DB {
 		"POSTGRES_DSN must point at a throwaway database — the census reads a real catalog")
 
 	name := "census_probe_" + strings.ToLower(rand.Text())
-
-	open := func(options ...pgdriver.Option) *bun.DB {
-		return bun.NewDB(sql.OpenDB(pgdriver.NewConnector(options...)), pgdialect.New())
-	}
-
-	maintenance := open(pgdriver.WithDSN(dsn))
+	maintenance := openProbeDB(pgdriver.WithDSN(dsn))
 
 	ctx := t.Context()
 
 	_, err := maintenance.NewRaw("CREATE DATABASE ?", bun.Ident(name)).Exec(ctx)
 	require.NoError(t, err, "create the probe database")
 
-	t.Cleanup(func() {
-		// t.Context is already cancelled by the time cleanups run.
-		cleanup := open(pgdriver.WithDSN(dsn))
-		defer func() { _ = cleanup.Close() }()
-
-		_, _ = cleanup.NewRaw(
-			"DROP DATABASE IF EXISTS ? WITH (FORCE)", bun.Ident(name),
-		).Exec(context.Background())
-	})
+	t.Cleanup(func() { dropProbeDB(dsn, name) })
 
 	require.NoError(t, maintenance.Close())
 
-	db := open(pgdriver.WithDSN(dsn), pgdriver.WithDatabase(name))
+	db := openProbeDB(pgdriver.WithDSN(dsn), pgdriver.WithDatabase(name))
 
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -61,6 +64,7 @@ func probeDB(t *testing.T, statements ...string) *bun.DB {
 	return db
 }
 
+// probeSnapshot returns the schema snapshot of a probe database built from statements.
 func probeSnapshot(t *testing.T, statements ...string) string {
 	t.Helper()
 
@@ -70,6 +74,7 @@ func probeSnapshot(t *testing.T, statements ...string) string {
 	return snapshot
 }
 
+// drift is a pair of schemas, built from the statements in from and to, that a case compares.
 type drift struct {
 	name string
 	from []string
@@ -293,8 +298,8 @@ func TestSchemaSnapshotIsIndependentOfCreationOrder(t *testing.T) {
 		`COMMENT ON FUNCTION f() IS 'a function'`,
 	}
 
-	forward := probeSnapshot(t, append(append(append([]string{}, first...), second...), comments...)...)
-	reversed := probeSnapshot(t, append(append(append([]string{}, second...), first...), comments...)...)
+	forward := probeSnapshot(t, slices.Concat(first, second, comments)...)
+	reversed := probeSnapshot(t, slices.Concat(second, first, comments)...)
 
 	require.Equal(t, forward, reversed, "the snapshot must not depend on the order objects were created in")
 }

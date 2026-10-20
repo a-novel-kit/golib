@@ -10,6 +10,7 @@ import (
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 )
 
+// rendered returns the line LogLocal writes for msg and fields at error level.
 func rendered(t *testing.T, msg string, fields []any) string {
 	t.Helper()
 
@@ -18,7 +19,7 @@ func rendered(t *testing.T, msg string, fields []any) string {
 
 	logger.Err(t.Context(), msg, fields...)
 
-	// The severity colour arrives as ANSI escapes around the text.
+	// The severity color arrives as ANSI escapes around the text.
 	return strings.TrimSpace(out.String())
 }
 

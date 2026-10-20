@@ -25,12 +25,13 @@ func TestServer(t *testing.T) {
 		t.Parallel()
 
 		golden := httpftest.Golden(t, "response.json")
-
-		server := httpftest.NewServer(t, httpftest.Response{
+		reply := httpftest.Response{
 			Status: http.StatusCreated,
 			Header: http.Header{"Content-Type": []string{"application/json"}},
 			Body:   golden,
-		})
+		}
+
+		server := httpftest.NewServer(t, reply)
 
 		request, err := http.NewRequestWithContext(
 			t.Context(),

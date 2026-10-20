@@ -23,11 +23,13 @@ var censusCoverageQuery string
 // fail instead of being silently omitted.
 var ErrUnsupportedSchemaObject = errors.New("schema holds an object class the census cannot render")
 
+// The tables Bun keeps its migration history in, which the census leaves out.
 const (
 	censusMigrationsTable     = "bun_migrations"
 	censusMigrationLocksTable = "bun_migration_locks"
 )
 
+// The census classes the Go side reads by name.
 const (
 	censusClassRelation    = "relation"
 	censusClassUnsupported = "unsupported"
@@ -36,13 +38,17 @@ const (
 // censusFieldEscaper escapes the characters that would split a record or a field.
 var censusFieldEscaper = strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\r", `\r`, "\n", `\n`)
 
+// censusRow is one object census.sql renders.
 type censusRow struct {
-	Class      string `bun:"class"`
+	Class string `bun:"class"`
+	// Catalog names the system catalog the coverage check counts the object against, or stays empty
+	// for a class the check leaves out.
 	Catalog    string `bun:"catalog"`
 	Identity   string `bun:"identity"`
 	Definition string `bun:"definition"`
 }
 
+// censusCoverageRow is the object count censusCoverage.sql reads from one system catalog.
 type censusCoverageRow struct {
 	Catalog  string `bun:"catalog"`
 	Expected int    `bun:"expected"`
@@ -106,6 +112,8 @@ func renderCensus(rows []censusRow) (string, error) {
 	return out.String(), nil
 }
 
+// isCensusBookkeepingObject reports whether row belongs to the tables Bun keeps its migration
+// history in.
 func isCensusBookkeepingObject(row censusRow) bool {
 	switch row.Class {
 	case "column", "constraint":
@@ -134,6 +142,8 @@ func isCensusBookkeepingObject(row censusRow) bool {
 	}
 }
 
+// validateCensusCoverage checks that rows hold as many objects of each catalog as coverage counts,
+// so an object class census.sql fails to render cannot vanish from the snapshot.
 func validateCensusCoverage(rows []censusRow, coverage []censusCoverageRow) error {
 	actual := make(map[string]int, len(coverage))
 
@@ -177,6 +187,7 @@ func SnapshotDelta(want, got string) []string {
 	return delta
 }
 
+// snapshotLines returns the set of records snapshot holds.
 func snapshotLines(snapshot string) map[string]bool {
 	lines := map[string]bool{}
 

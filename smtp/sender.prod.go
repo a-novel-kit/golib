@@ -141,6 +141,7 @@ func (sender *ProdSender) deliver(recipients []string, msg string) error {
 	return client.Quit()
 }
 
+// timeout returns the network budget of one exchange.
 func (sender *ProdSender) timeout() time.Duration {
 	if sender.Timeout <= 0 {
 		return DefaultTimeout
@@ -149,6 +150,7 @@ func (sender *ProdSender) timeout() time.Duration {
 	return sender.Timeout
 }
 
+// auth returns the PLAIN authentication of the configured login.
 func (sender *ProdSender) auth() smtp.Auth {
 	username := sender.Username
 	if username == "" {
@@ -248,6 +250,7 @@ type unencryptedAuth struct {
 	smtp.Auth
 }
 
+// Start reports the connection as TLS-secured to the wrapped Auth.
 func (a unencryptedAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
 	s := *server
 	s.TLS = true

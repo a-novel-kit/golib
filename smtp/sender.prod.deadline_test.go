@@ -13,6 +13,8 @@ import (
 	"github.com/a-novel-kit/golib/smtp"
 )
 
+// testProdSenderDeadline checks that DNS resolution and the SMTP exchange share one timeout. It runs
+// sequentially, under TestProdSender, because it replaces net.DefaultResolver.
 func testProdSenderDeadline(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -135,6 +137,8 @@ func useDelayedResolver(t *testing.T, delay time.Duration) {
 	})
 }
 
+// serveLoopbackDNS answers every A query server receives with the loopback address, until server
+// closes.
 func serveLoopbackDNS(server net.PacketConn) error {
 	buffer := make([]byte, 4096)
 	for {
@@ -157,12 +161,15 @@ func serveLoopbackDNS(server net.PacketConn) error {
 			Questions: query.Questions,
 		}
 		for _, question := range query.Questions {
-			if question.Type == dnsmessage.TypeA {
-				reply.Answers = append(reply.Answers, dnsmessage.Resource{
-					Header: dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET},
-					Body:   &dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}},
-				})
+			if question.Type != dnsmessage.TypeA {
+				continue
 			}
+
+			loopback := dnsmessage.Resource{
+				Header: dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET},
+				Body:   &dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}},
+			}
+			reply.Answers = append(reply.Answers, loopback)
 		}
 
 		packet, err := reply.Pack()

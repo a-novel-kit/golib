@@ -13,8 +13,7 @@
     "lint": "pnpm lint:go && pnpm lint:proto && pnpm lint:prettier",
     "lint:go": "go tool -modfile=golangci-lint.mod golangci-lint run ./...",
     "lint:prettier": "prettier --check . --config prettier.config.js",
-    "lint:proto": "go tool -modfile=buf.mod buf lint",
-    "publish:patch": "pnpm version patch && git push --follow-tags"
+    "lint:proto": "go tool -modfile=buf.mod buf lint"
   },
   "devDependencies": {
     "prettier": "^3.6.2",

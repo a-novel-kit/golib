@@ -24,26 +24,27 @@ func NewPassthroughTx(tx bun.Tx) *PassthroughTx {
 	return &PassthroughTx{Tx: tx}
 }
 
+// Commit does nothing. The owner of the wrapped transaction ends it.
 func (tx *PassthroughTx) Commit() error {
-	// no-op.
 	return nil
 }
 
+// Rollback does nothing. The owner of the wrapped transaction ends it.
 func (tx *PassthroughTx) Rollback() error {
-	// no-op.
 	return nil
 }
 
+// Begin returns the wrapped transaction itself.
 func (tx *PassthroughTx) Begin() (bun.Tx, error) {
-	// no-op.
 	return tx.Tx, nil
 }
 
+// BeginTx returns the wrapped transaction itself, whatever the options.
 func (tx *PassthroughTx) BeginTx(_ context.Context, _ *sql.TxOptions) (bun.Tx, error) {
-	// no-op.
 	return tx.Tx, nil
 }
 
+// RunInTx runs fn on the wrapped transaction itself.
 func (tx *PassthroughTx) RunInTx(
 	ctx context.Context, _ *sql.TxOptions, fn func(ctx context.Context, tx bun.Tx) error,
 ) error {

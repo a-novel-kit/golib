@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"io/fs"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -68,19 +69,24 @@ func RunIsolatedTransactionalTest(
 	require.NoError(t, err)
 
 	if dropper, ok := config.(schemaDropper); ok {
-		t.Cleanup(func() {
-			// t.Context is cancelled by the time cleanup runs, so the drop gets a fresh
-			// context. A failure here leaks the schema but must not fail the test.
-			dropErr := dropper.DropSchema(context.WithoutCancel(ctx), schema)
-			if dropErr != nil {
-				t.Logf("drop test schema %s: %v", schema, dropErr)
-			}
-		})
+		t.Cleanup(func() { dropTestSchema(ctx, t, dropper, schema) })
 	}
 
 	require.NoError(t, postgres.RunMigrationsContext(ctx, migrations))
 
 	callback(ctx, t)
+}
+
+// dropTestSchema drops schema from a test cleanup. A failure leaks the schema, and the test still
+// passes.
+func dropTestSchema(ctx context.Context, t *testing.T, dropper schemaDropper, schema string) {
+	t.Helper()
+
+	// t.Context is canceled by the time cleanups run.
+	err := dropper.DropSchema(context.WithoutCancel(ctx), schema)
+	if err != nil {
+		t.Logf("drop test schema %s: %v", schema, err)
+	}
 }
 
 // RunTransactionalTest runs callback inside a transaction that is rolled back on
@@ -102,19 +108,17 @@ func RunTransactionalTest(t *testing.T, config postgres.Config, callback Transac
 		_ = tx.Rollback()
 	})
 
-	ctx = context.WithValue(ctx, postgres.ContextKey{}, postgres.NewPassthroughTx(tx))
-	callback(ctx, t)
+	callback(postgres.WithTx(ctx, postgres.NewPassthroughTx(tx)), t)
 }
 
 const (
 	// dbTestTemplatePrefix names the migrated template database that every
-	// per-test database is cloned from. Its suffix is a content hash of the
-	// migration set (see dbTestTemplateName), so a migration change yields a new
-	// template name and no test binary can be served an outdated schema.
+	// per-test database is cloned from. dbTestTemplateName suffixes it with a hash
+	// of the migration set, so a migration change yields a new template name and no
+	// test binary can be served an outdated schema.
 	dbTestTemplatePrefix = "gotpl_"
 
-	// dbTestInstancePrefix names a throwaway per-test database. Exactly one is
-	// created per RunDBTest call and dropped in t.Cleanup.
+	// dbTestInstancePrefix names the throwaway database of one RunDBTest call.
 	dbTestInstancePrefix = "gotest_"
 
 	// dbTestMaintenanceDatabase is the database the maintenance connection
@@ -142,19 +146,14 @@ type dbTestOptionsConfig interface {
 	Options() []pgdriver.Option
 }
 
-// dbTestTemplated guards one-time template creation within a process. The first
-// RunDBTest call for a given (migrations, target-cluster) pair runs the
-// migrations while every other call blocks on dbTestMu, so only the first test
-// pays the migration cost and the rest clone in parallel. The key includes the
-// resolved connection identity (see dbTestConnKey), so the same migrations
-// applied against two clusters in one process do not alias onto a template that
-// exists in only one of them.
-//
-// Cross-process safety comes from the Postgres advisory lock in
-// dbTestCreateTemplate; this map deduplicates work inside a single binary. A
-// failed creation is not recorded, so the next test retries it.
 var (
-	dbTestMu        sync.Mutex
+	// dbTestMu serializes template creation within a process. The first RunDBTest call of a
+	// migration set migrates its template while the other calls wait, so only the first test pays
+	// the migration cost. The advisory lock in dbTestCreateTemplate covers other processes.
+	dbTestMu sync.Mutex
+
+	// dbTestTemplated records the templates this process created, keyed by template name and
+	// target cluster. A failed creation stays unrecorded, so the next test retries it.
 	dbTestTemplated = map[string]bool{}
 
 	// dbTestCloneMu serializes CREATE DATABASE … TEMPLATE within a process.
@@ -243,7 +242,7 @@ func dbTestNewDatabase(
 }
 
 // dbTestDropInstance drops the database called instance from a test cleanup, on a maintenance
-// connection of its own. It takes a background context, since t.Context is cancelled by the time
+// connection of its own. It takes a background context, since t.Context is canceled by the time
 // cleanups run.
 func dbTestDropInstance(options []pgdriver.Option, instance string) {
 	ctx := context.Background()
@@ -259,8 +258,8 @@ func dbTestDropInstance(options []pgdriver.Option, instance string) {
 
 // dbTestEnsureTemplate returns the name of a migrated template database for the
 // given migration set, creating and migrating it on first use. It serializes
-// in-process callers on dbTestMu so the migrations run exactly once per
-// process; cross-process duplication is prevented inside dbTestCreateTemplate.
+// in-process callers on dbTestMu, so the migrations run once per process.
+// dbTestCreateTemplate prevents the duplication across processes.
 func dbTestEnsureTemplate(ctx context.Context, options []pgdriver.Option, migrations fs.FS) (string, error) {
 	name, err := dbTestTemplateName(migrations)
 	if err != nil {
@@ -320,11 +319,8 @@ func dbTestCreateTemplate(
 	if err != nil {
 		return fmt.Errorf("acquire template advisory lock: %w", err)
 	}
-	defer func() {
-		// Best-effort: the lock is also released when the maintenance
-		// connection closes just below.
-		_, _ = maintenance.NewRaw("SELECT pg_advisory_unlock(?)", lockKey).Exec(ctx)
-	}()
+	// Closing the maintenance connection, deferred above, also releases the lock.
+	defer func() { _, _ = maintenance.NewRaw("SELECT pg_advisory_unlock(?)", lockKey).Exec(ctx) }()
 
 	var exists bool
 
@@ -434,7 +430,7 @@ func dbTestCreateInstance(ctx context.Context, maintenance *bun.DB, instance, te
 // options in order, so a trailing pgdriver.WithDatabase wins over whatever
 // database the preset's own options selected, with no need to parse them.
 func dbTestOpen(ctx context.Context, options []pgdriver.Option, database string) (*bun.DB, error) {
-	options = append(append([]pgdriver.Option{}, options...), pgdriver.WithDatabase(database))
+	options = append(slices.Clone(options), pgdriver.WithDatabase(database))
 
 	db := bun.NewDB(sql.OpenDB(pgdriver.NewConnector(options...)), pgdialect.New(),
 		bun.WithDiscardUnknownColumns())

@@ -11,6 +11,17 @@ import (
 
 var errPanic = errors.New("panic")
 
+// unmarshalValid decodes the literal "valid" into a string, and refuses anything else.
+func unmarshalValid(data []byte, v any) error {
+	if string(data) != "valid" {
+		return errPanic
+	}
+
+	*v.(*string) = "unmarshaled"
+
+	return nil
+}
+
 func TestMust(t *testing.T) {
 	t.Parallel()
 
@@ -31,21 +42,11 @@ func TestMust(t *testing.T) {
 func TestMustUnmarshal(t *testing.T) {
 	t.Parallel()
 
-	unmarshalFunc := func(data []byte, v any) error {
-		if string(data) == "valid" {
-			*v.(*string) = "unmarshaled"
-
-			return nil
-		}
-
-		return errPanic
-	}
-
 	validData := []byte("valid")
 	invalidData := []byte("invalid")
 
-	require.Equal(t, "unmarshaled", config.MustUnmarshal[string](unmarshalFunc, validData))
+	require.Equal(t, "unmarshaled", config.MustUnmarshal[string](unmarshalValid, validData))
 	require.PanicsWithValue(t, errPanic, func() {
-		config.MustUnmarshal[string](unmarshalFunc, invalidData)
+		config.MustUnmarshal[string](unmarshalValid, invalidData)
 	})
 }

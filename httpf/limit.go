@@ -106,6 +106,8 @@ func refuseKey(w http.ResponseWriter, _ *http.Request, _ error) {
 	http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 }
 
+// routeKey keys a limit by the method and the route pattern routing matched, so each route counts
+// apart.
 func routeKey(r *http.Request) (string, error) {
 	return r.Method + " " + chi.RouteContext(r.Context()).RoutePattern(), nil
 }

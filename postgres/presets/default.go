@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/uptrace/bun"
@@ -115,8 +116,7 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 		}
 	}
 
-	options := append([]pgdriver.Option{}, config.options...)
-	options = append(options, pgdriver.WithConnParams(map[string]any{"search_path": schema}))
+	options := append(slices.Clone(config.options), pgdriver.WithConnParams(map[string]any{"search_path": schema}))
 
 	db, err = config.openDB(ctx, options)
 	if err != nil {
@@ -177,6 +177,7 @@ func (config *Default) maxIdleConns() int {
 	return config.MaxIdleConns
 }
 
+// openDB opens a pool from options, sized by the config, and pings it.
 func (config *Default) openDB(ctx context.Context, options []pgdriver.Option) (*bun.DB, error) {
 	sqldb := sql.OpenDB(pgdriver.NewConnector(options...))
 	db := bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())

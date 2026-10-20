@@ -16,23 +16,25 @@ import (
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 )
 
+// logUnaryCall runs one unary call under ctx through the logging interceptor of config.
+func logUnaryCall(ctx context.Context, config *loggingpresets.GRPCGcloud) error {
+	_, err := config.UnaryInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Call"},
+		func(context.Context, any) (any, error) { return nil, nil },
+	)
+
+	return err
+}
+
+// logStreamCall runs one streaming call under ctx through the logging interceptor of config.
+func logStreamCall(ctx context.Context, config *loggingpresets.GRPCGcloud) error {
+	return config.StreamInterceptor()(nil, &serverStream{ctx: ctx},
+		&grpc.StreamServerInfo{FullMethod: "/test.Service/Call"},
+		func(any, grpc.ServerStream) error { return nil },
+	)
+}
+
 func TestGRPCGcloud(t *testing.T) {
 	t.Parallel()
-
-	unary := func(ctx context.Context, config *loggingpresets.GRPCGcloud) error {
-		_, err := config.UnaryInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Call"},
-			func(context.Context, any) (any, error) { return nil, nil },
-		)
-
-		return err
-	}
-
-	stream := func(ctx context.Context, config *loggingpresets.GRPCGcloud) error {
-		return config.StreamInterceptor()(nil, &serverStream{ctx: ctx},
-			&grpc.StreamServerInfo{FullMethod: "/test.Service/Call"},
-			func(any, grpc.ServerStream) error { return nil },
-		)
-	}
 
 	testCases := []struct {
 		name string
@@ -40,9 +42,9 @@ func TestGRPCGcloud(t *testing.T) {
 		call   func(ctx context.Context, config *loggingpresets.GRPCGcloud) error
 		inSpan bool
 	}{
-		{name: "Unary", call: unary},
-		{name: "Unary/InSpan", call: unary, inSpan: true},
-		{name: "Stream/InSpan", call: stream, inSpan: true},
+		{name: "Unary", call: logUnaryCall},
+		{name: "Unary/InSpan", call: logUnaryCall, inSpan: true},
+		{name: "Stream/InSpan", call: logStreamCall, inSpan: true},
 	}
 
 	for _, testCase := range testCases {

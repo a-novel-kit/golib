@@ -43,9 +43,12 @@ func StreamServerInterceptor(start *time.Time, open ...string) grpc.StreamServer
 
 // Refused reports whether err, or an error it wraps, is a call refused by a downtime interceptor.
 func Refused(err error) bool {
-	return slices.ContainsFunc(status.Convert(err).Details(), func(detail any) bool {
-		info, ok := detail.(*errdetails.ErrorInfo)
+	return slices.ContainsFunc(status.Convert(err).Details(), isRefusal)
+}
 
-		return ok && info.GetReason() == Reason
-	})
+// isRefusal reports whether a status detail is the ErrorInfo a downtime refusal carries.
+func isRefusal(detail any) bool {
+	info, ok := detail.(*errdetails.ErrorInfo)
+
+	return ok && info.GetReason() == Reason
 }

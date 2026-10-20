@@ -23,17 +23,23 @@ import (
 )
 
 const (
+	// roundtripInstancePrefix names the throwaway database of one roundtrip.
 	roundtripInstancePrefix = "goroundtrip_"
 
 	roundtripSnapshotExt = ".txt"
 
+	// roundtripUpdateEnv names the variable that records the snapshots instead of checking them.
 	roundtripUpdateEnv = "GOLIB_UPDATE_SNAPSHOTS"
 
+	// roundtripHistoryRecord starts the first record of a snapshot, which binds it to the history
+	// digest of its migration.
 	roundtripHistoryRecord = "migration-history\tsha256:"
 
+	// roundtripSchema is the schema the roundtrip migrates and snapshots.
 	roundtripSchema = "public"
 )
 
+// errMigrationDrift reports a schema that differs from the one the roundtrip expected.
 var errMigrationDrift = errors.New("schema drift")
 
 // RoundtripOptions configures [RunMigrationRoundtripTest]. Its zero value is valid.
@@ -58,6 +64,8 @@ func RunMigrationRoundtripTest(t *testing.T, config postgres.Config, migrations 
 	require.NoError(t, verifyRoundtrip(t.Context(), roundtripDatabase(t, config), migrations, opts))
 }
 
+// verifyRoundtrip runs the roundtrip [RunMigrationRoundtripTest] describes against db, which starts
+// empty.
 func verifyRoundtrip(ctx context.Context, db *bun.DB, migrations fs.FS, opts *RoundtripOptions) error {
 	if opts == nil {
 		opts = &RoundtripOptions{}
@@ -168,6 +176,7 @@ func roundtripUp(
 	return state, nil
 }
 
+// roundtripDown rolls migration step back alone, and checks the schema it leaves is want.
 func roundtripDown(
 	ctx context.Context, db *bun.DB, ordered migrate.MigrationSlice, step int, want string,
 ) error {
@@ -196,6 +205,8 @@ func roundtripDown(
 	return nil
 }
 
+// roundtripReplay applies every migration again after the full rollback, and checks the schema it
+// leaves is want.
 func roundtripReplay(ctx context.Context, db *bun.DB, ordered migrate.MigrationSlice, want string) error {
 	_, err := migrate.NewMigrator(db, roundtripPrefix(ordered, len(ordered))).Migrate(ctx)
 	if err != nil {
@@ -216,8 +227,9 @@ func roundtripReplay(ctx context.Context, db *bun.DB, ordered migrate.MigrationS
 	return nil
 }
 
-// Bun stamps every migration applied by one Migrate call with a single group id, and rolls back a
-// whole group. Limiting the set to n leaves one pending migration per call.
+// roundtripPrefix returns the first n migrations of ordered. Bun stamps every migration one Migrate
+// call applies with a single group id, and rolls back a whole group, so a set limited to n leaves
+// one pending migration per call.
 func roundtripPrefix(ordered migrate.MigrationSlice, n int) *migrate.Migrations {
 	set := migrate.NewMigrations()
 	for _, migration := range ordered[:n] {
@@ -236,6 +248,7 @@ func roundtripSlug(migration migrate.Migration) string {
 	return migration.Name + "_" + migration.Comment
 }
 
+// roundtripApplyFixture runs the fixture named after migration, when opts holds one.
 func roundtripApplyFixture(
 	ctx context.Context, db *bun.DB, opts *RoundtripOptions, migration migrate.Migration,
 ) error {
@@ -262,6 +275,8 @@ func roundtripApplyFixture(
 	return nil
 }
 
+// roundtripCheckSnapshot compares got, bound to historyDigest, with the snapshot recorded for
+// migration. It records the snapshot instead when GOLIB_UPDATE_SNAPSHOTS is set.
 func roundtripCheckSnapshot(
 	opts *RoundtripOptions, migration migrate.Migration, got, historyDigest string,
 ) error {
@@ -413,6 +428,7 @@ func roundtripSourceName(name string) (string, bool, bool) {
 	return "", false, false
 }
 
+// roundtripDatabase creates the empty database a roundtrip runs in, dropped with the test.
 func roundtripDatabase(t *testing.T, config postgres.Config) *bun.DB {
 	t.Helper()
 
@@ -427,17 +443,24 @@ func roundtripDatabase(t *testing.T, config postgres.Config) *bun.DB {
 	return db
 }
 
+// newRoundtripDatabase creates an empty, randomly named database from options, dropped with the
+// test.
 func newRoundtripDatabase(t *testing.T, options []pgdriver.Option) (*bun.DB, error) {
 	t.Helper()
 
 	instance := roundtripInstancePrefix + strings.ToLower(rand.Text())
 
 	return dbTestNewDatabase(t, options, instance, func(ctx context.Context, maintenance *bun.DB) error {
-		_, err := maintenance.NewRaw("CREATE DATABASE " + dbTestQuoteIdent(instance)).Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("create the roundtrip database: %w", err)
-		}
-
-		return nil
+		return createRoundtripDatabase(ctx, maintenance, instance)
 	})
+}
+
+// createRoundtripDatabase creates the empty database called instance on a maintenance connection.
+func createRoundtripDatabase(ctx context.Context, maintenance *bun.DB, instance string) error {
+	_, err := maintenance.NewRaw("CREATE DATABASE " + dbTestQuoteIdent(instance)).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("create the roundtrip database: %w", err)
+	}
+
+	return nil
 }

@@ -37,6 +37,7 @@ type fakeServer struct {
 	done chan struct{}
 }
 
+// newFakeServer starts a fakeServer, stopped with the test.
 func newFakeServer(t *testing.T, stall bool) *fakeServer {
 	t.Helper()
 
@@ -52,21 +53,27 @@ func newFakeServer(t *testing.T, stall bool) *fakeServer {
 
 	go server.serve()
 
-	t.Cleanup(func() {
-		close(server.stop)
-
-		_ = listener.Close()
-
-		<-server.done
-	})
+	t.Cleanup(server.shutdown)
 
 	return server
 }
 
+// shutdown releases a stalled handler, stops accepting, and waits for serve to return.
+func (s *fakeServer) shutdown() {
+	close(s.stop)
+
+	_ = s.listener.Close()
+
+	<-s.done
+}
+
+// addr returns the address the server listens on.
 func (s *fakeServer) addr() string { return s.listener.Addr().String() }
 
+// wait returns once the server has handled its connection.
 func (s *fakeServer) wait() { <-s.done }
 
+// serve handles one connection, recording every command outside the message body.
 func (s *fakeServer) serve() {
 	defer close(s.done)
 
@@ -135,6 +142,7 @@ func (s *fakeServer) serve() {
 	}
 }
 
+// testTemplate returns the template every test mail renders.
 func testTemplate(t *testing.T) *template.Template {
 	t.Helper()
 
@@ -155,6 +163,8 @@ func runOperation(t *testing.T, sender *smtp.ProdSender, operation string) error
 	return sender.Ping()
 }
 
+// plainAuthCredentials decodes the identity, username and password of the AUTH PLAIN command in
+// transcript.
 func plainAuthCredentials(t *testing.T, transcript []string) (string, string, string) {
 	t.Helper()
 

@@ -12,8 +12,8 @@ import (
 	"github.com/a-novel-kit/golib/otel/utils"
 )
 
-// The wrapper is the innermost middleware in every service, so it is the writer every
-// handler receives. What it drops, every handler loses.
+// The logging presets wrap every request of a service in the capture writer, so what the wrapper
+// drops, every handler loses.
 
 func TestCaptureKeepsTheBodyOnlyForAFailure(t *testing.T) {
 	t.Parallel()
@@ -174,6 +174,7 @@ func TestCaptureReadFromForwardsWhenSupported(t *testing.T) {
 	require.Equal(t, int64(len("streamed")), wrapped.Size())
 }
 
+// readFromRecorder reports whether ReadFrom reached the writer underneath the wrapper.
 type readFromRecorder struct {
 	http.ResponseWriter
 

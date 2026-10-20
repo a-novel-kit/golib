@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,25 +16,34 @@ import (
 	"github.com/a-novel-kit/golib/httpf"
 )
 
+// limitRequest is one request TestLimits sends, from visitor to path.
+type limitRequest struct {
+	path    string
+	visitor string
+}
+
+// times repeats one request, so a case reads as the budget it spends.
+func times(count int, req limitRequest) []limitRequest {
+	return slices.Repeat([]limitRequest{req}, count)
+}
+
+// sendLimitRequest serves req on router, from the visitor it names.
+func sendLimitRequest(t *testing.T, router http.Handler, req limitRequest) *httptest.ResponseRecorder {
+	t.Helper()
+
+	httpRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, req.path, nil)
+	httpRequest.Header.Set("X-Client-Ip", req.visitor)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httpRequest)
+
+	return response
+}
+
 func TestLimits(t *testing.T) {
 	t.Parallel()
 
-	type request struct {
-		path    string
-		visitor string
-	}
-
-	// times repeats one request, so a case reads as the budget it spends.
-	times := func(count int, req request) []request {
-		requests := make([]request, count)
-		for i := range requests {
-			requests[i] = req
-		}
-
-		return requests
-	}
-
-	visitor := request{path: "/items", visitor: "192.0.2.1"}
+	visitor := limitRequest{path: "/items", visitor: "192.0.2.1"}
 	twoPerMinute := func(limits httpf.Limits) func(http.Handler) http.Handler {
 		return limits.By(httpf.Rate{Requests: 2, Window: time.Minute}, httpf.VisitorKey)
 	}
@@ -45,8 +55,8 @@ func TestLimits(t *testing.T) {
 		limit    func(limits httpf.Limits) func(http.Handler) http.Handler
 
 		// allowed requests all pass; refused, when set, then gets 429 with expectRetryAfter.
-		allowed []request
-		refused *request
+		allowed []limitRequest
+		refused *limitRequest
 
 		expectRetryAfter string
 	}{
@@ -63,14 +73,14 @@ func TestLimits(t *testing.T) {
 
 			limit: twoPerMinute,
 
-			allowed: append(times(2, visitor), request{path: "/items", visitor: "192.0.2.2"}),
+			allowed: append(times(2, visitor), limitRequest{path: "/items", visitor: "192.0.2.2"}),
 		},
 		{
 			name: "Success/OtherRoute",
 
 			limit: twoPerMinute,
 
-			allowed: append(times(2, visitor), request{path: "/items/1", visitor: "192.0.2.1"}),
+			allowed: append(times(2, visitor), limitRequest{path: "/items/1", visitor: "192.0.2.1"}),
 		},
 		{
 			name: "Error/By",
@@ -88,8 +98,8 @@ func TestLimits(t *testing.T) {
 
 			limit: twoPerMinute,
 
-			allowed: []request{{path: "/items/1", visitor: "192.0.2.1"}, {path: "/items/2", visitor: "192.0.2.1"}},
-			refused: &request{path: "/items/3", visitor: "192.0.2.1"},
+			allowed: []limitRequest{{path: "/items/1", visitor: "192.0.2.1"}, {path: "/items/2", visitor: "192.0.2.1"}},
+			refused: &limitRequest{path: "/items/3", visitor: "192.0.2.1"},
 
 			expectRetryAfter: "60",
 		},
@@ -99,8 +109,8 @@ func TestLimits(t *testing.T) {
 
 			limit: twoPerMinute,
 
-			allowed: []request{{path: "/items", visitor: "2001:db8::1"}, {path: "/items", visitor: "2001:db8::2"}},
-			refused: &request{path: "/items", visitor: "2001:db8::3"},
+			allowed: []limitRequest{{path: "/items", visitor: "2001:db8::1"}, {path: "/items", visitor: "2001:db8::2"}},
+			refused: &limitRequest{path: "/items", visitor: "2001:db8::3"},
 
 			expectRetryAfter: "60",
 		},
@@ -123,22 +133,12 @@ func TestLimits(t *testing.T) {
 				api.Get("/items/{id}", ok)
 			})
 
-			send := func(req request) *httptest.ResponseRecorder {
-				httpRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, req.path, nil)
-				httpRequest.Header.Set("X-Client-Ip", req.visitor)
-
-				response := httptest.NewRecorder()
-				router.ServeHTTP(response, httpRequest)
-
-				return response
-			}
-
 			for _, req := range testCase.allowed {
-				require.Equal(t, http.StatusOK, send(req).Code, req.path)
+				require.Equal(t, http.StatusOK, sendLimitRequest(t, router, req).Code, req.path)
 			}
 
 			if testCase.refused != nil {
-				response := send(*testCase.refused)
+				response := sendLimitRequest(t, router, *testCase.refused)
 				require.Equal(t, http.StatusTooManyRequests, response.Code)
 				require.Equal(t, testCase.expectRetryAfter, response.Header().Get("Retry-After"))
 			}

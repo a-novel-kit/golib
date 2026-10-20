@@ -36,10 +36,7 @@ func (sender *Sender) SendMail(to smtp.MailUsers, _ *template.Template, _ string
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
 
-	sender.mails = append(sender.mails, &Mail{
-		To:   to.Emails(),
-		Data: data,
-	})
+	sender.mails = append(sender.mails, &Mail{To: to.Emails(), Data: data})
 
 	return nil
 }

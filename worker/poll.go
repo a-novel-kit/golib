@@ -12,7 +12,7 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// Poll runs fn on a fixed interval until ctx is cancelled. When fn reports it did work, Poll runs
+// Poll runs fn on a fixed interval until ctx is canceled. When fn reports it did work, Poll runs
 // it again immediately, so a backlog drains at full speed. An error is logged and the loop
 // continues.
 //
@@ -33,8 +33,7 @@ func Poll(
 		return
 	}
 
-	// The condition is what stops the drain path below from running fn again on a cancelled
-	// context.
+	// Checking ctx here keeps the drain path below from running fn again once ctx is canceled.
 	for ctx.Err() == nil {
 		if runOnce(ctx, logger, name, fn) {
 			continue

@@ -19,16 +19,16 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// Every case here goes through a real server. The Header() of an httptest.ResponseRecorder
-// stays live after WriteHeader, so a discarded Content-Type still reads back as set there.
-// Only a response that has crossed a socket shows what a client receives.
-
+// response is what a client receives from a handler.
 type response struct {
 	status      int
 	contentType string
 	body        string
 }
 
+// call serves handler on a real server and returns what a client receives. The Header() of an
+// httptest.ResponseRecorder stays live after WriteHeader, so a discarded Content-Type still reads
+// back as set there. Only a response that has crossed a socket shows what a client receives.
 func call(t *testing.T, handler http.HandlerFunc) response {
 	t.Helper()
 
@@ -74,8 +74,7 @@ func TestSendJSONStatus(t *testing.T) {
 			expectBody: `{"hello":"world"}`,
 		},
 		{
-			// The case the previous signature could not express. Both live 201 handlers
-			// declare content: application/json for it in their openapi.yaml.
+			// A status other than 200 still answers application/json.
 			name:       "Created",
 			status:     http.StatusCreated,
 			data:       map[string]string{"id": "abc"},

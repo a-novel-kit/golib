@@ -210,7 +210,7 @@ func TestEnvEnumParser(t *testing.T) {
 func TestLoadEnvPanicNamesTheValueAndType(t *testing.T) {
 	t.Setenv("foo", "on")
 
-	// OTEL=on is the live instance: no bool strconv recognises, and the fallback selects the preset
+	// OTEL=on is the live instance: no bool strconv recognizes, and the fallback selects the preset
 	// that turns every exporter off.
 	err := requirePanicError(t, func() {
 		_ = config.LoadEnv(os.Getenv("foo"), false, config.BoolParser)

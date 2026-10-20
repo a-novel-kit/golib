@@ -55,8 +55,8 @@ func GetContext(ctx context.Context) (bun.IDB, error) {
 	return db, nil
 }
 
-// TransferContext transfers the current postgres context into another. If the source context is not a postgres
-// context, this is a no-op.
+// TransferContext copies the database handle baseCtx carries onto destCtx, such as onto a detached
+// context a background task runs under. It returns destCtx unchanged when baseCtx carries none.
 func TransferContext(baseCtx, destCtx context.Context) context.Context {
 	db, ok := baseCtx.Value(ContextKey{}).(bun.IDB)
 	if !ok {

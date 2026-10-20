@@ -26,13 +26,13 @@ type GRPCLocal struct {
 func (logger *GRPCLocal) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	logger.init()
 
-	return grpclog.UnaryServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceId))
+	return grpclog.UnaryServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceID))
 }
 
 func (logger *GRPCLocal) StreamInterceptor() grpc.StreamServerInterceptor {
 	logger.init()
 
-	return grpclog.StreamServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceId))
+	return grpclog.StreamServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceID))
 }
 
 func (logger *GRPCLocal) PanicUnaryInterceptor() grpc.UnaryServerInterceptor {
@@ -47,11 +47,12 @@ func (logger *GRPCLocal) PanicStreamInterceptor() grpc.StreamServerInterceptor {
 	return recovery.StreamServerInterceptor(recovery.WithRecoveryHandlerContext(panicInterceptor(logger.l)))
 }
 
+// init builds the logger every interceptor of logger shares, on the first call.
 func (logger *GRPCLocal) init() {
 	if logger.l != nil {
 		return
 	}
 
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
-	logger.l = log.With("service", "gRPC/server", "component", logger.Component)
+	logger.l = slog.New(slog.NewTextHandler(os.Stdout, nil)).
+		With("service", "gRPC/server", "component", logger.Component)
 }
