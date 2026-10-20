@@ -6,11 +6,11 @@ import (
 	"google.golang.org/grpc"
 )
 
-// BaseContextUnaryInterceptor returns a unary server interceptor that runs
+// baseContextUnaryInterceptor returns a unary server interceptor that runs
 // ctxInterceptor on each request's context before the handler sees it, giving
 // every RPC a single place to seed request-scoped values such as a logger or a
 // tracing span.
-func BaseContextUnaryInterceptor(
+func baseContextUnaryInterceptor(
 	ctxInterceptor func(context.Context) context.Context,
 ) grpc.UnaryServerInterceptor {
 	return func(
@@ -32,11 +32,11 @@ func (stream *wrappedStream) Context() context.Context {
 	return stream.ctxInterceptor(stream.ServerStream.Context())
 }
 
-// BaseContextStreamInterceptor is the streaming counterpart to
-// [BaseContextUnaryInterceptor]: it applies ctxInterceptor to the stream's
+// baseContextStreamInterceptor is the streaming counterpart to
+// [baseContextUnaryInterceptor]: it applies ctxInterceptor to the stream's
 // context so every ServerStream.Context call inside the handler observes the
 // transformed context.
-func BaseContextStreamInterceptor(
+func baseContextStreamInterceptor(
 	ctxInterceptor func(context.Context) context.Context,
 ) grpc.StreamServerInterceptor {
 	return func(

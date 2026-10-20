@@ -44,7 +44,7 @@ func TestHTTPGcloud(t *testing.T) {
 			})
 
 			out := &bytes.Buffer{}
-			logger := &loggingpresets.HTTPGcloud{BaseLogger: &loggingpresets.LogGcloud{ProjectId: "project", Out: out}}
+			logger := &loggingpresets.HTTPGcloud{BaseLogger: &loggingpresets.LogGcloud{ProjectID: "project", Out: out}}
 			handler := otelhttp.NewMiddleware("", otelhttp.WithTracerProvider(provider))(logger.Logger()(router))
 
 			w := httptest.NewRecorder()

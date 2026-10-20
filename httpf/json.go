@@ -1,7 +1,6 @@
 package httpf
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -18,9 +17,7 @@ import (
 //
 // An encoding failure is reported on the span. The status line is already sent by then,
 // so the body may be truncated.
-func SendJSONStatus[Data any](
-	_ context.Context, w http.ResponseWriter, span trace.Span, status int, data Data,
-) {
+func SendJSONStatus[Data any](w http.ResponseWriter, span trace.Span, status int, data Data) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 

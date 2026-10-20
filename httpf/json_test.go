@@ -140,10 +140,10 @@ func TestSendJSONStatus(t *testing.T) {
 				_ = otel.ReportError(span, testCase.priorErr)
 			}
 
-			got := call(t, func(w http.ResponseWriter, r *http.Request) {
+			got := call(t, func(w http.ResponseWriter, _ *http.Request) {
 				defer span.End()
 
-				httpf.SendJSONStatus(r.Context(), w, span, testCase.status, testCase.data)
+				httpf.SendJSONStatus(w, span, testCase.status, testCase.data)
 			})
 
 			require.Equal(t, testCase.status, got.status)

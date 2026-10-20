@@ -129,11 +129,11 @@ func (config *Gcloud) Flush() {
 	shutdownProviders(config.FlushTimeout, config.tp, config.lp)
 }
 
-func (config *Gcloud) HttpHandler() func(http.Handler) http.Handler {
+func (config *Gcloud) HTTPHandler() func(http.Handler) http.Handler {
 	return otelhttp.NewMiddleware("")
 }
 
-func (config *Gcloud) RpcInterceptor() grpc.ServerOption {
+func (config *Gcloud) RPCInterceptor() grpc.ServerOption {
 	return grpc.StatsHandler(otelgrpc.NewServerHandler())
 }
 

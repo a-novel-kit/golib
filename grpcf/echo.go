@@ -2,7 +2,6 @@ package grpcf
 
 import (
 	"context"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -32,11 +31,4 @@ func RegisterEchoServers(server *grpc.Server) *health.Server {
 	golibproto.RegisterEchoServiceServer(server, &echo{})
 
 	return healthcheck
-}
-
-// SetEchoServersContext registers the built-in echo and standard health services, and marks the
-// server as serving. Later health transitions belong to the caller. Its context and duration are
-// unused.
-func SetEchoServersContext(_ context.Context, server *grpc.Server, _ time.Duration) {
-	RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 }

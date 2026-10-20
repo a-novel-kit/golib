@@ -6,13 +6,6 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Terminal colors the Local presets use to distinguish log severities.
-var (
-	LipColorError = lipgloss.Color("#ff3232")
-	LipColorWarn  = lipgloss.Color("#ffb600")
-	LipColorInfo  = lipgloss.Color("#25e6e3")
-)
-
 // LogLevel grades a log entry by severity. The Local presets render each level in its own color.
 type LogLevel int
 
@@ -41,10 +34,10 @@ func statusLevel(status int) LogLevel {
 func (level LogLevel) style() lipgloss.Style {
 	switch level {
 	case LogLevelWarn:
-		return lipgloss.NewStyle().Foreground(LipColorWarn)
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#ffb600"))
 	case LogLevelError:
-		return lipgloss.NewStyle().Foreground(LipColorError)
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#ff3232"))
 	default:
-		return lipgloss.NewStyle().Foreground(LipColorInfo)
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#25e6e3"))
 	}
 }

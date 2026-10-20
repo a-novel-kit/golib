@@ -3,6 +3,7 @@ package grpcf_test
 import (
 	"context"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -54,17 +55,17 @@ func probeValue(ctx context.Context, _ any) (any, error) {
 	return wrapperspb.String(value), nil
 }
 
-func TestServe(t *testing.T) {
+func TestListenAndServe(t *testing.T) {
 	t.Parallel()
 
 	t.Run("Success/ProcessCancellation", func(t *testing.T) {
 		t.Parallel()
 
-		address := freeGRPCAddress(t)
+		address, config := freeGRPCServer(t, time.Second)
 		ctx, cancel := context.WithCancel(t.Context())
 
 		serveErrors := make(chan error, 1)
-		go func() { serveErrors <- grpcf.Serve(ctx, grpc.NewServer(), address, time.Second) }()
+		go func() { serveErrors <- grpcf.ListenAndServe(ctx, config, grpc.NewServer()) }()
 
 		waitForGRPCServer(t, address)
 		cancel()
@@ -81,11 +82,13 @@ func TestServe(t *testing.T) {
 		t.Parallel()
 
 		listenerConfig := &net.ListenConfig{}
-		listener, err := listenerConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		listener, err := listenerConfig.Listen(t.Context(), "tcp", ":0")
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, listener.Close()) })
 
-		err = grpcf.Serve(t.Context(), grpc.NewServer(), listener.Addr().String(), time.Second)
+		config := grpcf.ServerConfig{Port: listener.Addr().(*net.TCPAddr).Port, Shutdown: time.Second}
+
+		err = grpcf.ListenAndServe(t.Context(), config, grpc.NewServer())
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "listen for gRPC")
 	})
@@ -93,13 +96,13 @@ func TestServe(t *testing.T) {
 	t.Run("Error/ForcedShutdown", func(t *testing.T) {
 		t.Parallel()
 
-		address := freeGRPCAddress(t)
+		address, config := freeGRPCServer(t, 50*time.Millisecond)
 		ctx, cancel := context.WithCancel(t.Context())
 		server := grpc.NewServer()
 		healthpb.RegisterHealthServer(server, health.NewServer())
 
 		serveErrors := make(chan error, 1)
-		go func() { serveErrors <- grpcf.Serve(ctx, server, address, 50*time.Millisecond) }()
+		go func() { serveErrors <- grpcf.ListenAndServe(ctx, config, server) }()
 
 		connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
@@ -175,8 +178,8 @@ func TestNewServer(t *testing.T) {
 			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 			server.RegisterService(probeService, struct{}{})
 
-			address := freeGRPCAddress(t)
-			go func() { _ = grpcf.Serve(t.Context(), server, address, time.Second) }()
+			address, config := freeGRPCServer(t, time.Second)
+			go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
 
 			waitForGRPCServer(t, address)
 
@@ -207,10 +210,10 @@ func TestNewServer(t *testing.T) {
 		server := grpcf.NewServer(ctx, &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
 		grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
-		address := freeGRPCAddress(t)
+		address, config := freeGRPCServer(t, grpcServerTestTimeout)
 		serveErrors := make(chan error, 1)
 
-		go func() { serveErrors <- grpcf.Serve(ctx, server, address, grpcServerTestTimeout) }()
+		go func() { serveErrors <- grpcf.ListenAndServe(ctx, config, server) }()
 
 		connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
@@ -242,8 +245,9 @@ func TestNewServer(t *testing.T) {
 	})
 }
 
-// freeGRPCAddress returns a loopback address no listener holds at the time of the call.
-func freeGRPCAddress(t *testing.T) string {
+// freeGRPCServer returns the loopback address of a port no listener holds at the time of the call,
+// and the configuration of a server on that port, draining within shutdown.
+func freeGRPCServer(t *testing.T, shutdown time.Duration) (string, grpcf.ServerConfig) {
 	t.Helper()
 
 	listenerConfig := &net.ListenConfig{}
@@ -253,14 +257,14 @@ func freeGRPCAddress(t *testing.T) string {
 		panic(err)
 	}
 
-	address := listener.Addr().String()
+	port := listener.Addr().(*net.TCPAddr).Port
 
 	err = listener.Close()
 	if err != nil {
 		panic(err)
 	}
 
-	return address
+	return "127.0.0.1:" + strconv.Itoa(port), grpcf.ServerConfig{Port: port, Shutdown: shutdown}
 }
 
 // waitForGRPCServer returns once address accepts connections.

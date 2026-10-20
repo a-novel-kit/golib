@@ -15,10 +15,10 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// ErrNoDbInContext is returned by an operation that needs the connection pool, such as
+// ErrNoDBInContext is returned by an operation that needs the connection pool, such as
 // [RunMigrationsContext] or [Health], when the context carries a transaction instead.
 // [ErrNoIDBInContext] covers the case of no connection at all.
-var ErrNoDbInContext = errors.New("context does not contain a bun.DB")
+var ErrNoDBInContext = errors.New("context does not contain a bun.DB")
 
 const (
 	// lockAttempts bounds the runs a migration gets when it gives up waiting for a lock, and
@@ -139,7 +139,7 @@ func RunMigrationsContext(ctx context.Context, migrations fs.FS) error {
 
 	db, ok := tx.(*bun.DB)
 	if !ok {
-		return ErrNoDbInContext
+		return ErrNoDBInContext
 	}
 
 	return RunMigrations(ctx, db, migrations)

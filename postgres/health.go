@@ -26,7 +26,7 @@ func Health(ctx context.Context) error {
 
 	pool, ok := db.(*bun.DB)
 	if !ok {
-		return ErrNoDbInContext
+		return ErrNoDBInContext
 	}
 
 	return ping(ctx, pool, HealthTimeout, PingRetryInterval, func(err error) bool {

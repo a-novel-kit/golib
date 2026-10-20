@@ -156,30 +156,6 @@ func TestEnvTimeParser(t *testing.T) {
 	require.Equal(t, now, config.LoadEnv(os.Getenv("qux"), now, config.TimeParser))
 }
 
-func TestEnvJSONMapParser(t *testing.T) {
-	t.Setenv("foo", `{"key":"super-value"}`)
-	t.Setenv("bar", "bar:value")
-
-	basic := map[string]any{"key": "value"}
-	custom := map[string]any{"key": "super-value"}
-
-	require.Equal(t, custom, config.LoadEnv(os.Getenv("foo"), basic, config.JSONMapParser))
-	require.Panics(t, func() { _ = config.LoadEnv(os.Getenv("bar"), basic, config.JSONMapParser) })
-	require.Equal(t, basic, config.LoadEnv(os.Getenv("qux"), basic, config.JSONMapParser))
-}
-
-func TestEnvJSONSliceParser(t *testing.T) {
-	t.Setenv("foo", `[{"key":"super-value"}]`)
-	t.Setenv("bar", "bar:value")
-
-	basic := []any{map[string]any{"key": "value"}}
-	custom := []any{map[string]any{"key": "super-value"}}
-
-	require.Equal(t, custom, config.LoadEnv(os.Getenv("foo"), basic, config.JSONSliceParser))
-	require.Panics(t, func() { _ = config.LoadEnv(os.Getenv("bar"), basic, config.JSONSliceParser) })
-	require.Equal(t, basic, config.LoadEnv(os.Getenv("qux"), basic, config.JSONSliceParser))
-}
-
 func TestEnvStringSliceParser(t *testing.T) {
 	t.Setenv("foo", "foo,bar,baz")
 

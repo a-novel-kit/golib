@@ -16,24 +16,25 @@ import (
 // errRecoveredPanic wraps panic values absorbed by [RecoverPanic].
 var errRecoveredPanic = errors.New("recovered panic")
 
-// AppName is the instrumentation scope name stamped on every tracer and logger
-// created through this package. Set it once at startup with SetAppName.
-var AppName string
+// appName is the instrumentation scope name stamped on every tracer and logger
+// created through this package.
+var appName string
 
-// SetAppName sets the instrumentation scope name used by Tracer and Logger.
+// SetAppName sets the instrumentation scope name of Tracer and Logger. Call it once at startup.
 func SetAppName(name string) {
-	AppName = name
+	appName = name
 }
 
-// Tracer returns a tracer scoped to AppName from the global tracer provider.
+// Tracer returns a tracer from the global tracer provider, scoped to the name given to
+// [SetAppName].
 func Tracer(options ...trace.TracerOption) trace.Tracer {
-	return otel.GetTracerProvider().Tracer(AppName, options...)
+	return otel.GetTracerProvider().Tracer(appName, options...)
 }
 
-// Logger returns an slog logger scoped to AppName that writes through the global
-// OpenTelemetry logger provider.
+// Logger returns an slog logger that writes through the global OpenTelemetry logger provider,
+// scoped to the name given to [SetAppName].
 func Logger(options ...otelslog.Option) *slog.Logger {
-	return otelslog.NewLogger(AppName, options...)
+	return otelslog.NewLogger(appName, options...)
 }
 
 // reportedError marks an error that a span already describes.
@@ -65,13 +66,17 @@ func ReportError(span trace.Span, err error) error {
 }
 
 // ReportSuccess returns resp. OpenTelemetry leaves the status of a successful operation unset, so
-// it records nothing on the span. Return resp directly instead.
+// it records nothing on the span.
+//
+// Deprecated: return resp directly.
 func ReportSuccess[Resp any](_ trace.Span, resp Resp) Resp {
 	return resp
 }
 
 // ReportSuccessNoContent records nothing. OpenTelemetry leaves the status of a successful
-// operation unset, so omit the call instead.
+// operation unset.
+//
+// Deprecated: omit the call.
 func ReportSuccessNoContent(_ trace.Span) {}
 
 // RecoverPanic absorbs a panic on the calling goroutine, recording it on span and logging it

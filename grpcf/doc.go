@@ -2,6 +2,6 @@
 // HTTP.
 //
 // Inbound, it assembles a server from its GRPC_* configuration with the standard interceptor
-// chain, and Serve runs it under a bounded shutdown. Outbound, it supplies the dial credentials of
-// a local or a Google Cloud target.
+// chain, and ListenAndServe runs it under a bounded shutdown. Outbound, it supplies the dial
+// credentials of a local or a Google Cloud target.
 package grpcf
