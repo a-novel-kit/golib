@@ -92,7 +92,7 @@ func TestLogGcloud(t *testing.T) {
 			}
 
 			out := &bytes.Buffer{}
-			testCase.log(&loggingpresets.LogGcloud{ProjectId: "project", Out: out}, ctx)
+			testCase.log(&loggingpresets.LogGcloud{ProjectID: "project", Out: out}, ctx)
 
 			entry := decodeGcloudEntry(t, out)
 			require.Equal(t, "message", entry.Message)
@@ -138,7 +138,7 @@ func TestLogGcloud(t *testing.T) {
 
 				spanIDs[i] = span.SpanContext().SpanID().String()
 				outs[i] = &bytes.Buffer{}
-				(&loggingpresets.LogGcloud{ProjectId: "project", Out: outs[i]}).Err(ctx, "message", fields...)
+				(&loggingpresets.LogGcloud{ProjectID: "project", Out: outs[i]}).Err(ctx, "message", fields...)
 			})
 		}
 
@@ -156,7 +156,7 @@ func TestLogGcloud(t *testing.T) {
 
 		// One logger serves every request, over a writer with no lock of its own.
 		out := &bytes.Buffer{}
-		logger := &loggingpresets.LogGcloud{ProjectId: "project", Out: out}
+		logger := &loggingpresets.LogGcloud{ProjectID: "project", Out: out}
 
 		var wg sync.WaitGroup
 		for range 8 {

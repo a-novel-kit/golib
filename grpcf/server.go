@@ -50,7 +50,7 @@ func NewServer(
 	}
 
 	options := []grpc.ServerOption{
-		tracing.RpcInterceptor(),
+		tracing.RPCInterceptor(),
 		grpc.ChainUnaryInterceptor(
 			baseContextUnaryInterceptor(baseContext),
 			logger.UnaryInterceptor(),

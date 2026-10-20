@@ -84,10 +84,10 @@ func (config *Local) Flush() {
 	shutdownProviders(config.FlushTimeout, config.tp, config.lp)
 }
 
-func (config *Local) HttpHandler() func(http.Handler) http.Handler {
+func (config *Local) HTTPHandler() func(http.Handler) http.Handler {
 	return otelhttp.NewMiddleware("")
 }
 
-func (config *Local) RpcInterceptor() grpc.ServerOption {
+func (config *Local) RPCInterceptor() grpc.ServerOption {
 	return grpc.StatsHandler(otelgrpc.NewServerHandler())
 }

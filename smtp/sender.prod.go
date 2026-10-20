@@ -39,10 +39,10 @@ type ProdSender struct {
 	// Password is the SMTP credential. It is never serialized.
 	Password string `json:"-" yaml:"-"`
 
-	// ForceUnencryptedTls allows plaintext authentication over a connection the
+	// ForceUnencryptedTLS allows plaintext authentication over a connection the
 	// server has not secured with TLS, sending credentials in the clear. Use it
 	// only against a local test SMTP server, never in production.
-	ForceUnencryptedTls bool `json:"forceUnencryptedTLS" yaml:"forceUnencryptedTLS"`
+	ForceUnencryptedTLS bool `json:"forceUnencryptedTLS" yaml:"forceUnencryptedTLS"`
 
 	// Timeout is the shared network budget from DNS resolution through SMTP QUIT, for both
 	// SendMail and Ping. Template rendering happens before this budget starts.
@@ -158,7 +158,7 @@ func (sender *ProdSender) auth() smtp.Auth {
 	}
 
 	auth := smtp.PlainAuth("", username, sender.Password, sender.Domain)
-	if sender.ForceUnencryptedTls {
+	if sender.ForceUnencryptedTLS {
 		return unencryptedAuth{auth}
 	}
 
@@ -245,7 +245,7 @@ func (sender *ProdSender) negotiate(client *smtp.Client, host string) error {
 
 // unencryptedAuth wraps an smtp.Auth to report the connection as TLS-secured,
 // bypassing net/smtp's refusal to send plaintext credentials over an
-// unencrypted link. Reached only through ProdSender.ForceUnencryptedTls.
+// unencrypted link. Reached only through ProdSender.ForceUnencryptedTLS.
 type unencryptedAuth struct {
 	smtp.Auth
 }

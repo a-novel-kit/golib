@@ -105,13 +105,13 @@ func (config *Sentry) Flush() {
 	sentry.Flush(config.FlushTimeout)
 }
 
-func (config *Sentry) HttpHandler() func(http.Handler) http.Handler {
+func (config *Sentry) HTTPHandler() func(http.Handler) http.Handler {
 	sentryHandler := sentryhttp.New(sentryhttp.Options{})
 
 	return sentryHandler.Handle
 }
 
-func (config *Sentry) RpcInterceptor() grpc.ServerOption {
+func (config *Sentry) RPCInterceptor() grpc.ServerOption {
 	return grpc.StatsHandler(otelgrpc.NewServerHandler())
 }
 

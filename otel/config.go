@@ -28,10 +28,10 @@ type Config interface {
 	GetLogger() (log.LoggerProvider, error)
 	// Flush drains buffered spans and logs; run it before the process exits.
 	Flush()
-	// HttpHandler returns middleware that instruments incoming HTTP requests.
-	HttpHandler() func(http.Handler) http.Handler
-	// RpcInterceptor returns the server option that instruments incoming gRPC calls.
-	RpcInterceptor() grpc.ServerOption
+	// HTTPHandler returns middleware that instruments incoming HTTP requests.
+	HTTPHandler() func(http.Handler) http.Handler
+	// RPCInterceptor returns the server option that instruments incoming gRPC calls.
+	RPCInterceptor() grpc.ServerOption
 }
 
 // Init runs the backend's own setup, then installs its propagator, tracer, and

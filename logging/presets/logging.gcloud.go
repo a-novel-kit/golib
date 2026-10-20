@@ -16,8 +16,8 @@ import (
 // understands. An entry logged under a span carries the fields Cloud Logging
 // reads to attach it to that span's trace.
 type LogGcloud struct {
-	// ProjectId names the Google Cloud project that scopes trace resource names.
-	ProjectId string `json:"projectID" yaml:"projectID"`
+	// ProjectID names the Google Cloud project that scopes trace resource names.
+	ProjectID string `json:"projectID" yaml:"projectID"`
 	// Out receives the entries. It defaults to standard error, where Cloud
 	// Logging collects them. Set it before the first entry.
 	Out io.Writer `json:"-" yaml:"-"`
@@ -41,7 +41,7 @@ func (logger *LogGcloud) Err(ctx context.Context, msg string, fields ...any) {
 
 func (logger *LogGcloud) log(ctx context.Context, level slog.Level, msg string, fields ...any) {
 	logger.once.Do(func() {
-		logger.logger = slog.New(newGcloudHandler(logger.Out, logger.ProjectId))
+		logger.logger = slog.New(newGcloudHandler(logger.Out, logger.ProjectID))
 	})
 
 	logger.logger.Log(ctx, level, msg, fields...)

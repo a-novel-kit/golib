@@ -14,7 +14,7 @@ type ContextKey struct{}
 
 // ErrNoIDBInContext is returned by GetContext when the context carries no
 // bun.IDB, meaning it was never seeded by NewContext or one of its variants.
-// [ErrNoDbInContext] covers the stricter case where a connection is present but
+// [ErrNoDBInContext] covers the stricter case where a connection is present but
 // is not a full *bun.DB.
 var ErrNoIDBInContext = errors.New("context does not contain a bun.IDB")
 

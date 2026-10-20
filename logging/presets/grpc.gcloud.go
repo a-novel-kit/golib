@@ -19,8 +19,8 @@ var _ logging.RPCConfig = (*GRPCGcloud)(nil)
 type GRPCGcloud struct {
 	// Component labels every entry with the emitting subsystem.
 	Component string `json:"component" yaml:"component"`
-	// ProjectId names the Google Cloud project that scopes trace resource names.
-	ProjectId string `json:"projectID" yaml:"projectID"`
+	// ProjectID names the Google Cloud project that scopes trace resource names.
+	ProjectID string `json:"projectID" yaml:"projectID"`
 	// Out receives the entries. It defaults to standard error, where Cloud
 	// Logging collects them. Set it before building an interceptor.
 	Out io.Writer `json:"-" yaml:"-"`
@@ -58,6 +58,6 @@ func (logger *GRPCGcloud) init() {
 		return
 	}
 
-	logger.l = slog.New(newGcloudHandler(logger.Out, logger.ProjectId)).
+	logger.l = slog.New(newGcloudHandler(logger.Out, logger.ProjectID)).
 		With("service", "gRPC/server", "component", logger.Component)
 }

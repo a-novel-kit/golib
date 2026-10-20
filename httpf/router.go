@@ -36,7 +36,7 @@ func NewRouter(
 
 	router.Use(middleware.Timeout(config.Timeouts.Request))
 	router.Use(middleware.RequestSize(config.MaxRequestSize))
-	router.Use(tracing.HttpHandler())
+	router.Use(tracing.HTTPHandler())
 	router.Use(cors.Handler(corsOptions(config.Cors)))
 	router.Use(logger.Logger())
 	router.Use(downtime.Middleware(downtimeStart, config.Liveness))

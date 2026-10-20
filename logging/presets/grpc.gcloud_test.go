@@ -65,7 +65,7 @@ func TestGRPCGcloud(t *testing.T) {
 			}
 
 			out := &bytes.Buffer{}
-			require.NoError(t, testCase.call(ctx, &loggingpresets.GRPCGcloud{ProjectId: "project", Out: out}))
+			require.NoError(t, testCase.call(ctx, &loggingpresets.GRPCGcloud{ProjectID: "project", Out: out}))
 
 			lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 			require.NotEmpty(t, lines)

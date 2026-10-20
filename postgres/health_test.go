@@ -48,7 +48,7 @@ func TestHealth(t *testing.T) {
 				return context.WithValue(t.Context(), postgres.ContextKey{}, bun.Tx{})
 			},
 
-			expectErr: postgres.ErrNoDbInContext,
+			expectErr: postgres.ErrNoDBInContext,
 		},
 		{
 			name: "Error/Cancelled",

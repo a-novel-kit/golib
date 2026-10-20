@@ -49,10 +49,10 @@ func (config *Disabled) GetLogger() (log.LoggerProvider, error) {
 func (config *Disabled) Flush() {
 }
 
-func (config *Disabled) HttpHandler() func(http.Handler) http.Handler {
+func (config *Disabled) HTTPHandler() func(http.Handler) http.Handler {
 	return otelhttp.NewMiddleware("")
 }
 
-func (config *Disabled) RpcInterceptor() grpc.ServerOption {
+func (config *Disabled) RPCInterceptor() grpc.ServerOption {
 	return grpc.StatsHandler(otelgrpc.NewServerHandler())
 }
