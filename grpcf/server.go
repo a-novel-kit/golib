@@ -26,11 +26,12 @@ var errShuttingDown = errors.New("server shutting down")
 // NewServer returns a server with the standard interceptors, outermost first: tracing, the end of
 // streams at shutdown, the base context, call logs, panic recovery and the planned downtime.
 //
-// Its streams end when ctx, the context [Serve] drains the server under, is done, so a long-lived
-// stream cannot hold the drain to its deadline. Their clients receive Unavailable and resume on
-// another instance, while unary calls finish within the drain. baseContext derives each call's
-// context, so calls reach process-wide values such as the database connection; nil keeps the call's
-// own. The health and echo services that [RegisterEchoServers] adds still answer during a downtime.
+// Its streams end when ctx, the context [ListenAndServe] drains the server under, is done, so a
+// long-lived stream cannot hold the drain to its deadline. Their clients receive Unavailable and
+// resume on another instance, while unary calls finish within the drain. baseContext derives each
+// call's context, so calls reach process-wide values such as the database connection; nil keeps the
+// call's own. The health and echo services that [RegisterEchoServers] adds still answer during a
+// downtime.
 func NewServer(
 	ctx context.Context,
 	tracing otel.Config,
@@ -51,14 +52,14 @@ func NewServer(
 	options := []grpc.ServerOption{
 		tracing.RpcInterceptor(),
 		grpc.ChainUnaryInterceptor(
-			BaseContextUnaryInterceptor(baseContext),
+			baseContextUnaryInterceptor(baseContext),
 			logger.UnaryInterceptor(),
 			logger.PanicUnaryInterceptor(),
 			downtime.UnaryServerInterceptor(downtimeStart, open...),
 		),
 		grpc.ChainStreamInterceptor(
 			endStreamsInterceptor(ctx),
-			BaseContextStreamInterceptor(baseContext),
+			baseContextStreamInterceptor(baseContext),
 			logger.StreamInterceptor(),
 			logger.PanicStreamInterceptor(),
 			downtime.StreamServerInterceptor(downtimeStart, open...),
@@ -88,15 +89,9 @@ func endStreamsInterceptor(ctx context.Context) grpc.StreamServerInterceptor {
 	}
 }
 
-// ListenAndServe serves server on the configured port until ctx is canceled, then drains active
-// calls within the configured shutdown timeout. See [Serve].
-func ListenAndServe(ctx context.Context, config ServerConfig, server *grpc.Server) error {
-	return Serve(ctx, server, ":"+strconv.Itoa(config.Port), config.Shutdown)
-}
-
-// Serve listens on address until ctx is canceled or the server stops. Cancellation lets active
-// RPCs finish within shutdownTimeout, then stops remaining RPCs. A forced shutdown returns an
-// error wrapping [context.DeadlineExceeded].
+// ListenAndServe serves server on the configured port until ctx is canceled or the server stops.
+// Cancellation lets active RPCs finish within the configured shutdown timeout, then stops remaining
+// RPCs. A forced shutdown returns an error wrapping [context.DeadlineExceeded].
 //
 // [grpc.ErrServerStopped] is a normal result. A serving error that races with shutdown is joined
 // with the shutdown error so callers can inspect both with [errors.Is].
@@ -105,10 +100,11 @@ func ListenAndServe(ctx context.Context, config ServerConfig, server *grpc.Serve
 //
 //	processCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 //	defer stop()
-//	if err := grpcf.Serve(processCtx, server, ":8080", 30*time.Second); err != nil {
+//	if err := grpcf.ListenAndServe(processCtx, cfg.Grpc, server); err != nil {
 //		log.Printf("run gRPC server: %v", err)
 //	}
-func Serve(ctx context.Context, server *grpc.Server, address string, shutdownTimeout time.Duration) error {
+func ListenAndServe(ctx context.Context, config ServerConfig, server *grpc.Server) error {
+	address := ":" + strconv.Itoa(config.Port)
 	listenerConfig := &net.ListenConfig{}
 
 	listener, err := listenerConfig.Listen(ctx, "tcp", address)
@@ -132,7 +128,7 @@ func Serve(ctx context.Context, server *grpc.Server, address string, shutdownTim
 	case <-ctx.Done():
 	}
 
-	shutdownErr := drain(ctx, server, shutdownTimeout)
+	shutdownErr := drain(ctx, server, config.Shutdown)
 
 	return errors.Join(serveError(<-serveErrors), shutdownErr)
 }

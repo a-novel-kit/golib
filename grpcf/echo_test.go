@@ -2,7 +2,6 @@ package grpcf_test
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
 
@@ -17,13 +16,13 @@ import (
 func TestRegisterEchoServers(t *testing.T) {
 	t.Parallel()
 
-	address := freeGRPCAddress(t)
+	address, config := freeGRPCServer(t, time.Second)
 	server := grpc.NewServer()
 	healthcheck := grpcf.RegisterEchoServers(server)
 	healthcheck.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
 	serveErrors := make(chan error, 1)
-	go func() { serveErrors <- grpcf.Serve(t.Context(), server, address, time.Second) }()
+	go func() { serveErrors <- grpcf.ListenAndServe(t.Context(), config, server) }()
 
 	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
@@ -51,37 +50,4 @@ func TestRegisterEchoServers(t *testing.T) {
 	response, err = watch.Recv()
 	require.NoError(t, err)
 	require.Equal(t, healthpb.HealthCheckResponse_NOT_SERVING, response.GetStatus())
-}
-
-func TestSetEchoServersContext(t *testing.T) {
-	t.Parallel()
-
-	address := freeGRPCAddress(t)
-	server := grpc.NewServer()
-	grpcf.SetEchoServersContext(t.Context(), server, -time.Second)
-
-	listenerConfig := &net.ListenConfig{}
-	listener, err := listenerConfig.Listen(t.Context(), "tcp", address)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-
-	serveErrors := make(chan error, 1)
-	go func() { serveErrors <- server.Serve(listener) }()
-
-	t.Cleanup(server.Stop)
-
-	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-
-	ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
-	t.Cleanup(cancel)
-
-	client := healthpb.NewHealthClient(connection)
-	response, err := client.Check(ctx, &healthpb.HealthCheckRequest{}, grpc.WaitForReady(true))
-	require.NoError(t, err)
-	require.Equal(t, healthpb.HealthCheckResponse_SERVING, response.GetStatus())
-
-	server.Stop()
-	require.NoError(t, <-serveErrors)
 }
