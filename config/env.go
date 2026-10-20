@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -172,28 +171,4 @@ func DurationParser(value string) (time.Duration, error) {
 // TimeParser parses a time.Time for [LoadEnv], expecting the time.RFC3339 format.
 func TimeParser(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339, value)
-}
-
-// JSONMapParser parses a JSON object into a map[string]any, for [LoadEnv].
-func JSONMapParser(value string) (map[string]any, error) {
-	var parsedValue map[string]any
-
-	err := json.Unmarshal([]byte(value), &parsedValue)
-	if err != nil {
-		return nil, err
-	}
-
-	return parsedValue, nil
-}
-
-// JSONSliceParser parses a JSON array into a []any, for [LoadEnv].
-func JSONSliceParser(value string) ([]any, error) {
-	var parsedValue []any
-
-	err := json.Unmarshal([]byte(value), &parsedValue)
-	if err != nil {
-		return nil, err
-	}
-
-	return parsedValue, nil
 }
