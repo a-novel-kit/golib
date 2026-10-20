@@ -12,89 +12,71 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// pingerFunc scripts the answers of a database handle to ping.
 type pingerFunc func(ctx context.Context) error
 
 func (fn pingerFunc) PingContext(ctx context.Context) error {
 	return fn(ctx)
 }
 
+// errPingFailed is the failure the scripted pingers answer with.
+var errPingFailed = errors.New("ping failed")
+
+// pingAnswers answers every ping.
+func pingAnswers(context.Context) error { return nil }
+
+// pingFails fails every ping at once.
+func pingFails(context.Context) error { return errPingFailed }
+
+// pingHangs fails a ping only once its context ends.
+func pingHangs(ctx context.Context) error {
+	<-ctx.Done()
+
+	return errPingFailed
+}
+
 func TestPing(t *testing.T) {
 	t.Parallel()
-
-	errFoo := errors.New("foo")
 
 	testCases := []struct {
 		name string
 
-		context  func(t *testing.T) context.Context
-		pinger   pingerFunc
-		timeout  time.Duration
-		interval time.Duration
+		// callerTimeout, when set, bounds the context the caller passes.
+		callerTimeout time.Duration
+		pinger        pingerFunc
+		timeout       time.Duration
+		interval      time.Duration
 
 		expectError error
 		expectCalls int
 	}{
 		{
-			name: "Success",
-			context: func(t *testing.T) context.Context {
-				t.Helper()
-
-				return t.Context()
-			},
-			pinger: func(context.Context) error {
-				return nil
-			},
+			name:        "Success",
+			pinger:      pingAnswers,
 			timeout:     time.Second,
 			interval:    time.Millisecond,
 			expectCalls: 1,
 		},
 		{
-			name: "Error/CallerDeadline",
-			context: func(t *testing.T) context.Context {
-				t.Helper()
-
-				ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
-				t.Cleanup(cancel)
-
-				return ctx
-			},
-			pinger: func(ctx context.Context) error {
-				<-ctx.Done()
-
-				return errFoo
-			},
-			timeout:     time.Second,
-			interval:    time.Millisecond,
-			expectError: context.DeadlineExceeded,
-			expectCalls: 1,
+			name:          "Error/CallerDeadline",
+			callerTimeout: time.Millisecond,
+			pinger:        pingHangs,
+			timeout:       time.Second,
+			interval:      time.Millisecond,
+			expectError:   context.DeadlineExceeded,
+			expectCalls:   1,
 		},
 		{
-			name: "Error/OverallDeadline",
-			context: func(t *testing.T) context.Context {
-				t.Helper()
-
-				return t.Context()
-			},
-			pinger: func(ctx context.Context) error {
-				<-ctx.Done()
-
-				return errFoo
-			},
+			name:        "Error/OverallDeadline",
+			pinger:      pingHangs,
 			timeout:     time.Millisecond,
 			interval:    time.Millisecond,
 			expectError: context.DeadlineExceeded,
 			expectCalls: 1,
 		},
 		{
-			name: "Error/RetryWaitDeadline",
-			context: func(t *testing.T) context.Context {
-				t.Helper()
-
-				return t.Context()
-			},
-			pinger: func(context.Context) error {
-				return errFoo
-			},
+			name:        "Error/RetryWaitDeadline",
+			pinger:      pingFails,
 			timeout:     time.Millisecond,
 			interval:    time.Second,
 			expectError: context.DeadlineExceeded,
@@ -106,18 +88,29 @@ func TestPing(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
+			ctx := t.Context()
+
+			if testCase.callerTimeout > 0 {
+				var cancel context.CancelFunc
+
+				ctx, cancel = context.WithTimeout(ctx, testCase.callerTimeout)
+				defer cancel()
+			}
+
 			calls := 0
-			err := ping(testCase.context(t), pingerFunc(func(ctx context.Context) error {
+			counted := pingerFunc(func(ctx context.Context) error {
 				calls++
 
 				return testCase.pinger(ctx)
-			}), testCase.timeout, testCase.interval, nil)
+			})
+
+			err := ping(ctx, counted, testCase.timeout, testCase.interval, nil)
 
 			if testCase.expectError == nil {
 				require.NoError(t, err)
 			} else {
 				require.ErrorIs(t, err, testCase.expectError)
-				require.ErrorIs(t, err, errFoo)
+				require.ErrorIs(t, err, errPingFailed)
 			}
 
 			require.Equal(t, testCase.expectCalls, calls)
@@ -179,7 +172,7 @@ func TestPingRetries(t *testing.T) {
 			defer cancel()
 
 			calls := 0
-			err := ping(ctx, pingerFunc(func(context.Context) error {
+			scripted := pingerFunc(func(context.Context) error {
 				if testCase.cancel {
 					cancel()
 				}
@@ -188,7 +181,9 @@ func TestPingRetries(t *testing.T) {
 				calls++
 
 				return err
-			}), time.Second, time.Millisecond, testCase.retryable)
+			})
+
+			err := ping(ctx, scripted, time.Second, time.Millisecond, testCase.retryable)
 
 			require.ErrorIs(t, err, testCase.expectError)
 			require.Equal(t, testCase.expectCalls, calls)

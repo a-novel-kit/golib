@@ -15,7 +15,7 @@ import (
 	postgrespresets "github.com/a-novel-kit/golib/postgres/presets"
 )
 
-// Migrations is the probe schema the transaction tests write to.
+// migrations is the probe schema the transaction tests write to.
 //
 //go:embed testdata/migrations/*.sql
 var migrations embed.FS
@@ -52,6 +52,7 @@ func writeProbe(ctx context.Context, t *testing.T, id string) {
 	require.NoError(t, err)
 }
 
+// probeCount returns how many probe rows hold id, read through GetContext.
 func probeCount(ctx context.Context, t *testing.T, id string) int {
 	t.Helper()
 

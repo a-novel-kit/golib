@@ -134,6 +134,7 @@ func getHTTP(ctx context.Context, address string) error {
 	return err
 }
 
+// freeHTTPAddress returns a loopback address no listener holds at the time of the call.
 func freeHTTPAddress(t *testing.T) string {
 	t.Helper()
 
@@ -154,6 +155,7 @@ func freeHTTPAddress(t *testing.T) string {
 	return address
 }
 
+// waitForHTTPServer returns once address accepts connections.
 func waitForHTTPServer(t *testing.T, address string) {
 	t.Helper()
 

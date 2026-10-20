@@ -33,6 +33,9 @@ const (
 // discardLogger keeps the loop's log lines out of the test output; no case asserts on them.
 var discardLogger = &loggingpresets.LogLocal{Out: io.Discard}
 
+// noWork is a run that finds nothing to do.
+func noWork(context.Context) (bool, error) { return false, nil }
+
 func TestPoll(t *testing.T) {
 	t.Parallel()
 
@@ -47,9 +50,7 @@ func TestPoll(t *testing.T) {
 		go func() {
 			defer close(returned)
 
-			worker.Poll(ctx, discardLogger, "test", time.Hour, 0, func(context.Context) (bool, error) {
-				return false, nil
-			})
+			worker.Poll(ctx, discardLogger, "test", time.Hour, 0, noWork)
 		}()
 
 		cancel()

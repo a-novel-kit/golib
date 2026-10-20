@@ -35,10 +35,9 @@ func TestDecodeJSON(t *testing.T) {
 			expect: request{Name: "Ada"},
 		},
 		{
-			name:      "Success/UnknownField",
-			body:      `{"name":"Ada","extra":true}`,
-			expect:    request{Name: "Ada"},
-			expectErr: false,
+			name:   "Success/UnknownField",
+			body:   `{"name":"Ada","extra":true}`,
+			expect: request{Name: "Ada"},
 		},
 		{
 			name: "Success/Null",

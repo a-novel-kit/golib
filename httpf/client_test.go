@@ -81,12 +81,12 @@ func TestNewPoolClient(t *testing.T) {
 
 		var reused []bool
 
+		clientTrace := &httptrace.ClientTrace{
+			GotConn: func(info httptrace.GotConnInfo) { reused = append(reused, info.Reused) },
+		}
+
 		for range 3 {
-			ctx := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{
-				GotConn: func(info httptrace.GotConnInfo) {
-					reused = append(reused, info.Reused)
-				},
-			})
+			ctx := httptrace.WithClientTrace(t.Context(), clientTrace)
 
 			request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
 			require.NoError(t, err)

@@ -61,6 +61,7 @@ func migrationDB(t *testing.T, lockTimeout time.Duration) *bun.DB {
 	return db
 }
 
+// appliedMigrations returns the versions bun recorded as applied in db, in order.
 func appliedMigrations(t *testing.T, db *bun.DB) []string {
 	t.Helper()
 
@@ -76,6 +77,7 @@ func TestRunMigrations(t *testing.T) {
 	t.Parallel()
 
 	createProbe := map[string]string{"20260101000000_probe": "CREATE TABLE probe (id int);"}
+	createSlowProbe := map[string]string{"20260101000000_slow": "CREATE TABLE probe (id int);\nSELECT pg_sleep(0.3);"}
 
 	type run struct {
 		migrations map[string]string
@@ -144,18 +146,9 @@ func TestRunMigrations(t *testing.T) {
 			name: "Success/ConcurrentRunners",
 
 			runs: []run{
-				{
-					migrations:    map[string]string{"20260101000000_slow": "CREATE TABLE probe (id int);\nSELECT pg_sleep(0.3);"},
-					expectApplied: []string{"20260101000000"},
-				},
-				{
-					migrations:    map[string]string{"20260101000000_slow": "CREATE TABLE probe (id int);\nSELECT pg_sleep(0.3);"},
-					expectApplied: []string{"20260101000000"},
-				},
-				{
-					migrations:    map[string]string{"20260101000000_slow": "CREATE TABLE probe (id int);\nSELECT pg_sleep(0.3);"},
-					expectApplied: []string{"20260101000000"},
-				},
+				{migrations: createSlowProbe, expectApplied: []string{"20260101000000"}},
+				{migrations: createSlowProbe, expectApplied: []string{"20260101000000"}},
+				{migrations: createSlowProbe, expectApplied: []string{"20260101000000"}},
 			},
 			concurrent: true,
 		},

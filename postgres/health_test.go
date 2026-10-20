@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -70,6 +71,27 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+// requireClosed requires closeFunc to succeed, or to fail with tolerated.
+func requireClosed(t *testing.T, closeFunc func() error, tolerated error) {
+	t.Helper()
+
+	err := closeFunc()
+	if !errors.Is(err, tolerated) {
+		require.NoError(t, err)
+	}
+}
+
+// closeSocket closes the network connection under a pooled driver connection, and leaves the pool
+// to discover the dead peer on its next ping.
+func closeSocket(connection any) error {
+	driverConn, ok := connection.(*pgdriver.Conn)
+	if !ok {
+		return fmt.Errorf("unexpected driver connection %T", connection)
+	}
+
+	return driverConn.Conn().Close()
+}
+
 func TestHealthStalePool(t *testing.T) {
 	t.Parallel()
 
@@ -91,38 +113,22 @@ func TestHealthStalePool(t *testing.T) {
 
 			pool, err := testConfig(t).DB(t.Context())
 			require.NoError(t, err)
-			t.Cleanup(func() {
-				// An expired probe can leave intentionally closed sockets in the pool.
-				closeErr := pool.Close()
-				if !errors.Is(closeErr, net.ErrClosed) {
-					require.NoError(t, closeErr)
-				}
-			})
+			// An expired probe can leave intentionally closed sockets in the pool.
+			t.Cleanup(func() { requireClosed(t, pool.Close, net.ErrClosed) })
 
 			connections := make([]*sql.Conn, 0, testCase.staleConns)
 			for range testCase.staleConns {
 				conn, connErr := pool.DB.Conn(t.Context())
 				require.NoError(t, connErr)
-				t.Cleanup(func() {
-					closeErr := conn.Close()
-					if !errors.Is(closeErr, sql.ErrConnDone) {
-						require.NoError(t, closeErr)
-					}
-				})
+				t.Cleanup(func() { requireClosed(t, conn.Close, sql.ErrConnDone) })
 
 				connections = append(connections, conn)
 			}
 
 			for _, conn := range connections {
-				// Close only the socket: the driver must discover the dead peer on
-				// its next ping, as it does after a database host restarts.
-				err = conn.Raw(func(connection any) error {
-					driverConn, ok := connection.(*pgdriver.Conn)
-					require.True(t, ok)
-
-					return driverConn.Conn().Close()
-				})
-				require.NoError(t, err)
+				// The driver discovers the dead peer on its next ping, as it does after a database
+				// host restarts.
+				require.NoError(t, conn.Raw(closeSocket))
 				require.NoError(t, conn.Close())
 			}
 

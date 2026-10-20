@@ -20,6 +20,7 @@ import (
 // of connections left idle afterwards tells the two apart.
 const concurrentQueries = 5
 
+// testConfig points the tests at the throwaway database POSTGRES_DSN names.
 func testConfig(t *testing.T) *postgrespresets.Default {
 	t.Helper()
 
@@ -42,18 +43,14 @@ func holdOpen(ctx context.Context, t *testing.T, config *postgrespresets.Default
 	var wg sync.WaitGroup
 
 	for range concurrentQueries {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			// The statements have to overlap. pg_sleep holds each connection long enough
 			// for the pool to open a second.
 			_, queryErr := db.NewRaw("SELECT pg_sleep(0.2);").Exec(ctx)
 			// require calls FailNow, which only works on the goroutine running the
 			// test.
 			assert.NoError(t, queryErr)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -76,9 +73,9 @@ func TestDefaultKeepsIdleConnections(t *testing.T) {
 		"every released connection should have been kept, not closed and reopened later")
 }
 
-// TestDefaultHonoursTheOverride covers the escape hatch: a deployment that sets
+// TestDefaultHonorsTheOverride covers the escape hatch: a deployment that sets
 // its own number gets it, and the default applies only when none was expressed.
-func TestDefaultHonoursTheOverride(t *testing.T) {
+func TestDefaultHonorsTheOverride(t *testing.T) {
 	t.Parallel()
 
 	config := testConfig(t)
@@ -112,7 +109,7 @@ func TestDefaultNegativeOverrideKeepsNone(t *testing.T) {
 
 // TestDefaultBoundsOpenConnections covers the open limit, which has no default:
 // the field exists so a service can state its own answer where it builds the
-// config, and the pool has to honour it on every connection it opens.
+// config, and the pool has to honor it on every connection it opens.
 func TestDefaultBoundsOpenConnections(t *testing.T) {
 	t.Parallel()
 
@@ -134,7 +131,7 @@ func TestDefaultBoundsOpenConnections(t *testing.T) {
 
 // TestDefaultLeavesOpenConnectionsUnlimitedByDefault pins the absence of a
 // default. A library cannot know how many replicas share a database, so an
-// unset value must keep database/sql's behaviour rather than invent a ceiling.
+// unset value must keep database/sql's behavior rather than invent a ceiling.
 func TestDefaultLeavesOpenConnectionsUnlimitedByDefault(t *testing.T) {
 	t.Parallel()
 

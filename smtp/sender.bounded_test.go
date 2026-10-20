@@ -41,6 +41,7 @@ func (sender *countingSender) SendMail(_ smtp.MailUsers, _ *template.Template, _
 
 func (sender *countingSender) Ping() error { return sender.pingErr }
 
+// running returns how many deliveries are in progress.
 func (sender *countingSender) running() int {
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
@@ -64,13 +65,7 @@ func TestBoundedSender(t *testing.T) {
 		var wg sync.WaitGroup
 
 		for range 6 {
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-
-				errs <- sender.SendMail(nil, nil, "", nil)
-			}()
+			wg.Go(func() { errs <- sender.SendMail(nil, nil, "", nil) })
 		}
 
 		// Two deliveries hold the slots; the four others are parked waiting for one.

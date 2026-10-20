@@ -23,6 +23,37 @@ import (
 
 const grpcServerTestTimeout = 5 * time.Second
 
+// probeContextKey holds the value the base context of TestNewServer adds to every call.
+type probeContextKey struct{}
+
+// probeService answers with the base context's value, through the server's interceptors.
+var probeService = &grpc.ServiceDesc{
+	ServiceName: "test.Probe",
+	HandlerType: (*any)(nil),
+	Methods:     []grpc.MethodDesc{{MethodName: "Call", Handler: probeCall}},
+}
+
+// probeCall decodes the empty request of test.Probe/Call, then answers it through interceptor.
+func probeCall(
+	_ any, ctx context.Context, decode func(any) error, interceptor grpc.UnaryServerInterceptor,
+) (any, error) {
+	request := &emptypb.Empty{}
+
+	err := decode(request)
+	if err != nil {
+		return nil, err
+	}
+
+	return interceptor(ctx, request, &grpc.UnaryServerInfo{FullMethod: "/test.Probe/Call"}, probeValue)
+}
+
+// probeValue answers with the value the base context set.
+func probeValue(ctx context.Context, _ any) (any, error) {
+	value, _ := ctx.Value(probeContextKey{}).(string)
+
+	return wrapperspb.String(value), nil
+}
+
 func TestServe(t *testing.T) {
 	t.Parallel()
 
@@ -104,36 +135,7 @@ func TestServe(t *testing.T) {
 func TestNewServer(t *testing.T) {
 	t.Parallel()
 
-	type contextKey struct{}
-
 	started := time.Now().Add(-time.Hour)
-
-	// probe answers with the base context's value, through the server's interceptors.
-	probe := &grpc.ServiceDesc{
-		ServiceName: "test.Probe",
-		HandlerType: (*any)(nil),
-		Methods: []grpc.MethodDesc{{
-			MethodName: "Call",
-			Handler: func(
-				_ any, ctx context.Context, decode func(any) error, interceptor grpc.UnaryServerInterceptor,
-			) (any, error) {
-				request := &emptypb.Empty{}
-
-				err := decode(request)
-				if err != nil {
-					return nil, err
-				}
-
-				info := &grpc.UnaryServerInfo{FullMethod: "/test.Probe/Call"}
-
-				return interceptor(ctx, request, info, func(ctx context.Context, _ any) (any, error) {
-					value, _ := ctx.Value(contextKey{}).(string)
-
-					return wrapperspb.String(value), nil
-				})
-			},
-		}},
-	}
 
 	testCases := []struct {
 		name string
@@ -164,14 +166,14 @@ func TestNewServer(t *testing.T) {
 			t.Parallel()
 
 			baseContext := func(ctx context.Context) context.Context {
-				return context.WithValue(ctx, contextKey{}, "process")
+				return context.WithValue(ctx, probeContextKey{}, "process")
 			}
 
 			server := grpcf.NewServer(
 				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext,
 			)
 			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
-			server.RegisterService(probe, struct{}{})
+			server.RegisterService(probeService, struct{}{})
 
 			address := freeGRPCAddress(t)
 			go func() { _ = grpcf.Serve(t.Context(), server, address, time.Second) }()
@@ -240,6 +242,7 @@ func TestNewServer(t *testing.T) {
 	})
 }
 
+// freeGRPCAddress returns a loopback address no listener holds at the time of the call.
 func freeGRPCAddress(t *testing.T) string {
 	t.Helper()
 
@@ -260,6 +263,7 @@ func freeGRPCAddress(t *testing.T) string {
 	return address
 }
 
+// waitForGRPCServer returns once address accepts connections.
 func waitForGRPCServer(t *testing.T, address string) {
 	t.Helper()
 

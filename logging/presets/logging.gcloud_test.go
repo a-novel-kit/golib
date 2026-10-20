@@ -26,6 +26,7 @@ type gcloudEntry struct {
 	TraceSampled *bool  `json:"logging.googleapis.com/trace_sampled"`
 }
 
+// decodeGcloudEntry decodes the one entry out holds.
 func decodeGcloudEntry(t *testing.T, out *bytes.Buffer) gcloudEntry {
 	t.Helper()
 

@@ -20,22 +20,24 @@ import (
 // The panic value stands in for whatever a failing handler held when it panicked.
 const panicValue = "dial tcp db.internal:5432: password authentication failed for user=admin"
 
+// panicUnaryCall runs a unary handler that panics under ctx, through the recovery of config.
+func panicUnaryCall(ctx context.Context, config logging.RPCConfig) error {
+	_, err := config.PanicUnaryInterceptor()(ctx, nil, &grpc.UnaryServerInfo{},
+		func(context.Context, any) (any, error) { panic(panicValue) },
+	)
+
+	return err
+}
+
+// panicStreamCall runs a streaming handler that panics under ctx, through the recovery of config.
+func panicStreamCall(ctx context.Context, config logging.RPCConfig) error {
+	return config.PanicStreamInterceptor()(nil, &serverStream{ctx: ctx}, &grpc.StreamServerInfo{},
+		func(any, grpc.ServerStream) error { panic(panicValue) },
+	)
+}
+
 func TestPanicInterceptors(t *testing.T) {
 	t.Parallel()
-
-	unary := func(ctx context.Context, config logging.RPCConfig) error {
-		_, err := config.PanicUnaryInterceptor()(ctx, nil, &grpc.UnaryServerInfo{},
-			func(context.Context, any) (any, error) { panic(panicValue) },
-		)
-
-		return err
-	}
-
-	stream := func(ctx context.Context, config logging.RPCConfig) error {
-		return config.PanicStreamInterceptor()(nil, &serverStream{ctx: ctx}, &grpc.StreamServerInfo{},
-			func(any, grpc.ServerStream) error { panic(panicValue) },
-		)
-	}
 
 	testCases := []struct {
 		name string
@@ -43,10 +45,10 @@ func TestPanicInterceptors(t *testing.T) {
 		config logging.RPCConfig
 		call   func(ctx context.Context, config logging.RPCConfig) error
 	}{
-		{name: "Gcloud/Unary", config: &loggingpresets.GRPCGcloud{}, call: unary},
-		{name: "Gcloud/Stream", config: &loggingpresets.GRPCGcloud{}, call: stream},
-		{name: "Local/Unary", config: &loggingpresets.GRPCLocal{}, call: unary},
-		{name: "Local/Stream", config: &loggingpresets.GRPCLocal{}, call: stream},
+		{name: "Gcloud/Unary", config: &loggingpresets.GRPCGcloud{}, call: panicUnaryCall},
+		{name: "Gcloud/Stream", config: &loggingpresets.GRPCGcloud{}, call: panicStreamCall},
+		{name: "Local/Unary", config: &loggingpresets.GRPCLocal{}, call: panicUnaryCall},
+		{name: "Local/Stream", config: &loggingpresets.GRPCLocal{}, call: panicStreamCall},
 	}
 
 	for _, testCase := range testCases {
