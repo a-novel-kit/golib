@@ -64,13 +64,13 @@ func corsOptions(config CorsConfig) cors.Options {
 // standardLimit caps each visitor at the configured rate on each route. Routing has not run yet,
 // so it looks the route pattern up itself: path parameters then share their route's budget.
 func standardLimit(router *chi.Mux, config ServerConfig) func(http.Handler) http.Handler {
-	routeKey := func(r *http.Request) (string, error) {
+	patternKey := func(r *http.Request) (string, error) {
 		return r.Method + " " + router.Find(chi.NewRouteContext(), r.Method, r.URL.Path), nil
 	}
 
 	limit := httprate.LimitBy(
 		config.RateLimit.Requests, config.RateLimit.Window,
-		httprate.JoinKeys(VisitorKey, routeKey), httprate.WithErrorHandler(refuseKey),
+		httprate.JoinKeys(VisitorKey, patternKey), httprate.WithErrorHandler(refuseKey),
 	)
 
 	return func(next http.Handler) http.Handler {

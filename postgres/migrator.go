@@ -86,21 +86,23 @@ func lockMigrations(ctx context.Context, db *bun.DB) (func(), error) {
 		return nil, fmt.Errorf("open lock connection: %w", err)
 	}
 
-	// The session holds the lock and runs with lock_timeout lifted, so it never goes back to the
-	// pool: closing it releases the lock. PostgreSQL releases it the same way if the runner dies.
-	release := func() {
-		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-		_ = conn.Close()
-	}
-
 	_, err = conn.ExecContext(ctx, migrationLockQuery)
 	if err != nil {
-		release()
+		discardConn(conn)
 
 		return nil, fmt.Errorf("lock migrations: %w", err)
 	}
 
-	return release, nil
+	// The session runs with lock_timeout lifted, so it never goes back to the pool. Closing it
+	// releases the lock, as PostgreSQL does if the runner dies.
+	return func() { discardConn(conn) }, nil
+}
+
+// discardConn closes conn without returning it to the pool, which ends its session.
+func discardConn(conn bun.Conn) {
+	// Raw reporting driver.ErrBadConn marks the connection bad, so Close discards it.
+	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+	_ = conn.Close()
 }
 
 // applyMigrations applies the pending migrations. A migration that gives up waiting for a lock

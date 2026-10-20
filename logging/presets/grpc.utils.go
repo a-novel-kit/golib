@@ -26,7 +26,9 @@ func logInterceptor(l *slog.Logger) grpclog.Logger {
 	})
 }
 
-func logTraceId(ctx context.Context) grpclog.Fields {
+// logTraceID adds the trace ID of a sampled call to its log fields, so a terminal line points at
+// its trace.
+func logTraceID(ctx context.Context) grpclog.Fields {
 	if span := trace.SpanContextFromContext(ctx); span.IsSampled() {
 		return grpclog.Fields{"traceID", span.TraceID().String()}
 	}

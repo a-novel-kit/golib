@@ -37,7 +37,7 @@ func Serve(ctx context.Context, server *http.Server, shutdownTimeout time.Durati
 		closeErr := server.Close()
 
 		return errors.Join(
-			fmt.Errorf("serve HTTP: %w", err),
+			wrapServerError("serve HTTP", err),
 			wrapServerError("close HTTP server", closeErr),
 		)
 	case <-ctx.Done():

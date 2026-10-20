@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"io/fs"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -68,19 +69,24 @@ func RunIsolatedTransactionalTest(
 	require.NoError(t, err)
 
 	if dropper, ok := config.(schemaDropper); ok {
-		t.Cleanup(func() {
-			// t.Context is cancelled by the time cleanup runs, so the drop gets a fresh
-			// context. A failure here leaks the schema but must not fail the test.
-			dropErr := dropper.DropSchema(context.WithoutCancel(ctx), schema)
-			if dropErr != nil {
-				t.Logf("drop test schema %s: %v", schema, dropErr)
-			}
-		})
+		t.Cleanup(func() { dropTestSchema(ctx, t, dropper, schema) })
 	}
 
 	require.NoError(t, postgres.RunMigrationsContext(ctx, migrations))
 
 	callback(ctx, t)
+}
+
+// dropTestSchema drops schema from a test cleanup. A failure leaks the schema, and the test still
+// passes.
+func dropTestSchema(ctx context.Context, t *testing.T, dropper schemaDropper, schema string) {
+	t.Helper()
+
+	// t.Context is canceled by the time cleanups run.
+	err := dropper.DropSchema(context.WithoutCancel(ctx), schema)
+	if err != nil {
+		t.Logf("drop test schema %s: %v", schema, err)
+	}
 }
 
 // RunTransactionalTest runs callback inside a transaction that is rolled back on
@@ -102,8 +108,7 @@ func RunTransactionalTest(t *testing.T, config postgres.Config, callback Transac
 		_ = tx.Rollback()
 	})
 
-	ctx = context.WithValue(ctx, postgres.ContextKey{}, postgres.NewPassthroughTx(tx))
-	callback(ctx, t)
+	callback(postgres.WithTx(ctx, postgres.NewPassthroughTx(tx)), t)
 }
 
 const (
@@ -320,11 +325,8 @@ func dbTestCreateTemplate(
 	if err != nil {
 		return fmt.Errorf("acquire template advisory lock: %w", err)
 	}
-	defer func() {
-		// Best-effort: the lock is also released when the maintenance
-		// connection closes just below.
-		_, _ = maintenance.NewRaw("SELECT pg_advisory_unlock(?)", lockKey).Exec(ctx)
-	}()
+	// Closing the maintenance connection, deferred above, also releases the lock.
+	defer func() { _, _ = maintenance.NewRaw("SELECT pg_advisory_unlock(?)", lockKey).Exec(ctx) }()
 
 	var exists bool
 
@@ -434,7 +436,7 @@ func dbTestCreateInstance(ctx context.Context, maintenance *bun.DB, instance, te
 // options in order, so a trailing pgdriver.WithDatabase wins over whatever
 // database the preset's own options selected, with no need to parse them.
 func dbTestOpen(ctx context.Context, options []pgdriver.Option, database string) (*bun.DB, error) {
-	options = append(append([]pgdriver.Option{}, options...), pgdriver.WithDatabase(database))
+	options = append(slices.Clone(options), pgdriver.WithDatabase(database))
 
 	db := bun.NewDB(sql.OpenDB(pgdriver.NewConnector(options...)), pgdialect.New(),
 		bun.WithDiscardUnknownColumns())

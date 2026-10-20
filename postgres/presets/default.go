@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/uptrace/bun"
@@ -115,8 +116,7 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 		}
 	}
 
-	options := append([]pgdriver.Option{}, config.options...)
-	options = append(options, pgdriver.WithConnParams(map[string]any{"search_path": schema}))
+	options := append(slices.Clone(config.options), pgdriver.WithConnParams(map[string]any{"search_path": schema}))
 
 	db, err = config.openDB(ctx, options)
 	if err != nil {

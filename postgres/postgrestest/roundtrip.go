@@ -433,11 +433,16 @@ func newRoundtripDatabase(t *testing.T, options []pgdriver.Option) (*bun.DB, err
 	instance := roundtripInstancePrefix + strings.ToLower(rand.Text())
 
 	return dbTestNewDatabase(t, options, instance, func(ctx context.Context, maintenance *bun.DB) error {
-		_, err := maintenance.NewRaw("CREATE DATABASE " + dbTestQuoteIdent(instance)).Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("create the roundtrip database: %w", err)
-		}
-
-		return nil
+		return createRoundtripDatabase(ctx, maintenance, instance)
 	})
+}
+
+// createRoundtripDatabase creates the empty database called instance on a maintenance connection.
+func createRoundtripDatabase(ctx context.Context, maintenance *bun.DB, instance string) error {
+	_, err := maintenance.NewRaw("CREATE DATABASE " + dbTestQuoteIdent(instance)).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("create the roundtrip database: %w", err)
+	}
+
+	return nil
 }
