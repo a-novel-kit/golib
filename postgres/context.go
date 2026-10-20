@@ -12,10 +12,6 @@ import (
 // bun.IDB connection.
 type ContextKey struct{}
 
-// NameLen caps the length of a generated schema or database name, keeping it
-// within PostgreSQL's 63-byte identifier limit with room for prefixes.
-const NameLen = 31
-
 // ErrNoIDBInContext is returned by GetContext when the context carries no
 // bun.IDB, meaning it was never seeded by NewContext or one of its variants.
 // [ErrNoDbInContext] covers the stricter case where a connection is present but

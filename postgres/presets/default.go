@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	// CreateSchema is the format string for the statement that creates a schema.
+	// createSchemaStmt is the format string for the statement that creates a schema.
 	// Schema names cannot be bound as query parameters, so the name is
 	// interpolated into the statement.
-	CreateSchema = "CREATE SCHEMA IF NOT EXISTS %s;"
+	createSchemaStmt = "CREATE SCHEMA IF NOT EXISTS %s;"
 
 	// dropSchemaStmt is the counterpart for DropSchema. CASCADE takes the objects
 	// created inside the schema with it, so a migrated test schema drops in one
@@ -110,7 +110,7 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 	}
 
 	if create {
-		_, err = db.NewRaw(fmt.Sprintf(CreateSchema, schema)).Exec(ctx)
+		_, err = db.NewRaw(fmt.Sprintf(createSchemaStmt, schema)).Exec(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("create schema %s: %w", schema, err)
 		}

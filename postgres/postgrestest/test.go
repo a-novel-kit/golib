@@ -24,6 +24,10 @@ import (
 	"github.com/a-novel-kit/golib/postgres"
 )
 
+// schemaNameLen caps the length of a test schema name, keeping it within PostgreSQL's 63-byte
+// identifier limit.
+const schemaNameLen = 31
+
 // TransactionalTestFunc is the body of a database-backed test, run with a
 // context carrying the connection isolated for that test.
 type TransactionalTestFunc func(context.Context, *testing.T)
@@ -40,7 +44,7 @@ type schemaDropper interface {
 // schema name so the caller can drop it once done.
 func NewContextTest(ctx context.Context, config postgres.Config) (context.Context, string, error) {
 	schemaName := "ta_" + strings.ToLower(rand.Text())
-	schemaName = fmt.Sprintf("%.*s", postgres.NameLen, schemaName)
+	schemaName = fmt.Sprintf("%.*s", schemaNameLen, schemaName)
 
 	db, err := config.DBSchema(ctx, schemaName, true)
 	if err != nil {
@@ -90,8 +94,8 @@ func dropTestSchema(ctx context.Context, t *testing.T, dropper schemaDropper, sc
 }
 
 // RunTransactionalTest runs callback inside a transaction that is rolled back on
-// cleanup. The context carries a PassthroughTx, which discards sub-transactions
-// so concurrent calls sharing the connection cannot deadlock.
+// cleanup. Sub-transactions resolve to that same transaction, so concurrent calls
+// sharing the connection cannot deadlock.
 func RunTransactionalTest(t *testing.T, config postgres.Config, callback TransactionalTestFunc) {
 	t.Helper()
 
@@ -108,7 +112,7 @@ func RunTransactionalTest(t *testing.T, config postgres.Config, callback Transac
 		_ = tx.Rollback()
 	})
 
-	callback(postgres.WithTx(ctx, postgres.NewPassthroughTx(tx)), t)
+	callback(postgres.WithTx(ctx, &passthroughTx{Tx: tx}), t)
 }
 
 const (
