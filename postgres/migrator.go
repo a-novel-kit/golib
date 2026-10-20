@@ -15,8 +15,8 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// ErrNoDbInContext is returned by RunMigrationsContext when the context carries
-// a bun.IDB that is not a full *bun.DB, which migrations require.
+// ErrNoDbInContext is returned by an operation that needs the connection pool, such as
+// [RunMigrationsContext] or [Health], when the context carries a transaction instead.
 // [ErrNoIDBInContext] covers the case of no connection at all.
 var ErrNoDbInContext = errors.New("context does not contain a bun.DB")
 

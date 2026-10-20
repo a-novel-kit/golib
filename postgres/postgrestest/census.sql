@@ -216,8 +216,8 @@ FROM
 WHERE
   n.nspname NOT LIKE 'pg\_%'
   AND n.nspname <> 'information_schema'
-  -- Comments are censused by the name of what they hang off, never by OID.
 UNION ALL
+-- Comments are censused by the name of what they hang off, never by OID.
 SELECT
   'comment',
   c.relname || coalesce('.' || a.attname, ''),
@@ -267,8 +267,8 @@ FROM
 WHERE
   n.nspname NOT LIKE 'pg\_%'
   AND n.nspname <> 'information_schema'
-  -- Unsupported objects fail the snapshot instead of disappearing.
 UNION ALL
+-- Unsupported objects fail the snapshot instead of disappearing.
 SELECT
   'unsupported',
   'relkind ' || c.relkind::text,
@@ -315,7 +315,7 @@ FROM
   pg_proc p
   JOIN target ON p.pronamespace = target.nsp
 WHERE
-  -- An aggregate's behaviour lives in pg_aggregate, not in the prosrc the routine class hashes.
+  -- An aggregate keeps its behavior in pg_aggregate, which the routine class does not hash.
   p.prokind = 'a'
   AND NOT EXISTS (
     SELECT

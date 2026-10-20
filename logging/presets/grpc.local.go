@@ -47,6 +47,7 @@ func (logger *GRPCLocal) PanicStreamInterceptor() grpc.StreamServerInterceptor {
 	return recovery.StreamServerInterceptor(recovery.WithRecoveryHandlerContext(panicInterceptor(logger.l)))
 }
 
+// init builds the logger every interceptor of logger shares, on the first call.
 func (logger *GRPCLocal) init() {
 	if logger.l != nil {
 		return

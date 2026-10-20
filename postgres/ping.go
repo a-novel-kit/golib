@@ -23,6 +23,7 @@ func Ping(ctx context.Context, client *bun.DB) error {
 	return ping(ctx, client, PingTimeout, PingRetryInterval, nil)
 }
 
+// pinger is the part of a database handle ping needs, so a test can script its answers.
 type pinger interface {
 	PingContext(ctx context.Context) error
 }

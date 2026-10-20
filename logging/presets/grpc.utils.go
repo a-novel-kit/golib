@@ -20,6 +20,7 @@ import (
 // errRecoveredPanic wraps the panic value recorded on the RPC span.
 var errRecoveredPanic = errors.New("recovered panic")
 
+// logInterceptor adapts l to the logger the call-logging interceptors write through.
 func logInterceptor(l *slog.Logger) grpclog.Logger {
 	return grpclog.LoggerFunc(func(ctx context.Context, lvl grpclog.Level, msg string, fields ...any) {
 		l.Log(ctx, slog.Level(lvl), msg, fields...)

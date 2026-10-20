@@ -140,6 +140,7 @@ func (w *CaptureHTTPResponseWriter) Status() int {
 	return w.status
 }
 
+// Size returns the number of body bytes written so far, whether or not the body is recorded.
 func (w *CaptureHTTPResponseWriter) Size() int64 {
 	return w.size
 }

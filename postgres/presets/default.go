@@ -177,6 +177,7 @@ func (config *Default) maxIdleConns() int {
 	return config.MaxIdleConns
 }
 
+// openDB opens a pool from options, sized by the config, and pings it.
 func (config *Default) openDB(ctx context.Context, options []pgdriver.Option) (*bun.DB, error) {
 	sqldb := sql.OpenDB(pgdriver.NewConnector(options...))
 	db := bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())

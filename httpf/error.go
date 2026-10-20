@@ -19,8 +19,7 @@ import (
 type ErrMap map[error]int
 
 // HandleError writes a response for a failed handler. It matches err against errMap (with
-// errors.Is) to pick a status, logs err, and writes the status text as the body. Unmatched errors
-// default to 500 Internal Server Error.
+// errors.Is) to pick a status, logs err, and writes the status text as the body.
 //
 // The body never carries err, which can hold internal detail such as a database address. The log
 // and the trace keep it. When err carries tags from [WithTag], or a client error comes from a

@@ -65,6 +65,7 @@ func Serve(ctx context.Context, server *http.Server, shutdownTimeout time.Durati
 	)
 }
 
+// wrapServerError prefixes err with the operation that failed, and keeps a nil err nil.
 func wrapServerError(operation string, err error) error {
 	if err == nil {
 		return nil

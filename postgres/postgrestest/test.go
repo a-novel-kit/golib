@@ -113,13 +113,12 @@ func RunTransactionalTest(t *testing.T, config postgres.Config, callback Transac
 
 const (
 	// dbTestTemplatePrefix names the migrated template database that every
-	// per-test database is cloned from. Its suffix is a content hash of the
-	// migration set (see dbTestTemplateName), so a migration change yields a new
-	// template name and no test binary can be served an outdated schema.
+	// per-test database is cloned from. dbTestTemplateName suffixes it with a hash
+	// of the migration set, so a migration change yields a new template name and no
+	// test binary can be served an outdated schema.
 	dbTestTemplatePrefix = "gotpl_"
 
-	// dbTestInstancePrefix names a throwaway per-test database. Exactly one is
-	// created per RunDBTest call and dropped in t.Cleanup.
+	// dbTestInstancePrefix names the throwaway database of one RunDBTest call.
 	dbTestInstancePrefix = "gotest_"
 
 	// dbTestMaintenanceDatabase is the database the maintenance connection
@@ -147,19 +146,14 @@ type dbTestOptionsConfig interface {
 	Options() []pgdriver.Option
 }
 
-// dbTestTemplated guards one-time template creation within a process. The first
-// RunDBTest call for a given (migrations, target-cluster) pair runs the
-// migrations while every other call blocks on dbTestMu, so only the first test
-// pays the migration cost and the rest clone in parallel. The key includes the
-// resolved connection identity (see dbTestConnKey), so the same migrations
-// applied against two clusters in one process do not alias onto a template that
-// exists in only one of them.
-//
-// Cross-process safety comes from the Postgres advisory lock in
-// dbTestCreateTemplate; this map deduplicates work inside a single binary. A
-// failed creation is not recorded, so the next test retries it.
 var (
-	dbTestMu        sync.Mutex
+	// dbTestMu serializes template creation within a process. The first RunDBTest call of a
+	// migration set migrates its template while the other calls wait, so only the first test pays
+	// the migration cost. The advisory lock in dbTestCreateTemplate covers other processes.
+	dbTestMu sync.Mutex
+
+	// dbTestTemplated records the templates this process created, keyed by template name and
+	// target cluster. A failed creation stays unrecorded, so the next test retries it.
 	dbTestTemplated = map[string]bool{}
 
 	// dbTestCloneMu serializes CREATE DATABASE … TEMPLATE within a process.
@@ -248,7 +242,7 @@ func dbTestNewDatabase(
 }
 
 // dbTestDropInstance drops the database called instance from a test cleanup, on a maintenance
-// connection of its own. It takes a background context, since t.Context is cancelled by the time
+// connection of its own. It takes a background context, since t.Context is canceled by the time
 // cleanups run.
 func dbTestDropInstance(options []pgdriver.Option, instance string) {
 	ctx := context.Background()
@@ -264,8 +258,8 @@ func dbTestDropInstance(options []pgdriver.Option, instance string) {
 
 // dbTestEnsureTemplate returns the name of a migrated template database for the
 // given migration set, creating and migrating it on first use. It serializes
-// in-process callers on dbTestMu so the migrations run exactly once per
-// process; cross-process duplication is prevented inside dbTestCreateTemplate.
+// in-process callers on dbTestMu, so the migrations run once per process.
+// dbTestCreateTemplate prevents the duplication across processes.
 func dbTestEnsureTemplate(ctx context.Context, options []pgdriver.Option, migrations fs.FS) (string, error) {
 	name, err := dbTestTemplateName(migrations)
 	if err != nil {
