@@ -28,63 +28,71 @@ func schemaExists(ctx context.Context, t *testing.T, config postgres.Config, sch
 	return count > 0
 }
 
-// The isolated helper stands up a randomly named schema per call. Without a drop, both
-// the schema and its cached pool live forever. This pins that the schema is gone once the
-// test finishes.
-func TestRunIsolatedTransactionalTestDropsItsSchema(t *testing.T) {
+func TestRunIsolatedTransactionalTest(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t)
+	// The isolated helper stands up a randomly named schema per call. Without a drop, both
+	// the schema and its cached pool live forever. This pins that the schema is gone once the
+	// test finishes.
+	t.Run("Success/DropsItsSchema", func(t *testing.T) {
+		t.Parallel()
 
-	var schema string
+		config := testConfig(t)
 
-	// Cleanups run last-in first-out, so this one, registered before the helper, checks
-	// the drop the helper registers.
-	t.Cleanup(func() {
-		require.NotEmpty(t, schema)
-		require.False(t, schemaExists(context.Background(), t, config, schema),
-			"the schema must be dropped after the isolated test")
-	})
+		var schema string
 
-	postgrestest.RunIsolatedTransactionalTest(t, config, migrations, func(ctx context.Context, t *testing.T) {
-		t.Helper()
+		// Cleanups run last-in first-out, so this one, registered before the helper, checks
+		// the drop the helper registers.
+		t.Cleanup(func() {
+			require.NotEmpty(t, schema)
+			require.False(t, schemaExists(context.Background(), t, config, schema),
+				"the schema must be dropped after the isolated test")
+		})
 
-		db, err := postgres.GetContext(ctx)
-		require.NoError(t, err)
+		postgrestest.RunIsolatedTransactionalTest(t, config, migrations, func(ctx context.Context, t *testing.T) {
+			t.Helper()
 
-		require.NoError(t, db.NewRaw("SELECT current_schema()").Scan(ctx, &schema))
-		require.True(t, schemaExists(ctx, t, config, schema), "schema must exist during the test")
+			db, err := postgres.GetContext(ctx)
+			require.NoError(t, err)
+
+			require.NoError(t, db.NewRaw("SELECT current_schema()").Scan(ctx, &schema))
+			require.True(t, schemaExists(ctx, t, config, schema), "schema must exist during the test")
+		})
 	})
 }
 
-func TestDropSchemaEvictsTheCachedPool(t *testing.T) {
+func TestDefault(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t)
+	t.Run("Success/DropSchemaEvictsTheCachedPool", func(t *testing.T) {
+		t.Parallel()
 
-	dropper, ok := config.(interface {
-		DropSchema(ctx context.Context, schema string) error
+		config := testConfig(t)
+
+		dropper, ok := config.(interface {
+			DropSchema(ctx context.Context, schema string) error
+		})
+		require.True(t, ok, "the Default preset must offer DropSchema")
+
+		ctx := context.Background()
+
+		_, schema, err := postgrestest.NewContextTest(ctx, config)
+		require.NoError(t, err)
+		require.True(t, schemaExists(ctx, t, config, schema))
+
+		require.NoError(t, dropper.DropSchema(ctx, schema))
+		require.False(t, schemaExists(ctx, t, config, schema))
+
+		// A second drop is a no-op: the pool is gone from the cache and DROP ... IF EXISTS
+		// tolerates the absent schema.
+		require.NoError(t, dropper.DropSchema(ctx, schema))
+
+		// Requesting the schema again opens a fresh pool, proving the old one was evicted
+		// rather than handed back closed.
+		reopened, err := config.DBSchema(ctx, schema, true)
+		require.NoError(t, err)
+		require.NoError(t, reopened.PingContext(ctx))
+
+		require.NoError(t, dropper.DropSchema(ctx, schema))
 	})
-	require.True(t, ok, "the Default preset must offer DropSchema")
-
-	ctx := context.Background()
-
-	_, schema, err := postgrestest.NewContextTest(ctx, config)
-	require.NoError(t, err)
-	require.True(t, schemaExists(ctx, t, config, schema))
-
-	require.NoError(t, dropper.DropSchema(ctx, schema))
-	require.False(t, schemaExists(ctx, t, config, schema))
-
-	// A second drop is a no-op: the pool is gone from the cache and DROP ... IF EXISTS
-	// tolerates the absent schema.
-	require.NoError(t, dropper.DropSchema(ctx, schema))
-
-	// Requesting the schema again opens a fresh pool, proving the old one was evicted
-	// rather than handed back closed.
-	reopened, err := config.DBSchema(ctx, schema, true)
-	require.NoError(t, err)
-	require.NoError(t, reopened.PingContext(ctx))
-
-	require.NoError(t, dropper.DropSchema(ctx, schema))
 }

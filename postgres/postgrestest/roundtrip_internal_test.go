@@ -27,49 +27,59 @@ func roundtripTestDB(t *testing.T) *bun.DB {
 	return db
 }
 
-func TestVerifyRoundtripAcceptsAReversibleSet(t *testing.T) {
+func TestVerifyRoundtrip(t *testing.T) {
 	t.Parallel()
 
-	err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
-		os.DirFS("../testdata/roundtrip/migrations"),
-		&RoundtripOptions{Fixtures: os.DirFS("../testdata/roundtrip/fixtures")})
-
-	require.NoError(t, err)
-}
-
-func TestVerifyRoundtripCatchesAnObjectLeftBehind(t *testing.T) {
-	t.Parallel()
-
-	err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
-		os.DirFS("../testdata/roundtrip-broken/migrations"), nil)
-
-	require.ErrorIs(t, err, errMigrationDrift)
-	require.Contains(t, err.Error(), "20260725000002_probe_status",
-		"the failure must name the migration whose down is at fault")
-	require.Contains(t, err.Error(), "roundtrip_status",
-		"the failure must name the object left behind")
-}
-
-func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
-	t.Parallel()
-
-	migrations := os.DirFS("../testdata/roundtrip-strict/migrations")
-
-	t.Run("Success/EmptyTable", func(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 
-		require.NoError(t, verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations, nil))
+		err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
+			os.DirFS("../testdata/roundtrip/migrations"),
+			&RoundtripOptions{Fixtures: os.DirFS("../testdata/roundtrip/fixtures")})
+
+		require.NoError(t, err)
 	})
 
-	t.Run("Error/FixtureSeededARow", func(t *testing.T) {
+	// The strict set adds a NOT NULL column, which passes against an empty table.
+	t.Run("Success/StrictSetWithoutFixtures", func(t *testing.T) {
 		t.Parallel()
 
-		err := verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations,
+		require.NoError(t, verifyRoundtrip(t.Context(), roundtripTestDB(t),
+			os.DirFS("../testdata/roundtrip-strict/migrations"), nil))
+	})
+
+	// A fixture runs before the next migration, so the row it seeds fails the NOT NULL column.
+	t.Run("Error/FixtureRunsBeforeTheNextMigration", func(t *testing.T) {
+		t.Parallel()
+
+		err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
+			os.DirFS("../testdata/roundtrip-strict/migrations"),
 			&RoundtripOptions{Fixtures: os.DirFS("../testdata/roundtrip/fixtures")})
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "20260725000002_probe_required")
 		require.Contains(t, err.Error(), "contains null values")
+	})
+
+	t.Run("Error/ObjectLeftBehind", func(t *testing.T) {
+		t.Parallel()
+
+		err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
+			os.DirFS("../testdata/roundtrip-broken/migrations"), nil)
+
+		require.ErrorIs(t, err, errMigrationDrift)
+		require.Contains(t, err.Error(), "20260725000002_probe_status",
+			"the failure must name the migration whose down is at fault")
+		require.Contains(t, err.Error(), "roundtrip_status",
+			"the failure must name the object left behind")
+	})
+
+	t.Run("Error/NoMigrations", func(t *testing.T) {
+		t.Parallel()
+
+		err := verifyRoundtrip(t.Context(), roundtripTestDB(t), os.DirFS(t.TempDir()), nil)
+
+		require.ErrorContains(t, err, "no migrations discovered")
 	})
 }
 
@@ -126,15 +136,7 @@ func TestVerifyRoundtripSnapshots(t *testing.T) {
 	})
 }
 
-func TestVerifyRoundtripRejectsAnEmptyMigrationSet(t *testing.T) {
-	t.Parallel()
-
-	err := verifyRoundtrip(t.Context(), roundtripTestDB(t), os.DirFS(t.TempDir()), nil)
-
-	require.ErrorContains(t, err, "no migrations discovered")
-}
-
-func TestRoundtripPrefixNarrowsTheSetToOnePendingMigration(t *testing.T) {
+func TestRoundtripPrefix(t *testing.T) {
 	t.Parallel()
 
 	ordered := migrate.MigrationSlice{

@@ -56,107 +56,107 @@ func holdOpen(ctx context.Context, t *testing.T, config *postgrespresets.Default
 	wg.Wait()
 }
 
-// TestDefaultKeepsIdleConnections pins the pool's idle default. All five connections
-// survive being released. The next caller reuses them without a fresh handshake.
-func TestDefaultKeepsIdleConnections(t *testing.T) {
+func TestDefault(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t)
+	// All five connections survive being released, so the next caller reuses them without a
+	// fresh handshake.
+	t.Run("Success/KeepsIdleConnections", func(t *testing.T) {
+		t.Parallel()
 
-	ctx := t.Context()
-	holdOpen(ctx, t, config)
+		config := testConfig(t)
 
-	db, err := config.DB(ctx)
-	require.NoError(t, err)
+		ctx := t.Context()
+		holdOpen(ctx, t, config)
 
-	require.Equal(t, concurrentQueries, db.Stats().Idle,
-		"every released connection should have been kept, not closed and reopened later")
-}
+		db, err := config.DB(ctx)
+		require.NoError(t, err)
 
-// TestDefaultHonorsTheOverride covers the escape hatch: a deployment that sets
-// its own number gets it, and the default applies only when none was expressed.
-func TestDefaultHonorsTheOverride(t *testing.T) {
-	t.Parallel()
-
-	config := testConfig(t)
-	config.MaxIdleConns = 1
-
-	ctx := t.Context()
-	holdOpen(ctx, t, config)
-
-	db, err := config.DB(ctx)
-	require.NoError(t, err)
-
-	require.Equal(t, 1, db.Stats().Idle)
-}
-
-// TestDefaultNegativeOverrideKeepsNone pins the one value that is not "unset": a
-// negative override keeps nothing, matching database/sql.
-func TestDefaultNegativeOverrideKeepsNone(t *testing.T) {
-	t.Parallel()
-
-	config := testConfig(t)
-	config.MaxIdleConns = -1
-
-	ctx := t.Context()
-	holdOpen(ctx, t, config)
-
-	db, err := config.DB(ctx)
-	require.NoError(t, err)
-
-	require.Zero(t, db.Stats().Idle)
-}
-
-// TestDefaultBoundsOpenConnections covers the open limit, which has no default:
-// the field exists so a service can state its own answer where it builds the
-// config, and the pool has to honor it on every connection it opens.
-func TestDefaultBoundsOpenConnections(t *testing.T) {
-	t.Parallel()
-
-	config := testConfig(t)
-	config.MaxOpenConns = 2
-
-	ctx := t.Context()
-
-	db, err := config.DB(ctx)
-	require.NoError(t, err)
-
-	require.Equal(t, 2, db.Stats().MaxOpenConnections)
-
-	// The cap has to hold under contention, not just report itself: more callers
-	// than connections must queue rather than open more.
-	holdOpen(ctx, t, config)
-	require.LessOrEqual(t, db.Stats().OpenConnections, 2)
-}
-
-// TestDefaultLeavesOpenConnectionsUnlimitedByDefault pins the absence of a
-// default. A library cannot know how many replicas share a database, so an
-// unset value must keep database/sql's behavior rather than invent a ceiling.
-func TestDefaultLeavesOpenConnectionsUnlimitedByDefault(t *testing.T) {
-	t.Parallel()
-
-	config := testConfig(t)
-
-	db, err := config.DB(t.Context())
-	require.NoError(t, err)
-
-	require.Zero(t, db.Stats().MaxOpenConnections, "0 is database/sql's encoding of unlimited")
-}
-
-func TestDefaultBoundsSchemaOpenConnections(t *testing.T) {
-	t.Parallel()
-
-	config := testConfig(t)
-	config.MaxOpenConns = 2
-
-	schema := "max_open_connections_" + strings.ToLower(rand.Text())
-
-	t.Cleanup(func() {
-		require.NoError(t, config.DropSchema(context.Background(), schema))
+		require.Equal(t, concurrentQueries, db.Stats().Idle,
+			"every released connection should have been kept, not closed and reopened later")
 	})
 
-	db, err := config.DBSchema(t.Context(), schema, true)
-	require.NoError(t, err)
+	// A deployment that sets its own number gets it. The default applies only when none is set.
+	t.Run("Success/HonorsTheIdleOverride", func(t *testing.T) {
+		t.Parallel()
 
-	require.Equal(t, 2, db.Stats().MaxOpenConnections)
+		config := testConfig(t)
+		config.MaxIdleConns = 1
+
+		ctx := t.Context()
+		holdOpen(ctx, t, config)
+
+		db, err := config.DB(ctx)
+		require.NoError(t, err)
+
+		require.Equal(t, 1, db.Stats().Idle)
+	})
+
+	// A negative override keeps nothing, matching database/sql.
+	t.Run("Success/NegativeIdleOverrideKeepsNone", func(t *testing.T) {
+		t.Parallel()
+
+		config := testConfig(t)
+		config.MaxIdleConns = -1
+
+		ctx := t.Context()
+		holdOpen(ctx, t, config)
+
+		db, err := config.DB(ctx)
+		require.NoError(t, err)
+
+		require.Zero(t, db.Stats().Idle)
+	})
+
+	// The open limit has no default. A service states its own where it builds the config, and
+	// the pool honors it on every connection it opens.
+	t.Run("Success/BoundsOpenConnections", func(t *testing.T) {
+		t.Parallel()
+
+		config := testConfig(t)
+		config.MaxOpenConns = 2
+
+		ctx := t.Context()
+
+		db, err := config.DB(ctx)
+		require.NoError(t, err)
+
+		require.Equal(t, 2, db.Stats().MaxOpenConnections)
+
+		// The cap has to hold under contention, not just report itself: more callers
+		// than connections must queue rather than open more.
+		holdOpen(ctx, t, config)
+		require.LessOrEqual(t, db.Stats().OpenConnections, 2)
+	})
+
+	// A library cannot know how many replicas share a database, so an unset limit keeps the
+	// unlimited behavior of database/sql.
+	t.Run("Success/OpenConnectionsUnlimitedByDefault", func(t *testing.T) {
+		t.Parallel()
+
+		config := testConfig(t)
+
+		db, err := config.DB(t.Context())
+		require.NoError(t, err)
+
+		require.Zero(t, db.Stats().MaxOpenConnections, "0 is database/sql's encoding of unlimited")
+	})
+
+	t.Run("Success/BoundsSchemaOpenConnections", func(t *testing.T) {
+		t.Parallel()
+
+		config := testConfig(t)
+		config.MaxOpenConns = 2
+
+		schema := "max_open_connections_" + strings.ToLower(rand.Text())
+
+		t.Cleanup(func() {
+			require.NoError(t, config.DropSchema(context.Background(), schema))
+		})
+
+		db, err := config.DBSchema(t.Context(), schema, true)
+		require.NoError(t, err)
+
+		require.Equal(t, 2, db.Stats().MaxOpenConnections)
+	})
 }
