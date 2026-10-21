@@ -1,6 +1,7 @@
 package postgrestest
 
 import (
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -54,13 +55,13 @@ func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 
 	migrations := os.DirFS("../testdata/roundtrip-strict/migrations")
 
-	t.Run("passes against an empty table", func(t *testing.T) {
+	t.Run("Success/EmptyTable", func(t *testing.T) {
 		t.Parallel()
 
 		require.NoError(t, verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations, nil))
 	})
 
-	t.Run("fails once the previous migration's fixture has seeded a row", func(t *testing.T) {
+	t.Run("Error/FixtureSeededARow", func(t *testing.T) {
 		t.Parallel()
 
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations,
@@ -76,7 +77,7 @@ func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 func TestVerifyRoundtripSnapshots(t *testing.T) {
 	migrations := os.DirFS("../testdata/roundtrip/migrations")
 
-	t.Run("records then re-reads them", func(t *testing.T) {
+	t.Run("Success/RecordThenCheck", func(t *testing.T) {
 		dir := t.TempDir()
 
 		t.Setenv(roundtripUpdateEnv, "1")
@@ -96,7 +97,7 @@ func TestVerifyRoundtripSnapshots(t *testing.T) {
 			&RoundtripOptions{Snapshots: dir}))
 	})
 
-	t.Run("rejects a snapshot that no longer matches", func(t *testing.T) {
+	t.Run("Error/SnapshotChanged", func(t *testing.T) {
 		dir := t.TempDir()
 
 		t.Setenv(roundtripUpdateEnv, "1")
@@ -115,7 +116,7 @@ func TestVerifyRoundtripSnapshots(t *testing.T) {
 		require.Contains(t, err.Error(), "20260725000001_probe_table")
 	})
 
-	t.Run("reports a snapshot that was never recorded", func(t *testing.T) {
+	t.Run("Error/SnapshotMissing", func(t *testing.T) {
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations,
 			&RoundtripOptions{Snapshots: t.TempDir()})
 
@@ -201,4 +202,80 @@ func TestRoundtripHistoryDigests(t *testing.T) {
 		migrate.Migration{Name: "20260725000003", Comment: "third"}))
 	require.NoError(t, err)
 	require.Equal(t, baseline, withAppend[:2])
+}
+
+func TestRoundtripSources(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		files []string
+		slug  string
+
+		expect    []string
+		expectErr string
+	}{
+		{
+			name:   "Success",
+			files:  []string{"20260725000001_first.up.sql", "20260725000001_first.down.sql", "README.md"},
+			slug:   "20260725000001_first",
+			expect: []string{"20260725000001_first.up.sql", "20260725000001_first.down.sql"},
+		},
+		{
+			name:   "Success/Transactional",
+			files:  []string{"sub/20260725000001_first.tx.up.sql", "sub/20260725000001_first.tx.down.sql"},
+			slug:   "20260725000001_first",
+			expect: []string{"sub/20260725000001_first.tx.up.sql", "sub/20260725000001_first.tx.down.sql"},
+		},
+		{
+			name:      "Error/DuplicateUp",
+			files:     []string{"20260725000001_first.up.sql", "20260725000001_first.tx.up.sql"},
+			slug:      "20260725000001_first",
+			expectErr: "migration 20260725000001_first has duplicate up files",
+		},
+		{
+			name:      "Error/DuplicateDown",
+			files:     []string{"a/20260725000001_first.down.sql", "b/20260725000001_first.down.sql"},
+			slug:      "20260725000001_first",
+			expectErr: "migration 20260725000001_first has duplicate down files",
+		},
+		{
+			name:      "Error/MissingDown",
+			files:     []string{"20260725000001_first.up.sql"},
+			slug:      "20260725000001_first",
+			expectErr: "migration 20260725000001_first needs one up and one down SQL file",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			migrations := fstest.MapFS{}
+			for _, file := range testCase.files {
+				migrations[file] = &fstest.MapFile{Data: []byte("SELECT 1;")}
+			}
+
+			files, err := roundtripSourceFiles(migrations, testCase.slug)
+			if testCase.expectErr != "" {
+				require.EqualError(t, err, testCase.expectErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, testCase.expect, files)
+		})
+	}
+}
+
+// roundtripSourceFiles pairs the source files of migrations, then returns those of slug.
+func roundtripSourceFiles(migrations fs.FS, slug string) ([]string, error) {
+	sources, err := roundtripSources(migrations)
+	if err != nil {
+		return nil, err
+	}
+
+	return sources.files(slug)
 }

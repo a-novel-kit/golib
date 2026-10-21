@@ -17,11 +17,10 @@ import "context"
 // work too, which makes nesting a deliberate choice.
 //
 // Nothing that talks to an external service may run inside the callback. An
-// open transaction holds a pooled connection for as long as it lasts, and
-// pinning one for the length of a call to a third party exhausts the pool and
-// blocks reclamation of dead rows. Persist what the external call needs, close
-// the transaction, make the call, then open a new transaction to record the
-// result.
+// open transaction holds a pooled connection for as long as it lasts. Holding
+// one through a call to a third party exhausts the pool and blocks the
+// reclamation of dead rows. Persist what the external call needs, close the
+// transaction, make the call, then open a new transaction to record the result.
 type Transactor interface {
 	WithinTx(ctx context.Context, fn func(ctx context.Context) error) error
 }

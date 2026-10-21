@@ -10,10 +10,9 @@ import (
 // passthroughTx extends bun.Tx so that a nested transaction call resolves to the
 // same transaction.
 //
-// PostgreSQL has no nested transactions, so bun opens a savepoint instead. A
-// savepoint belongs to its parent's query stream and cannot serve parallel
-// callers, which breaks a test suite that wraps the whole application in one
-// transaction and then calls a method from several goroutines.
+// PostgreSQL has no nested transactions, so bun opens a savepoint instead. A savepoint belongs to
+// the query stream of its parent, so parallel callers cannot share it. A test suite that wraps the
+// whole application in one transaction has such callers: it calls methods from several goroutines.
 type passthroughTx struct {
 	bun.Tx
 }

@@ -3,13 +3,12 @@ package grpcf
 import (
 	"context"
 
+	middleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"google.golang.org/grpc"
 )
 
-// baseContextUnaryInterceptor returns a unary server interceptor that runs
-// ctxInterceptor on each request's context before the handler sees it, giving
-// every RPC a single place to seed request-scoped values such as a logger or a
-// tracing span.
+// baseContextUnaryInterceptor runs ctxInterceptor on the context of each unary call before the
+// handler sees it. Every call then gets one place to seed request-scoped values, such as a logger.
 func baseContextUnaryInterceptor(
 	ctxInterceptor func(context.Context) context.Context,
 ) grpc.UnaryServerInterceptor {
@@ -20,28 +19,16 @@ func baseContextUnaryInterceptor(
 	}
 }
 
-// wrappedStream overrides a ServerStream's Context so the transformed context
-// reaches the handler. gRPC exposes no other hook to replace a stream's context.
-type wrappedStream struct {
-	grpc.ServerStream
-
-	ctxInterceptor func(context.Context) context.Context
-}
-
-func (stream *wrappedStream) Context() context.Context {
-	return stream.ctxInterceptor(stream.ServerStream.Context())
-}
-
-// baseContextStreamInterceptor is the streaming counterpart to
-// [baseContextUnaryInterceptor]: it applies ctxInterceptor to the stream's
-// context so every ServerStream.Context call inside the handler observes the
-// transformed context.
+// baseContextStreamInterceptor is the streaming counterpart of [baseContextUnaryInterceptor]. It
+// derives the stream's context once, and every Context call inside the handler returns it.
 func baseContextStreamInterceptor(
 	ctxInterceptor func(context.Context) context.Context,
 ) grpc.StreamServerInterceptor {
 	return func(
 		srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler,
 	) error {
-		return handler(srv, &wrappedStream{ss, ctxInterceptor})
+		stream := &middleware.WrappedServerStream{ServerStream: ss, WrappedContext: ctxInterceptor(ss.Context())}
+
+		return handler(srv, stream)
 	}
 }

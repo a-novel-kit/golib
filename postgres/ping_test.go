@@ -125,42 +125,53 @@ func TestPingRetries(t *testing.T) {
 	badConnection := func(err error) bool { return errors.Is(err, driver.ErrBadConn) }
 
 	testCases := []struct {
-		name        string
-		errors      []error
-		retryable   func(error) bool
-		cancel      bool
+		name string
+
+		errors    []error
+		retryable func(error) bool
+		cancel    bool
+
 		expectError error
 		expectCalls int
 	}{
 		{
-			name:   "DiscardedConnection",
-			errors: []error{driver.ErrBadConn, nil}, retryable: badConnection,
+			name:        "Success/DiscardedConnection",
+			errors:      []error{driver.ErrBadConn, nil},
+			retryable:   badConnection,
 			expectCalls: 2,
 		},
 		{
-			name:   "WrappedDiscardedConnection",
-			errors: []error{fmt.Errorf("wrapped: %w", driver.ErrBadConn), nil}, retryable: badConnection,
+			name:        "Success/WrappedDiscardedConnection",
+			errors:      []error{fmt.Errorf("wrapped: %w", driver.ErrBadConn), nil},
+			retryable:   badConnection,
 			expectCalls: 2,
 		},
 		{
-			name:   "PermanentError",
-			errors: []error{errPermanent, nil}, retryable: badConnection,
-			expectError: errPermanent, expectCalls: 1,
-		},
-		{
-			name:   "PermanentErrorAfterDiscard",
-			errors: []error{driver.ErrBadConn, errPermanent, nil}, retryable: badConnection,
-			expectError: errPermanent, expectCalls: 2,
-		},
-		{
-			name:        "StartupStillRetriesOtherErrors",
+			name:        "Success/StartupRetriesEveryError",
 			errors:      []error{errPermanent, nil},
 			expectCalls: 2,
 		},
 		{
-			name:   "CancellationPreservesDiscardedError",
-			errors: []error{driver.ErrBadConn, nil}, retryable: badConnection, cancel: true,
-			expectError: context.Canceled, expectCalls: 1,
+			name:        "Error/Permanent",
+			errors:      []error{errPermanent, nil},
+			retryable:   badConnection,
+			expectError: errPermanent,
+			expectCalls: 1,
+		},
+		{
+			name:        "Error/PermanentAfterDiscard",
+			errors:      []error{driver.ErrBadConn, errPermanent, nil},
+			retryable:   badConnection,
+			expectError: errPermanent,
+			expectCalls: 2,
+		},
+		{
+			name:        "Error/CanceledKeepsDiscardedError",
+			errors:      []error{driver.ErrBadConn, nil},
+			retryable:   badConnection,
+			cancel:      true,
+			expectError: context.Canceled,
+			expectCalls: 1,
 		},
 	}
 

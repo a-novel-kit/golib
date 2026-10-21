@@ -87,62 +87,62 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 
 	cases := []drift{
 		{
-			name: "table storage parameters not reset",
+			name: "TableStorageParametersNotReset",
 			from: []string{`CREATE TABLE t (a int)`, `ALTER TABLE t SET (autovacuum_vacuum_scale_factor = 0.02)`},
 			to:   []string{`CREATE TABLE t (a int)`},
 		},
 		{
-			name: "NOT NULL lost",
+			name: "NotNullLost",
 			from: []string{`CREATE TABLE t (a int NOT NULL)`},
 			to:   []string{`CREATE TABLE t (a int)`},
 		},
 		{
-			name: "column default lost",
+			name: "ColumnDefaultLost",
 			from: []string{`CREATE TABLE t (a int NOT NULL DEFAULT 4)`},
 			to:   []string{`CREATE TABLE t (a int NOT NULL)`},
 		},
 		{
-			name: "index predicate widened",
+			name: "IndexPredicateWidened",
 			from: []string{`CREATE TABLE t (a int, s text)`, `CREATE INDEX i ON t (a) WHERE s = 'x'`},
 			to:   []string{`CREATE TABLE t (a int, s text)`, `CREATE INDEX i ON t (a)`},
 		},
 		{
-			name: "index sort order lost",
+			name: "IndexSortOrderLost",
 			from: []string{`CREATE TABLE t (a int)`, `CREATE INDEX i ON t (a DESC)`},
 			to:   []string{`CREATE TABLE t (a int)`, `CREATE INDEX i ON t (a)`},
 		},
 		{
-			name: "column comment lost",
+			name: "ColumnCommentLost",
 			from: []string{`CREATE TABLE t (a int)`, `COMMENT ON COLUMN t.a IS 'why'`},
 			to:   []string{`CREATE TABLE t (a int)`},
 		},
 		{
-			name: "enum label order changed",
+			name: "EnumLabelOrderChanged",
 			from: []string{`CREATE TYPE e AS ENUM ('a', 'b')`},
 			to:   []string{`CREATE TYPE e AS ENUM ('b', 'a')`},
 		},
 		{
-			name: "enum value left behind",
+			name: "EnumValueLeftBehind",
 			from: []string{`CREATE TYPE e AS ENUM ('a', 'b')`},
 			to:   []string{`CREATE TYPE e AS ENUM ('a', 'b', 'c')`},
 		},
 		{
-			name: "foreign key action changed",
+			name: "ForeignKeyActionChanged",
 			from: []string{`CREATE TABLE p (id int PRIMARY KEY)`, `CREATE TABLE t (p int REFERENCES p (id) ON DELETE CASCADE)`},
 			to:   []string{`CREATE TABLE p (id int PRIMARY KEY)`, `CREATE TABLE t (p int REFERENCES p (id))`},
 		},
 		{
-			name: "function body changed",
+			name: "FunctionBodyChanged",
 			from: []string{`CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$`},
 			to:   []string{`CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 2 $$`},
 		},
 		{
-			name: "function setting changed",
+			name: "FunctionSettingChanged",
 			from: []string{`CREATE FUNCTION f() RETURNS int LANGUAGE sql SET search_path = public AS $$ SELECT 1 $$`},
 			to:   []string{`CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$`},
 		},
 		{
-			name: "trigger left behind",
+			name: "TriggerLeftBehind",
 			from: []string{`CREATE TABLE t (a int)`},
 			to: []string{
 				`CREATE TABLE t (a int)`,
@@ -151,7 +151,7 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 			},
 		},
 		{
-			name: "trigger disabled",
+			name: "TriggerDisabled",
 			from: []string{
 				`CREATE TABLE t (a int)`,
 				`CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`,
@@ -165,27 +165,27 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 			},
 		},
 		{
-			name: "view left behind",
+			name: "ViewLeftBehind",
 			from: []string{`CREATE TABLE t (a int)`},
 			to:   []string{`CREATE TABLE t (a int)`, `CREATE VIEW v AS SELECT a FROM t`},
 		},
 		{
-			name: "materialized view left behind",
+			name: "MaterializedViewLeftBehind",
 			from: []string{`CREATE TABLE t (a int)`},
 			to:   []string{`CREATE TABLE t (a int)`, `CREATE MATERIALIZED VIEW mv AS SELECT a FROM t`},
 		},
 		{
-			name: "sequence left behind",
+			name: "SequenceLeftBehind",
 			from: []string{`CREATE TABLE t (a int)`},
 			to:   []string{`CREATE TABLE t (a int)`, `CREATE SEQUENCE s`},
 		},
 		{
-			name: "extension left behind",
+			name: "ExtensionLeftBehind",
 			from: []string{`CREATE TABLE t (a int)`},
 			to:   []string{`CREATE TABLE t (a int)`, `CREATE EXTENSION IF NOT EXISTS pg_trgm`},
 		},
 		{
-			name: "row level security left enabled",
+			name: "RowLevelSecurityLeftEnabled",
 			from: []string{`CREATE TABLE t (a int)`},
 			to: []string{
 				`CREATE TABLE t (a int)`,
@@ -194,7 +194,7 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 			},
 		},
 		{
-			name: "row level security policy role changed",
+			name: "RowLevelSecurityPolicyRoleChanged",
 			from: []string{
 				`CREATE TABLE t (a int)`,
 				`ALTER TABLE t ENABLE ROW LEVEL SECURITY`,
@@ -207,12 +207,12 @@ func TestSchemaSnapshotReportsDrift(t *testing.T) {
 			},
 		},
 		{
-			name: "grant left behind",
+			name: "GrantLeftBehind",
 			from: []string{`CREATE TABLE t (a int)`},
 			to:   []string{`CREATE TABLE t (a int)`, `GRANT SELECT ON t TO PUBLIC`},
 		},
 		{
-			name: "extended statistics left behind",
+			name: "ExtendedStatisticsLeftBehind",
 			from: []string{`CREATE TABLE t (a int, b int)`},
 			to:   []string{`CREATE TABLE t (a int, b int)`, `CREATE STATISTICS st ON a, b FROM t`},
 		},
@@ -238,7 +238,7 @@ func TestSchemaSnapshotIgnoresNonDifferences(t *testing.T) {
 	cases := []drift{
 		{
 			// PostgreSQL appends a re-added column; ordinal position is not schema drift.
-			name: "column re-added at the end by a rollback",
+			name: "ColumnReAddedAtTheEndByARollback",
 			from: []string{`CREATE TABLE t (a int, b int, c int)`},
 			to: []string{
 				`CREATE TABLE t (a int, b int, c int)`,
@@ -247,17 +247,17 @@ func TestSchemaSnapshotIgnoresNonDifferences(t *testing.T) {
 			},
 		},
 		{
-			name: "tables created in a different order",
+			name: "TablesCreatedInADifferentOrder",
 			from: []string{`CREATE TABLE b (x int)`, `CREATE TABLE a (x int)`},
 			to:   []string{`CREATE TABLE a (x int)`, `CREATE TABLE b (x int)`},
 		},
 		{
-			name: "rows present",
+			name: "RowsPresent",
 			from: []string{`CREATE TABLE t (a int)`},
 			to:   []string{`CREATE TABLE t (a int)`, `INSERT INTO t VALUES (1)`},
 		},
 		{
-			name: "constraint spelled inline versus named",
+			name: "ConstraintSpelledInlineVersusNamed",
 			from: []string{`CREATE TABLE t (a int PRIMARY KEY)`},
 			to:   []string{`CREATE TABLE t (a int)`, `ALTER TABLE t ADD PRIMARY KEY (a)`},
 		},
@@ -360,12 +360,12 @@ func TestSchemaSnapshotEscapesRecordSeparators(t *testing.T) {
 func TestSnapshotDelta(t *testing.T) {
 	t.Parallel()
 
-	t.Run("identical snapshots have no delta", func(t *testing.T) {
+	t.Run("Success/IdenticalSnapshots", func(t *testing.T) {
 		t.Parallel()
 		require.Empty(t, postgrestest.SnapshotDelta("a\nb\n", "b\na\n"))
 	})
 
-	t.Run("reports both directions, sorted", func(t *testing.T) {
+	t.Run("Success/BothDirectionsSorted", func(t *testing.T) {
 		t.Parallel()
 
 		require.Equal(t,
@@ -373,7 +373,7 @@ func TestSnapshotDelta(t *testing.T) {
 			postgrestest.SnapshotDelta("kept\ngone\n", "kept\nadded\n"))
 	})
 
-	t.Run("an empty snapshot against a populated one", func(t *testing.T) {
+	t.Run("Success/EmptyAgainstPopulated", func(t *testing.T) {
 		t.Parallel()
 		require.Equal(t, []string{"unexpected: only"}, postgrestest.SnapshotDelta("", "only\n"))
 	})

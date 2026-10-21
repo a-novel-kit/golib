@@ -32,6 +32,7 @@ var probeService = &grpc.ServiceDesc{
 	ServiceName: "test.Probe",
 	HandlerType: (*any)(nil),
 	Methods:     []grpc.MethodDesc{{MethodName: "Call", Handler: probeCall}},
+	Streams:     []grpc.StreamDesc{{StreamName: "Stream", Handler: probeStream, ServerStreams: true}},
 }
 
 // probeCall decodes the empty request of test.Probe/Call, then answers it through interceptor.
@@ -53,6 +54,31 @@ func probeValue(ctx context.Context, _ any) (any, error) {
 	value, _ := ctx.Value(probeContextKey{}).(string)
 
 	return wrapperspb.String(value), nil
+}
+
+// probeStream answers test.Probe/Stream with the value the base context set.
+func probeStream(_ any, stream grpc.ServerStream) error {
+	value, _ := stream.Context().Value(probeContextKey{}).(string)
+
+	return stream.SendMsg(wrapperspb.String(value))
+}
+
+// callProbeStream opens test.Probe/Stream on connection and returns its one answer.
+func callProbeStream(ctx context.Context, connection *grpc.ClientConn) (string, error) {
+	stream, err := connection.NewStream(ctx, &probeService.Streams[0], "/test.Probe/Stream")
+	if err != nil {
+		return "", err
+	}
+
+	err = stream.CloseSend()
+	if err != nil {
+		return "", err
+	}
+
+	response := &wrapperspb.StringValue{}
+	err = stream.RecvMsg(response)
+
+	return response.GetValue(), err
 }
 
 func TestListenAndServe(t *testing.T) {
@@ -198,6 +224,10 @@ func TestNewServer(t *testing.T) {
 			err = connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, response)
 			require.Equal(t, testCase.expectCode, status.Code(err))
 			require.Equal(t, testCase.expectValue, response.GetValue())
+
+			streamValue, err := callProbeStream(ctx, connection)
+			require.Equal(t, testCase.expectCode, status.Code(err))
+			require.Equal(t, testCase.expectValue, streamValue)
 		})
 	}
 

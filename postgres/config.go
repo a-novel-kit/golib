@@ -6,9 +6,8 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// Config supplies pooled bun database connections to the rest of the package.
-// A Config owns the driver options and the connection lifecycle, and the context,
-// migration and test helpers all obtain their handles through it.
+// Config supplies pooled bun database connections. It owns the driver options and the lifecycle of
+// each connection. The context, migration and test helpers obtain their handles through it.
 // postgrespresets.Default is the standard implementation.
 type Config interface {
 	// DB returns a connection to the primary database, opening it on first call

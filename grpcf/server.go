@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	middleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -26,12 +27,14 @@ var errShuttingDown = errors.New("server shutting down")
 // NewServer returns a server with the standard interceptors, outermost first: tracing, the end of
 // streams at shutdown, the base context, call logs, panic recovery and the planned downtime.
 //
-// Its streams end when ctx, the context [ListenAndServe] drains the server under, is done, so a
-// long-lived stream cannot hold the drain to its deadline. Their clients receive Unavailable and
-// resume on another instance, while unary calls finish within the drain. baseContext derives each
-// call's context, so calls reach process-wide values such as the database connection; nil keeps the
-// call's own. The health and echo services that [RegisterEchoServers] adds still answer during a
-// downtime.
+// Pass as ctx the context [ListenAndServe] drains the server under. Once ctx is done, every stream
+// ends with Unavailable, and its client resumes on another instance. A long-lived stream then cannot
+// hold the drain to its deadline. Unary calls finish within the drain.
+//
+// baseContext derives the context of each call, so a call reaches process-wide values such as the
+// database connection. A nil baseContext keeps the call's own context.
+//
+// The health and echo services that [RegisterEchoServers] adds still answer during a downtime.
 func NewServer(
 	ctx context.Context,
 	tracing otel.Config,
@@ -69,7 +72,7 @@ func NewServer(
 	return grpc.NewServer(slices.Concat(options, extra)...)
 }
 
-// endStreamsInterceptor ends a stream once shutdown, the end of ctx, begins.
+// endStreamsInterceptor ends a stream once ctx is done, which marks the start of shutdown.
 //
 //nolint:contextcheck // A stream's context derives from the stream; ctx only signals its end.
 func endStreamsInterceptor(ctx context.Context) grpc.StreamServerInterceptor {
@@ -80,7 +83,7 @@ func endStreamsInterceptor(ctx context.Context) grpc.StreamServerInterceptor {
 		stop := context.AfterFunc(ctx, func() { cancel(errShuttingDown) })
 		defer stop()
 
-		err := handler(srv, &wrappedStream{ss, func(context.Context) context.Context { return streamCtx }})
+		err := handler(srv, &middleware.WrappedServerStream{ServerStream: ss, WrappedContext: streamCtx})
 		if err != nil && errors.Is(context.Cause(streamCtx), errShuttingDown) {
 			return status.Error(codes.Unavailable, "server shutting down: resume on another instance")
 		}

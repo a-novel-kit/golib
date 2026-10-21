@@ -2,10 +2,9 @@ package logging
 
 import "google.golang.org/grpc"
 
-// RPCConfig produces the gRPC server interceptors a service installs: access
-// logging for unary and streaming calls, plus panic recovery that turns a
-// handler panic into an internal error. The presets subpackage implements it in
-// a local and a Google Cloud variant.
+// RPCConfig produces the gRPC server interceptors a service installs. They log each unary and
+// streaming call, and turn a handler panic into an internal error. The presets subpackage
+// implements it for a terminal and for Google Cloud.
 type RPCConfig interface {
 	// UnaryInterceptor logs each unary call.
 	UnaryInterceptor() grpc.UnaryServerInterceptor

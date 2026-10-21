@@ -22,8 +22,8 @@ type PoolOptions struct {
 	MaxIdleConns int
 
 	// MaxIdleConnsPerHost caps the idle connections kept for a single host. Set it to at least the
-	// number of concurrent requests made to that host: the standard library keeps two, and every
-	// call past that pays a fresh TLS handshake.
+	// number of concurrent requests to that host. The standard library keeps two, and every call
+	// past that pays a fresh TLS handshake.
 	MaxIdleConnsPerHost int
 }
 
@@ -48,9 +48,12 @@ func NewPoolTransport(options PoolOptions) *http.Transport {
 	}
 }
 
-// NewPoolClient returns an HTTP client that adds three things to http.DefaultClient: a connection
-// pool the caller sizes, otelhttp tracing that opens a span per request and carries the trace
-// context to the far end, and no timeout, so a response that takes minutes to arrive survives.
+// NewPoolClient returns an HTTP client for calls to other systems. It differs from
+// http.DefaultClient in two ways:
+//   - options size its connection pool;
+//   - otelhttp opens a span per request and carries the trace context to the far end.
+//
+// Like http.DefaultClient, it sets no timeout, so a response that takes minutes to arrive survives.
 //
 // Build one per process and inject it: sharing it is what makes the pool useful.
 func NewPoolClient(options PoolOptions) *http.Client {
