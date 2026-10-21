@@ -87,22 +87,22 @@ func TestDecodeJSON(t *testing.T) {
 			require.Equal(t, testCase.expect, got)
 		})
 	}
-}
 
-func TestDecodeJSONBodyLimit(t *testing.T) {
-	t.Parallel()
+	t.Run("Error/BodyLimit", func(t *testing.T) {
+		t.Parallel()
 
-	recorder := httptest.NewRecorder()
-	body := http.MaxBytesReader(recorder, io.NopCloser(strings.NewReader(`{"name":"Ada"} {"name":"Grace"}`)), 16)
+		recorder := httptest.NewRecorder()
+		body := http.MaxBytesReader(recorder, io.NopCloser(strings.NewReader(`{"name":"Ada"} {"name":"Grace"}`)), 16)
 
-	t.Cleanup(func() { require.NoError(t, body.Close()) })
+		t.Cleanup(func() { require.NoError(t, body.Close()) })
 
-	var request struct {
-		Name string `json:"name"`
-	}
+		var request struct {
+			Name string `json:"name"`
+		}
 
-	err := httpf.DecodeJSON(body, &request)
+		err := httpf.DecodeJSON(body, &request)
 
-	var limitErr *http.MaxBytesError
-	require.ErrorAs(t, err, &limitErr)
+		var limitErr *http.MaxBytesError
+		require.ErrorAs(t, err, &limitErr)
+	})
 }

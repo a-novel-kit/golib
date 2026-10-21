@@ -10,7 +10,7 @@ import (
 	"github.com/a-novel-kit/golib/config"
 )
 
-func TestEnvStringParser(t *testing.T) {
+func TestStringParser(t *testing.T) {
 	t.Setenv("foo", "foo:value")
 
 	require.Equal(t, "foo:value", config.LoadEnv(os.Getenv("foo"), "foo:default", config.StringParser))
@@ -18,7 +18,7 @@ func TestEnvStringParser(t *testing.T) {
 	require.Equal(t, "bar:default", config.LoadEnv(os.Getenv("bar"), "bar:default", config.StringParser))
 }
 
-func TestEnvInt64Parser(t *testing.T) {
+func TestInt64Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -27,7 +27,7 @@ func TestEnvInt64Parser(t *testing.T) {
 	require.Equal(t, int64(321), config.LoadEnv(os.Getenv("qux"), 321, config.Int64Parser))
 }
 
-func TestEnvInt32Parser(t *testing.T) {
+func TestInt32Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -36,7 +36,7 @@ func TestEnvInt32Parser(t *testing.T) {
 	require.Equal(t, int32(321), config.LoadEnv(os.Getenv("qux"), 321, config.Int32Parser))
 }
 
-func TestEnvInt16Parser(t *testing.T) {
+func TestInt16Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -45,7 +45,7 @@ func TestEnvInt16Parser(t *testing.T) {
 	require.Equal(t, int16(321), config.LoadEnv(os.Getenv("qux"), 321, config.Int16Parser))
 }
 
-func TestEnvInt8Parser(t *testing.T) {
+func TestInt8Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -54,7 +54,7 @@ func TestEnvInt8Parser(t *testing.T) {
 	require.Equal(t, int8(64), config.LoadEnv(os.Getenv("qux"), 64, config.Int8Parser))
 }
 
-func TestEnvIntParser(t *testing.T) {
+func TestIntParser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -63,7 +63,7 @@ func TestEnvIntParser(t *testing.T) {
 	require.Equal(t, 321, config.LoadEnv(os.Getenv("qux"), 321, config.IntParser))
 }
 
-func TestEnvUint64Parser(t *testing.T) {
+func TestUint64Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -72,7 +72,7 @@ func TestEnvUint64Parser(t *testing.T) {
 	require.Equal(t, uint64(321), config.LoadEnv(os.Getenv("qux"), 321, config.Uint64Parser))
 }
 
-func TestEnvUint32Parser(t *testing.T) {
+func TestUint32Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -81,7 +81,7 @@ func TestEnvUint32Parser(t *testing.T) {
 	require.Equal(t, uint32(321), config.LoadEnv(os.Getenv("qux"), 321, config.Uint32Parser))
 }
 
-func TestEnvUint16Parser(t *testing.T) {
+func TestUint16Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -90,7 +90,7 @@ func TestEnvUint16Parser(t *testing.T) {
 	require.Equal(t, uint16(321), config.LoadEnv(os.Getenv("qux"), 321, config.Uint16Parser))
 }
 
-func TestEnvUint8Parser(t *testing.T) {
+func TestUint8Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -99,7 +99,7 @@ func TestEnvUint8Parser(t *testing.T) {
 	require.Equal(t, uint8(64), config.LoadEnv(os.Getenv("qux"), 64, config.Uint8Parser))
 }
 
-func TestEnvUintParser(t *testing.T) {
+func TestUintParser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -108,7 +108,7 @@ func TestEnvUintParser(t *testing.T) {
 	require.Equal(t, uint(321), config.LoadEnv(os.Getenv("qux"), 321, config.UintParser))
 }
 
-func TestEnvBoolParser(t *testing.T) {
+func TestBoolParser(t *testing.T) {
 	t.Setenv("foo", "false")
 	t.Setenv("bar", "bar:value")
 
@@ -117,7 +117,7 @@ func TestEnvBoolParser(t *testing.T) {
 	require.True(t, config.LoadEnv(os.Getenv("qux"), true, config.BoolParser))
 }
 
-func TestEnvFloat64Parser(t *testing.T) {
+func TestFloat64Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -126,7 +126,7 @@ func TestEnvFloat64Parser(t *testing.T) {
 	require.InEpsilon(t, float64(321), config.LoadEnv(os.Getenv("qux"), 321, config.Float64Parser), 0.0001)
 }
 
-func TestEnvFloat32Parser(t *testing.T) {
+func TestFloat32Parser(t *testing.T) {
 	t.Setenv("foo", "123")
 	t.Setenv("bar", "bar:value")
 
@@ -135,7 +135,7 @@ func TestEnvFloat32Parser(t *testing.T) {
 	require.InEpsilon(t, float32(321), config.LoadEnv(os.Getenv("qux"), 321, config.Float32Parser), 0.0001)
 }
 
-func TestEnvDurationParser(t *testing.T) {
+func TestDurationParser(t *testing.T) {
 	t.Setenv("foo", "5s")
 	t.Setenv("bar", "bar:value")
 
@@ -144,7 +144,7 @@ func TestEnvDurationParser(t *testing.T) {
 	require.Equal(t, time.Second, config.LoadEnv(os.Getenv("qux"), time.Second, config.DurationParser))
 }
 
-func TestEnvTimeParser(t *testing.T) {
+func TestTimeParser(t *testing.T) {
 	t.Setenv("foo", "2020-01-02T15:04:05Z")
 	t.Setenv("bar", "bar:value")
 
@@ -156,7 +156,7 @@ func TestEnvTimeParser(t *testing.T) {
 	require.Equal(t, now, config.LoadEnv(os.Getenv("qux"), now, config.TimeParser))
 }
 
-func TestEnvStringSliceParser(t *testing.T) {
+func TestStringSliceParser(t *testing.T) {
 	t.Setenv("foo", "foo,bar,baz")
 
 	basic := []string{"foo", "bar", "qux"}
@@ -167,7 +167,7 @@ func TestEnvStringSliceParser(t *testing.T) {
 	require.Equal(t, basic, config.LoadEnv(os.Getenv("bar"), basic, config.SliceParser(config.StringParser)))
 }
 
-func TestEnvEnumParser(t *testing.T) {
+func TestEnumParser(t *testing.T) {
 	t.Setenv("foo", "bar")
 
 	require.Equal(
@@ -181,20 +181,22 @@ func TestEnvEnumParser(t *testing.T) {
 	})
 }
 
-// The panic carries the offending value, the type it could not become, and the parser's own error.
-// LoadEnv never sees the variable's name, so those three are what locate the line to fix.
-func TestLoadEnvPanicNamesTheValueAndType(t *testing.T) {
-	t.Setenv("foo", "on")
+func TestLoadEnv(t *testing.T) {
+	// The panic carries the offending value, the type it could not become, and the parser's own
+	// error. LoadEnv never sees the variable's name, so those three are what locate the line to fix.
+	t.Run("Error/PanicNamesTheValueAndType", func(t *testing.T) {
+		t.Setenv("foo", "on")
 
-	// OTEL=on is the live instance: no bool strconv recognizes, and the fallback selects the preset
-	// that turns every exporter off.
-	err := requirePanicError(t, func() {
-		_ = config.LoadEnv(os.Getenv("foo"), false, config.BoolParser)
+		// OTEL=on is the live instance: no bool strconv recognizes, and the fallback selects the
+		// preset that turns every exporter off.
+		err := requirePanicError(t, func() {
+			_ = config.LoadEnv(os.Getenv("foo"), false, config.BoolParser)
+		})
+
+		require.ErrorContains(t, err, `"on"`)
+		require.ErrorContains(t, err, "bool")
+		require.ErrorContains(t, err, "invalid syntax", "the parser's own error must survive")
 	})
-
-	require.ErrorContains(t, err, `"on"`)
-	require.ErrorContains(t, err, "bool")
-	require.ErrorContains(t, err, "invalid syntax", "the parser's own error must survive")
 }
 
 func requirePanicError(t *testing.T, fn func()) (err error) {
