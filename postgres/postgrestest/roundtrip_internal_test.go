@@ -30,7 +30,7 @@ func roundtripTestDB(t *testing.T) *bun.DB {
 func TestVerifyRoundtrip(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("Success/ReversibleSet", func(t *testing.T) {
 		t.Parallel()
 
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
@@ -219,7 +219,7 @@ func TestRoundtripSources(t *testing.T) {
 		expectErr string
 	}{
 		{
-			name:   "Success",
+			name:   "Success/Plain",
 			files:  []string{"20260725000001_first.up.sql", "20260725000001_first.down.sql", "README.md"},
 			slug:   "20260725000001_first",
 			expect: []string{"20260725000001_first.up.sql", "20260725000001_first.down.sql"},

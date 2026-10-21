@@ -174,7 +174,7 @@ func TestTransactor(t *testing.T) {
 func TestInTx(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("Success/PoolThenTransaction", func(t *testing.T) {
 		t.Parallel()
 
 		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {

@@ -16,7 +16,7 @@ var errTest = errors.New("test")
 func TestTransactor(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("Success/RunsTheCallback", func(t *testing.T) {
 		t.Parallel()
 
 		transactor := transactiontest.NewTransactor()

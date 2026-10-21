@@ -197,7 +197,7 @@ func TestBodyKeyRate(t *testing.T) {
 		expect    string
 		expectErr error
 	}{
-		{name: "Success", body: `{"email":"a@example.com"}`, expect: "email:a@example.com"},
+		{name: "Success/Plain", body: `{"email":"a@example.com"}`, expect: "email:a@example.com"},
 		{name: "Success/CaseAndSpace", body: `{"email":" A@Example.com "}`, expect: "email:a@example.com"},
 		// Escapes cannot spell the same target a second way.
 		{name: "Success/Escapes", body: `{"email":"\u0041@example.com"}`, expect: "email:a@example.com"},

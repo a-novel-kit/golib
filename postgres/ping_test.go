@@ -51,7 +51,7 @@ func TestPing(t *testing.T) {
 		expectCalls int
 	}{
 		{
-			name:        "Success",
+			name:        "Success/FirstPingAnswers",
 			pinger:      pingAnswers,
 			timeout:     time.Second,
 			interval:    time.Millisecond,
