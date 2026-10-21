@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	middleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -80,7 +81,7 @@ func endStreamsInterceptor(ctx context.Context) grpc.StreamServerInterceptor {
 		stop := context.AfterFunc(ctx, func() { cancel(errShuttingDown) })
 		defer stop()
 
-		err := handler(srv, &wrappedStream{ss, func(context.Context) context.Context { return streamCtx }})
+		err := handler(srv, &middleware.WrappedServerStream{ServerStream: ss, WrappedContext: streamCtx})
 		if err != nil && errors.Is(context.Cause(streamCtx), errShuttingDown) {
 			return status.Error(codes.Unavailable, "server shutting down: resume on another instance")
 		}
