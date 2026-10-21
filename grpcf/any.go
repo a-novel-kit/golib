@@ -23,7 +23,7 @@ func MarshalJSONAsAny(v any) (*anypb.Any, error) {
 }
 
 // UnmarshalJSONFromAny reverses [MarshalJSONAsAny]. It expects anyValue to hold a
-// google.protobuf.BytesValue, and decodes the JSON payload of that value into an any.
+// google.protobuf.BytesValue, and decodes the JSON payload of that value into a Go value.
 func UnmarshalJSONFromAny(anyValue *anypb.Any) (any, error) {
 	bytesValue := &wrapperspb.BytesValue{}
 
