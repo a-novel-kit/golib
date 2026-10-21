@@ -37,9 +37,8 @@ func InTx(ctx context.Context) bool {
 	return !isPool
 }
 
-// WithinTx runs callback inside a transaction opened on the connection carried
-// by ctx, and installs that transaction on the context callback receives, so
-// every call made with it takes part in the transaction.
+// WithinTx runs callback inside a transaction opened on the connection ctx carries. The context
+// callback receives carries that transaction, so every call made with that context joins it.
 //
 // The callback takes no transaction argument: the context it receives is the
 // only database handle reachable inside it, so no call can escape unnoticed.

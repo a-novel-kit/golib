@@ -22,8 +22,8 @@ func (handler *echo) UnaryEcho(context.Context, *golibproto.UnaryEchoRequest) (*
 	}, nil
 }
 
-// RegisterEchoServers registers the built-in echo and standard health services
-// and returns the health controller for caller-owned lifecycle updates.
+// RegisterEchoServers registers the built-in echo service and the standard health service on
+// server. It returns the health server, through which the caller reports its serving status.
 func RegisterEchoServers(server *grpc.Server) *health.Server {
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(server, healthcheck)

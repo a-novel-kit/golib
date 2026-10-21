@@ -14,10 +14,9 @@ import (
 // already supplied a shorter deadline.
 const HealthTimeout = time.Second
 
-// Health performs one context-aware health probe against the pooled database
-// connection carried by ctx. It retries discarded connections within the single
-// HealthTimeout budget, respecting earlier caller deadlines and cancellation.
-// Other errors, missing contexts and transaction-only contexts are unhealthy.
+// Health probes the connection pool ctx carries, once. It retries a discarded connection within
+// [HealthTimeout], or within the deadline of ctx when that comes first. Any other error is
+// unhealthy, and so is a ctx carrying no database, or only a transaction.
 func Health(ctx context.Context) error {
 	db, err := GetContext(ctx)
 	if err != nil {

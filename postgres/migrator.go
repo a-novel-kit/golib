@@ -21,16 +21,16 @@ import (
 var ErrNoDBInContext = errors.New("context does not contain a bun.DB")
 
 const (
-	// lockAttempts bounds the runs a migration gets when it gives up waiting for a lock, and
-	// lockRetryDelay spaces them, so the transaction it waited on can finish first.
-	lockAttempts   = 5
+	// lockAttempts bounds the runs of a migration that gives up waiting for a lock.
+	lockAttempts = 5
+	// lockRetryDelay spaces those runs, so the transaction holding the lock can finish first.
 	lockRetryDelay = 2 * time.Second
 
 	// lockNotAvailable is the SQLSTATE a statement fails with once it waited lock_timeout for a lock.
 	lockNotAvailable = "55P03"
 
-	// migrationLockQuery takes a session lock on the migration history of the connection's schema,
-	// lifting lock_timeout first: a runner waits out another one, however long its migrations run.
+	// migrationLockQuery takes a session lock on the migration history of the connection's schema.
+	// It lifts lock_timeout first, so a runner waits out another one however long its migrations run.
 	migrationLockQuery = `SET lock_timeout = 0;
 SELECT pg_advisory_lock(hashtextextended('golib/migrations:' || current_schema(), 0));`
 )
@@ -43,9 +43,9 @@ SELECT pg_advisory_lock(hashtextextended('golib/migrations:' || current_schema()
 // next time. PostgreSQL runs a migration file as a single transaction, so a failure leaves nothing
 // of it behind, unless the file is split with --bun:split.
 //
-// Give the connection a lock_timeout, so a migration waiting for a lock a long transaction holds
-// gives up instead of queueing every query on its table behind it. A migration that gives up this
-// way is run again after a pause, a few times.
+// Give the connection a lock_timeout. Without one, a migration waits on any lock a long transaction
+// holds, and every query on its table queues behind it. With one, the migration gives up instead,
+// then runs again after a pause, a few times.
 func RunMigrations(ctx context.Context, db *bun.DB, migrations fs.FS) error {
 	ctx, span := otel.Tracer().Start(ctx, "postgres.RunMigrations")
 	defer span.End()

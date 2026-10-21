@@ -18,11 +18,10 @@ var (
 	_ CredentialsProvider = (*GcloudCredentialsProvider)(nil)
 )
 
-// CredentialsProvider supplies the gRPC dial options that carry a connection's
-// transport security and, where needed, its per-call authentication. Choose the
-// implementation that matches the target: [LocalCredentialsProvider] for a
-// plaintext local connection, [GcloudCredentialsProvider] for a TLS-secured
-// Google Cloud endpoint.
+// CredentialsProvider supplies the gRPC dial options of a connection. They set its transport
+// security and, when the target needs it, the authentication of each call. Pick the implementation
+// that matches the target: [LocalCredentialsProvider] for a plaintext local connection, or
+// [GcloudCredentialsProvider] for a Google Cloud endpoint behind TLS.
 type CredentialsProvider interface {
 	// Options returns the dial options to pass when creating the client. The
 	// context bounds any token exchange the provider performs while building them.
@@ -37,9 +36,8 @@ func (provider *LocalCredentialsProvider) Options(_ context.Context) ([]grpc.Dia
 	return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, nil
 }
 
-// GcloudCredentialsProvider dials a Google Cloud endpoint over TLS and attaches
-// a Google-issued OIDC identity token to every call, the scheme Cloud Run uses
-// to authenticate service-to-service traffic.
+// GcloudCredentialsProvider dials a Google Cloud endpoint over TLS. It attaches a Google-issued OIDC
+// identity token to every call, which is how Cloud Run authenticates traffic between services.
 type GcloudCredentialsProvider struct {
 	// Host is the endpoint hostname, without scheme or port. It sets both the
 	// identity token's audience and the TLS authority for the connection.

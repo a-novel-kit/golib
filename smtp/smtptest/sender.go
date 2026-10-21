@@ -46,13 +46,12 @@ func (sender *Sender) Ping() error {
 	return ErrPing
 }
 
-// FindMail returns the first captured Mail for which cmp returns true, or
-// (nil, false) if none matched.
+// FindMail returns the first captured Mail for which cmp returns true, or (nil, false) when none
+// matches.
 //
-// cmp runs against a snapshot of the captured pointers, after the lock is
-// released, so a slow comparator cannot block concurrent SendMail callers and a
-// re-entrant one cannot deadlock. The returned *Mail aliases the captured entry;
-// callers must not mutate it.
+// cmp runs on a snapshot of the captured mails, after the lock is released. A slow cmp then cannot
+// block SendMail, and a cmp that calls the Sender cannot deadlock. The returned *Mail is the
+// captured entry itself, so do not mutate it.
 func (sender *Sender) FindMail(cmp func(*Mail) bool) (*Mail, bool) {
 	sender.mu.RLock()
 	snapshot := slices.Clone(sender.mails)
