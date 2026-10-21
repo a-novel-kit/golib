@@ -23,9 +23,9 @@ type HTTPLocal struct {
 
 // localStatusPrefixes marks the request line of each level.
 var localStatusPrefixes = map[LogLevel]string{
-	LogLevelInfo:  "✓ ",
-	LogLevelWarn:  "⚠ ",
-	LogLevelError: "🗙 ",
+	LogLevelInfo:  "✓",
+	LogLevelWarn:  "⚠",
+	LogLevelError: "🗙",
 }
 
 func (logger *HTTPLocal) Logger() func(http.Handler) http.Handler {

@@ -15,7 +15,8 @@ var _ logging.RPCConfig = (*GRPCGcloud)(nil)
 
 // GRPCGcloud implements [logging.RPCConfig] for Google Cloud, producing gRPC
 // interceptors that write entries Cloud Logging parses and recover from
-// handler panics. An entry logged under the RPC's span links to its trace.
+// handler panics. Each call writes one entry, when it finishes. An entry logged
+// under the RPC's span links to its trace.
 type GRPCGcloud struct {
 	// Component labels every entry with the emitting subsystem.
 	Component string `json:"component" yaml:"component"`
@@ -31,13 +32,13 @@ type GRPCGcloud struct {
 func (logger *GRPCGcloud) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	logger.init()
 
-	return grpclog.UnaryServerInterceptor(logInterceptor(logger.l))
+	return grpclog.UnaryServerInterceptor(logInterceptor(logger.l), logFinishedCalls)
 }
 
 func (logger *GRPCGcloud) StreamInterceptor() grpc.StreamServerInterceptor {
 	logger.init()
 
-	return grpclog.StreamServerInterceptor(logInterceptor(logger.l))
+	return grpclog.StreamServerInterceptor(logInterceptor(logger.l), logFinishedCalls)
 }
 
 func (logger *GRPCGcloud) PanicUnaryInterceptor() grpc.UnaryServerInterceptor {
