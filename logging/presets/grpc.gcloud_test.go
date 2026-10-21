@@ -83,4 +83,16 @@ func TestGRPCGcloud(t *testing.T) {
 			require.Equal(t, spanContext.IsSampled(), *entry.TraceSampled)
 		})
 	}
+
+	t.Run("Error/PanicUnary", func(t *testing.T) {
+		t.Parallel()
+
+		requirePanicRecovered(t, &loggingpresets.GRPCGcloud{}, panicUnaryCall)
+	})
+
+	t.Run("Error/PanicStream", func(t *testing.T) {
+		t.Parallel()
+
+		requirePanicRecovered(t, &loggingpresets.GRPCGcloud{}, panicStreamCall)
+	})
 }

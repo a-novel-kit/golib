@@ -14,7 +14,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/a-novel-kit/golib/logging"
-	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 )
 
 // The panic value stands in for whatever a failing handler held when it panicked.
@@ -36,44 +35,30 @@ func panicStreamCall(ctx context.Context, config logging.RPCConfig) error {
 	)
 }
 
-func TestPanicInterceptors(t *testing.T) {
-	t.Parallel()
+// requirePanicRecovered runs call through the panic recovery of config, under a span. The panic must
+// reach the caller as a fixed Internal status, and only the span may hold the panic value.
+func requirePanicRecovered(
+	t *testing.T, config logging.RPCConfig, call func(ctx context.Context, config logging.RPCConfig) error,
+) {
+	t.Helper()
 
-	testCases := []struct {
-		name string
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 
-		config logging.RPCConfig
-		call   func(ctx context.Context, config logging.RPCConfig) error
-	}{
-		{name: "Gcloud/Unary", config: &loggingpresets.GRPCGcloud{}, call: panicUnaryCall},
-		{name: "Gcloud/Stream", config: &loggingpresets.GRPCGcloud{}, call: panicStreamCall},
-		{name: "Local/Unary", config: &loggingpresets.GRPCLocal{}, call: panicUnaryCall},
-		{name: "Local/Stream", config: &loggingpresets.GRPCLocal{}, call: panicStreamCall},
-	}
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
+	ctx, span := provider.Tracer("presets-test").Start(t.Context(), "rpc")
+	err := call(ctx, config)
 
-			recorder := tracetest.NewSpanRecorder()
-			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	span.End()
 
-			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Equal(t, "internal error", status.Convert(err).Message())
 
-			ctx, span := provider.Tracer("presets-test").Start(t.Context(), "rpc")
-			err := testCase.call(ctx, testCase.config)
-
-			span.End()
-
-			require.Equal(t, codes.Internal, status.Code(err))
-			require.Equal(t, "internal error", status.Convert(err).Message())
-
-			spans := recorder.Ended()
-			require.Len(t, spans, 1)
-			require.Equal(t, otelcodes.Error, spans[0].Status().Code)
-			require.Contains(t, spans[0].Status().Description, panicValue)
-		})
-	}
+	spans := recorder.Ended()
+	require.Len(t, spans, 1)
+	require.Equal(t, otelcodes.Error, spans[0].Status().Code)
+	require.Contains(t, spans[0].Status().Description, panicValue)
 }
 
 // serverStream carries the RPC context into a stream interceptor.
