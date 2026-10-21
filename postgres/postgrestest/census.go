@@ -23,17 +23,29 @@ var censusCoverageQuery string
 // fail instead of being silently omitted.
 var ErrUnsupportedSchemaObject = errors.New("schema holds an object class the census cannot render")
 
-// The tables Bun keeps its migration history in, which the census leaves out.
-const (
-	censusMigrationsTable     = "bun_migrations"
-	censusMigrationLocksTable = "bun_migration_locks"
-)
-
 // The census classes the Go side reads by name.
 const (
 	censusClassRelation    = "relation"
 	censusClassUnsupported = "unsupported"
 )
+
+// censusBookkeepingTables lists the tables Bun keeps its migration history in. The census leaves
+// them out.
+var censusBookkeepingTables = []string{"bun_migrations", "bun_migration_locks"}
+
+// censusBookkeepingSequences lists the sequences behind the IDs of those tables.
+var censusBookkeepingSequences = []string{"bun_migrations_id_seq", "bun_migration_locks_id_seq"}
+
+// censusBookkeepingObjects lists, per class, the objects Bun creates along with those tables.
+var censusBookkeepingObjects = map[string][]string{
+	censusClassRelation: slices.Concat(censusBookkeepingTables, censusBookkeepingSequences),
+	"sequence":          censusBookkeepingSequences,
+	"index": {
+		"bun_migrations_pkey", "bun_migrations_name_unique",
+		"bun_migration_locks_pkey", "bun_migration_locks_table_name_key",
+	},
+	"comment": censusBookkeepingTables,
+}
 
 // censusFieldEscaper escapes the characters that would split a record or a field.
 var censusFieldEscaper = strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\r", `\r`, "\n", `\n`)
@@ -116,30 +128,15 @@ func renderCensus(rows []censusRow) (string, error) {
 // history in.
 func isCensusBookkeepingObject(row censusRow) bool {
 	switch row.Class {
-	case "column", "constraint":
-		return strings.HasPrefix(row.Identity, censusMigrationsTable+".") ||
-			strings.HasPrefix(row.Identity, censusMigrationLocksTable+".")
-	case censusClassRelation:
-		return row.Identity == censusMigrationsTable ||
-			row.Identity == censusMigrationLocksTable ||
-			row.Identity == censusMigrationsTable+"_id_seq" ||
-			row.Identity == censusMigrationLocksTable+"_id_seq"
-	case "sequence":
-		return row.Identity == censusMigrationsTable+"_id_seq" ||
-			row.Identity == censusMigrationLocksTable+"_id_seq"
-	case "index":
-		return row.Identity == censusMigrationsTable+"_pkey" ||
-			row.Identity == censusMigrationsTable+"_name_unique" ||
-			row.Identity == censusMigrationLocksTable+"_pkey" ||
-			row.Identity == censusMigrationLocksTable+"_table_name_key"
-	case "comment":
-		return row.Identity == censusMigrationsTable ||
-			row.Identity == censusMigrationLocksTable ||
-			strings.HasPrefix(row.Identity, censusMigrationsTable+".") ||
-			strings.HasPrefix(row.Identity, censusMigrationLocksTable+".")
-	default:
-		return false
+	case "column", "constraint", "comment":
+		// The census names a member of a table "<table>.<member>".
+		table, _, isMember := strings.Cut(row.Identity, ".")
+		if isMember {
+			return slices.Contains(censusBookkeepingTables, table)
+		}
 	}
+
+	return slices.Contains(censusBookkeepingObjects[row.Class], row.Identity)
 }
 
 // validateCensusCoverage checks that rows hold as many objects of each catalog as coverage counts,

@@ -317,25 +317,31 @@ func roundtripCheckSnapshot(
 	return nil
 }
 
-// roundtripMigrationSources holds the up and down source files of one migration.
-type roundtripMigrationSources struct {
-	up   string
-	down string
+// The directions a migration source file runs in.
+const (
+	roundtripDirectionUp   = "up"
+	roundtripDirectionDown = "down"
+)
+
+// roundtripSource names the source file of one migration in one direction.
+type roundtripSource struct {
+	slug      string
+	direction string
 }
 
-// roundtripSourceSet maps each migration slug to its source files.
-type roundtripSourceSet map[string]roundtripMigrationSources
+// roundtripSourceSet maps the source of each migration and direction to its file.
+type roundtripSourceSet map[roundtripSource]string
 
 // roundtripSourceSuffixes lists the file suffixes Bun discovers migrations under. Each
 // transactional suffix precedes the plain suffix it ends with.
 var roundtripSourceSuffixes = []struct {
-	value  string
-	isDown bool
+	value     string
+	direction string
 }{
-	{value: ".tx.up.sql"},
-	{value: ".up.sql"},
-	{value: ".tx.down.sql", isDown: true},
-	{value: ".down.sql", isDown: true},
+	{value: ".tx.up.sql", direction: roundtripDirectionUp},
+	{value: ".up.sql", direction: roundtripDirectionUp},
+	{value: ".tx.down.sql", direction: roundtripDirectionDown},
+	{value: ".down.sql", direction: roundtripDirectionDown},
 }
 
 // roundtripHistoryDigests chains one digest over the up and down files of each migration in order,
@@ -383,24 +389,16 @@ func roundtripSources(migrations fs.FS) (roundtripSourceSet, error) {
 	sources := roundtripSourceSet{}
 
 	for _, sourcePath := range paths {
-		slug, isDown, ok := roundtripSourceName(path.Base(sourcePath))
+		source, ok := roundtripSourceOf(path.Base(sourcePath))
 		if !ok {
 			continue
 		}
 
-		pair := sources[slug]
-
-		target, direction := &pair.up, "up"
-		if isDown {
-			target, direction = &pair.down, "down"
+		if _, duplicate := sources[source]; duplicate {
+			return nil, fmt.Errorf("migration %s has duplicate %s files", source.slug, source.direction)
 		}
 
-		if *target != "" {
-			return nil, fmt.Errorf("migration %s has duplicate %s files", slug, direction)
-		}
-
-		*target = sourcePath
-		sources[slug] = pair
+		sources[source] = sourcePath
 	}
 
 	return sources, nil
@@ -408,24 +406,26 @@ func roundtripSources(migrations fs.FS) (roundtripSourceSet, error) {
 
 // files returns the up file, then the down file, of the migration called slug.
 func (sources roundtripSourceSet) files(slug string) ([]string, error) {
-	pair := sources[slug]
-	if pair.up == "" || pair.down == "" {
+	up := sources[roundtripSource{slug: slug, direction: roundtripDirectionUp}]
+	down := sources[roundtripSource{slug: slug, direction: roundtripDirectionDown}]
+
+	if up == "" || down == "" {
 		return nil, fmt.Errorf("migration %s needs one up and one down SQL file", slug)
 	}
 
-	return []string{pair.up, pair.down}, nil
+	return []string{up, down}, nil
 }
 
-// roundtripSourceName splits a migration file name into its slug and direction. It reports false
-// for a file Bun does not discover as a migration.
-func roundtripSourceName(name string) (string, bool, bool) {
+// roundtripSourceOf reads the migration and direction a file name holds. It reports false for a
+// file Bun does not discover as a migration.
+func roundtripSourceOf(name string) (roundtripSource, bool) {
 	for _, suffix := range roundtripSourceSuffixes {
 		if slug, found := strings.CutSuffix(name, suffix.value); found {
-			return slug, suffix.isDown, true
+			return roundtripSource{slug: slug, direction: suffix.direction}, true
 		}
 	}
 
-	return "", false, false
+	return roundtripSource{}, false
 }
 
 // roundtripDatabase creates the empty database a roundtrip runs in, dropped with the test.
