@@ -13,9 +13,10 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// ErrMap maps sentinel errors to the HTTP status HandleError returns for them. A nil
-// key sets the status of unmatched errors, which is 500 Internal Server Error without
-// one.
+// ErrMap maps sentinel errors to the HTTP status HandleError returns for them. An error matching
+// several sentinels takes the highest of their statuses, so a server fault never hides behind a
+// client error. A nil key sets the status of unmatched errors, which is 500 Internal Server Error
+// without one.
 type ErrMap map[error]int
 
 // HandleError writes a response for a failed handler. It matches err against errMap (with
@@ -65,18 +66,24 @@ func HandleError(
 	}
 }
 
-// status returns the status mapped to a sentinel err matches. An unmatched err takes the status of
-// the nil key, or 500 Internal Server Error without one.
+// status returns the highest status mapped to a sentinel err matches. An unmatched err takes the
+// status of the nil key, or 500 Internal Server Error without one.
 func (errMap ErrMap) status(err error) int {
-	status := http.StatusInternalServerError
+	matched := 0
 
 	for ref, refStatus := range errMap {
-		if ref == nil {
-			status = refStatus
-		} else if errors.Is(err, ref) {
-			return refStatus
+		if ref != nil && refStatus > matched && errors.Is(err, ref) {
+			matched = refStatus
 		}
 	}
 
-	return status
+	if matched > 0 {
+		return matched
+	}
+
+	if fallback, ok := errMap[nil]; ok {
+		return fallback
+	}
+
+	return http.StatusInternalServerError
 }

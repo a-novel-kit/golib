@@ -52,6 +52,7 @@ func TestHandleError(t *testing.T) {
 	t.Parallel()
 
 	errMapped := errors.New("mapped")
+	errUnavailable := errors.New("unavailable")
 	// A wrapped driver error is the shape that carries secrets.
 	errSecret := errors.New("dial tcp db.internal:5432: password authentication failed for user=admin")
 	// A child span already describes this one.
@@ -125,6 +126,16 @@ func TestHandleError(t *testing.T) {
 			err:          fmt.Errorf("%w: %w", errMapped, errSecret),
 			expectStatus: http.StatusConflict,
 			expectLevel:  "warn",
+		},
+		{
+			// A server fault never hides behind a client error.
+			name:                  "Error/SeveralMatchesTakeTheHighest",
+			errMap:                httpf.ErrMap{errMapped: http.StatusNotFound, errUnavailable: http.StatusServiceUnavailable},
+			err:                   errors.Join(errMapped, errUnavailable),
+			expectStatus:          http.StatusServiceUnavailable,
+			expectLevel:           "error",
+			expectSpanStatus:      codes.Error,
+			expectSpanDescription: errors.Join(errMapped, errUnavailable).Error(),
 		},
 		{
 			name:                  "Error/MappedServerError",
