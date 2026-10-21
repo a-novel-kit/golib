@@ -15,9 +15,10 @@ import (
 // The logging presets wrap every request of a service in the capture writer, so what the wrapper
 // drops, every handler loses.
 
-func TestCaptureKeepsTheBodyOnlyForAFailure(t *testing.T) {
+func TestCaptureHTTPResponseWriter(t *testing.T) {
 	t.Parallel()
 
+	// The writer keeps the body only for a failure.
 	testCases := []struct {
 		name string
 
@@ -30,20 +31,20 @@ func TestCaptureKeepsTheBodyOnlyForAFailure(t *testing.T) {
 		expectBody   string
 	}{
 		{
-			name:         "ImplicitOK",
+			name:         "Success/ImplicitOK",
 			writeHeader:  false,
 			expectStatus: http.StatusOK,
 			expectBody:   "",
 		},
 		{
-			name:         "ExplicitOK",
+			name:         "Success/ExplicitOK",
 			status:       http.StatusOK,
 			writeHeader:  true,
 			expectStatus: http.StatusOK,
 			expectBody:   "",
 		},
 		{
-			name:         "Created",
+			name:         "Success/Created",
 			status:       http.StatusCreated,
 			writeHeader:  true,
 			expectStatus: http.StatusCreated,
@@ -51,14 +52,14 @@ func TestCaptureKeepsTheBodyOnlyForAFailure(t *testing.T) {
 		},
 		{
 			// The local preset reports a body from 400 up, not 500 up.
-			name:         "BadRequest",
+			name:         "Success/BadRequest",
 			status:       http.StatusBadRequest,
 			writeHeader:  true,
 			expectStatus: http.StatusBadRequest,
 			expectBody:   "payload",
 		},
 		{
-			name:         "InternalServerError",
+			name:         "Success/InternalServerError",
 			status:       http.StatusInternalServerError,
 			writeHeader:  true,
 			expectStatus: http.StatusInternalServerError,
@@ -88,6 +89,81 @@ func TestCaptureKeepsTheBodyOnlyForAFailure(t *testing.T) {
 			require.Equal(t, int64(len("payload")), wrapped.Size())
 		})
 	}
+
+	t.Run("Success/ForwardsFlush", func(t *testing.T) {
+		t.Parallel()
+
+		// The idiomatic capability check a streaming handler makes. Against a wrapper that
+		// only embeds the interface it yields false, and the handler buffers what it meant
+		// to stream.
+		underlying := &flushRecorder{ResponseWriter: httptest.NewRecorder()}
+		wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: underlying}
+
+		flusher, ok := any(wrapped).(http.Flusher)
+		require.True(t, ok, "a handler's own http.Flusher assertion must succeed")
+
+		flusher.Flush()
+		require.True(t, underlying.flushed, "Flush must reach the writer underneath")
+	})
+
+	t.Run("Success/FlushWithoutSupport", func(t *testing.T) {
+		t.Parallel()
+
+		// httptest.NewRecorder does implement Flusher, so a writer that does not needs to be
+		// built by hand.
+		wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: writeOnlyResponseWriter{}}
+
+		require.NotPanics(t, wrapped.Flush)
+	})
+
+	t.Run("Error/HijackUnsupported", func(t *testing.T) {
+		t.Parallel()
+
+		wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: httptest.NewRecorder()}
+
+		_, _, err := wrapped.Hijack()
+		require.ErrorIs(t, err, utils.ErrNotHijackable)
+	})
+
+	t.Run("Success/UnwrapReachesTheWrappedWriter", func(t *testing.T) {
+		t.Parallel()
+
+		// http.ResponseController walks Unwrap to find Flush, so a chain of middleware stays
+		// transparent to it.
+		underlying := &flushRecorder{ResponseWriter: httptest.NewRecorder()}
+		wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: underlying}
+
+		require.NoError(t, http.NewResponseController(wrapped).Flush())
+		require.True(t, underlying.flushed)
+	})
+
+	t.Run("Success/ReadFromWithoutAWrappedReaderFrom", func(t *testing.T) {
+		t.Parallel()
+
+		// The fallback copies through Write, so the size stays accurate and the copy does not
+		// recurse into ReadFrom.
+		recorder := httptest.NewRecorder()
+		wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: recorder}
+
+		written, err := wrapped.ReadFrom(strings.NewReader("streamed"))
+		require.NoError(t, err)
+		require.Equal(t, int64(len("streamed")), written)
+		require.Equal(t, int64(len("streamed")), wrapped.Size())
+		require.Equal(t, "streamed", recorder.Body.String())
+	})
+
+	t.Run("Success/ReadFromForwardsWhenSupported", func(t *testing.T) {
+		t.Parallel()
+
+		underlying := &readFromRecorder{ResponseWriter: httptest.NewRecorder()}
+		wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: underlying}
+
+		written, err := wrapped.ReadFrom(strings.NewReader("streamed"))
+		require.NoError(t, err)
+		require.Equal(t, int64(len("streamed")), written)
+		require.True(t, underlying.used, "the wrapped writer's own ReadFrom must be preferred")
+		require.Equal(t, int64(len("streamed")), wrapped.Size())
+	})
 }
 
 // flushRecorder reports whether Flush reached the writer underneath the wrapper.
@@ -98,81 +174,6 @@ type flushRecorder struct {
 }
 
 func (w *flushRecorder) Flush() { w.flushed = true }
-
-func TestCaptureForwardsFlush(t *testing.T) {
-	t.Parallel()
-
-	// The idiomatic capability check a streaming handler makes. Against a wrapper that
-	// only embeds the interface it yields false, and the handler buffers what it meant
-	// to stream.
-	underlying := &flushRecorder{ResponseWriter: httptest.NewRecorder()}
-	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: underlying}
-
-	flusher, ok := any(wrapped).(http.Flusher)
-	require.True(t, ok, "a handler's own http.Flusher assertion must succeed")
-
-	flusher.Flush()
-	require.True(t, underlying.flushed, "Flush must reach the writer underneath")
-}
-
-func TestCaptureFlushIsSafeWithoutSupport(t *testing.T) {
-	t.Parallel()
-
-	// httptest.NewRecorder does implement Flusher, so a writer that does not needs to be
-	// built by hand.
-	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: writeOnlyResponseWriter{}}
-
-	require.NotPanics(t, wrapped.Flush)
-}
-
-func TestCaptureHijackReportsAWriterThatCannot(t *testing.T) {
-	t.Parallel()
-
-	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: httptest.NewRecorder()}
-
-	_, _, err := wrapped.Hijack()
-	require.ErrorIs(t, err, utils.ErrNotHijackable)
-}
-
-func TestCaptureUnwrapReachesTheWrappedWriter(t *testing.T) {
-	t.Parallel()
-
-	// http.ResponseController walks Unwrap to find Flush, so a chain of middleware stays
-	// transparent to it.
-	underlying := &flushRecorder{ResponseWriter: httptest.NewRecorder()}
-	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: underlying}
-
-	require.NoError(t, http.NewResponseController(wrapped).Flush())
-	require.True(t, underlying.flushed)
-}
-
-func TestCaptureReadFromCountsWithoutAWrappedReaderFrom(t *testing.T) {
-	t.Parallel()
-
-	// The fallback copies through Write, so the size stays accurate and the copy does not
-	// recurse into ReadFrom.
-	recorder := httptest.NewRecorder()
-	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: recorder}
-
-	written, err := wrapped.ReadFrom(strings.NewReader("streamed"))
-	require.NoError(t, err)
-	require.Equal(t, int64(len("streamed")), written)
-	require.Equal(t, int64(len("streamed")), wrapped.Size())
-	require.Equal(t, "streamed", recorder.Body.String())
-}
-
-func TestCaptureReadFromForwardsWhenSupported(t *testing.T) {
-	t.Parallel()
-
-	underlying := &readFromRecorder{ResponseWriter: httptest.NewRecorder()}
-	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: underlying}
-
-	written, err := wrapped.ReadFrom(strings.NewReader("streamed"))
-	require.NoError(t, err)
-	require.Equal(t, int64(len("streamed")), written)
-	require.True(t, underlying.used, "the wrapped writer's own ReadFrom must be preferred")
-	require.Equal(t, int64(len("streamed")), wrapped.Size())
-}
 
 // readFromRecorder reports whether ReadFrom reached the writer underneath the wrapper.
 type readFromRecorder struct {
