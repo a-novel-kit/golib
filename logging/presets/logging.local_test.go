@@ -23,31 +23,54 @@ func rendered(t *testing.T, msg string, fields []any) string {
 	return strings.TrimSpace(out.String())
 }
 
-// A message with no operands goes out as written, so a % in the error text httpf.HandleError
-// logs survives.
-func TestLogLocalDoesNotFormatWithoutFields(t *testing.T) {
+func TestLogLocal(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
 		name string
 
-		msg string
+		msg    string
+		fields []any
+
+		expect []string
 	}{
+		// A message with no operands goes out as written, so a % in the error text httpf.HandleError
+		// logs survives.
 		{
-			name: "PercentSign",
-			msg:  "disk usage at 95% on /var",
+			name:   "Success/PercentSign",
+			msg:    "disk usage at 95% on /var",
+			expect: []string{"disk usage at 95% on /var"},
 		},
 		{
-			name: "VerbLikeSequence",
-			msg:  `parse "%s" failed`,
+			name:   "Success/VerbLikeSequence",
+			msg:    `parse "%s" failed`,
+			expect: []string{`parse "%s" failed`},
 		},
 		{
-			name: "TrailingPercent",
-			msg:  "progress: 100%",
+			name:   "Success/TrailingPercent",
+			msg:    "progress: 100%",
+			expect: []string{"progress: 100%"},
 		},
 		{
-			name: "Plain",
-			msg:  "nothing special here",
+			name:   "Success/Plain",
+			msg:    "nothing special here",
+			expect: []string{"nothing special here"},
+		},
+		// With operands, LogLocal renders msg as a format string. That is the local convention, and
+		// the doc on logging.Log says so.
+		{
+			name:   "Success/FormatsFields",
+			msg:    "took %s for %d items",
+			fields: []any{"1.2s", 42},
+			expect: []string{"took 1.2s for 42 items"},
+		},
+		// A field with no verb to land on is appended rather than dropped, which is what makes the
+		// divergence between the two presets lossless.
+		{
+			name:   "Success/KeepsAFieldWithNoVerb",
+			msg:    "item rejected",
+			fields: []any{"credential-42"},
+			expect: []string{"item rejected", "credential-42"},
 		},
 	}
 
@@ -55,31 +78,15 @@ func TestLogLocalDoesNotFormatWithoutFields(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := rendered(t, testCase.msg, nil)
+			got := rendered(t, testCase.msg, testCase.fields)
 
-			require.Contains(t, got, testCase.msg)
-			require.NotContains(t, got, "%!", "the message must not be rewritten by a format pass")
+			for _, expect := range testCase.expect {
+				require.Contains(t, got, expect)
+			}
+
+			if len(testCase.fields) == 0 {
+				require.NotContains(t, got, "%!", "the message must not be rewritten by a format pass")
+			}
 		})
 	}
-}
-
-// With operands, LogLocal renders msg as a format string. That is the local
-// convention, and the doc on logging.Log says so.
-func TestLogLocalFormatsWithFields(t *testing.T) {
-	t.Parallel()
-
-	got := rendered(t, "took %s for %d items", []any{"1.2s", 42})
-
-	require.Contains(t, got, "took 1.2s for 42 items")
-}
-
-// A field with no verb to land on is appended rather than dropped, which is what
-// makes the divergence between the two presets lossless.
-func TestLogLocalKeepsAFieldWithNoVerb(t *testing.T) {
-	t.Parallel()
-
-	got := rendered(t, "item rejected", []any{"credential-42"})
-
-	require.Contains(t, got, "item rejected")
-	require.Contains(t, got, "credential-42")
 }

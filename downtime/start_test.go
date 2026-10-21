@@ -23,7 +23,7 @@ func TestParseStart(t *testing.T) {
 		expectErr bool
 	}{
 		{
-			name:   "Success",
+			name:   "Success/UTC",
 			value:  "2026-10-09T08:00:00Z",
 			expect: &start,
 		},

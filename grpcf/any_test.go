@@ -8,7 +8,7 @@ import (
 	"github.com/a-novel-kit/golib/grpcf"
 )
 
-func TestMarshalJSONAsAny_roundtrip(t *testing.T) {
+func TestMarshalJSONAsAny(t *testing.T) {
 	t.Parallel()
 
 	original := map[string]any{

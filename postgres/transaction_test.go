@@ -67,125 +67,134 @@ func probeCount(ctx context.Context, t *testing.T, id string) int {
 	return count
 }
 
-// TestWithinTxRollback pins that the callback's writes go through the transaction.
-// The rollback takes the insert with it.
-func TestWithinTxRollback(t *testing.T) {
+func TestWithinTx(t *testing.T) {
 	t.Parallel()
 
-	id := "rollback"
+	t.Run("Success", func(t *testing.T) {
+		t.Parallel()
 
-	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
-		t.Helper()
+		id := "commit"
 
-		err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
-			writeProbe(ctx, t, id)
+		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+			t.Helper()
 
-			return errRollback
+			err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
+				writeProbe(ctx, t, id)
+
+				return nil
+			})
+			require.NoError(t, err)
+
+			require.Equal(t, 1, probeCount(ctx, t, id))
 		})
-		require.ErrorIs(t, err, errRollback)
-
-		require.Equal(t, 0, probeCount(ctx, t, id))
 	})
-}
 
-func TestWithinTxCommit(t *testing.T) {
-	t.Parallel()
+	// The callback's writes go through the transaction, so the rollback takes the insert with it.
+	t.Run("Error/CallbackRollsBack", func(t *testing.T) {
+		t.Parallel()
 
-	id := "commit"
+		id := "rollback"
 
-	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
-		t.Helper()
+		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+			t.Helper()
 
-		err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
-			writeProbe(ctx, t, id)
-
-			return nil
-		})
-		require.NoError(t, err)
-
-		require.Equal(t, 1, probeCount(ctx, t, id))
-	})
-}
-
-// TestWithinTxNested covers the joining rule: the inner call takes part in the
-// transaction already in progress, so an inner failure discards the outer unit
-// of work too.
-func TestWithinTxNested(t *testing.T) {
-	t.Parallel()
-
-	outer := "nested-outer"
-	inner := "nested-inner"
-
-	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
-		t.Helper()
-
-		err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
-			writeProbe(ctx, t, outer)
-
-			return postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
-				writeProbe(ctx, t, inner)
+			err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
+				writeProbe(ctx, t, id)
 
 				return errRollback
 			})
-		})
-		require.ErrorIs(t, err, errRollback)
+			require.ErrorIs(t, err, errRollback)
 
-		require.Equal(t, 0, probeCount(ctx, t, outer))
-		require.Equal(t, 0, probeCount(ctx, t, inner))
+			require.Equal(t, 0, probeCount(ctx, t, id))
+		})
+	})
+
+	// A nested call joins the transaction already in progress, so an inner failure discards the
+	// outer unit of work too.
+	t.Run("Error/NestedCallRollsBackTheOuter", func(t *testing.T) {
+		t.Parallel()
+
+		outer := "nested-outer"
+		inner := "nested-inner"
+
+		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+			t.Helper()
+
+			err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
+				writeProbe(ctx, t, outer)
+
+				return postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
+					writeProbe(ctx, t, inner)
+
+					return errRollback
+				})
+			})
+			require.ErrorIs(t, err, errRollback)
+
+			require.Equal(t, 0, probeCount(ctx, t, outer))
+			require.Equal(t, 0, probeCount(ctx, t, inner))
+		})
+	})
+
+	t.Run("Error/NoDatabase", func(t *testing.T) {
+		t.Parallel()
+
+		err := postgres.WithinTx(t.Context(), nil, func(context.Context) error {
+			t.Error("the callback must not run when the context carries no database")
+
+			return nil
+		})
+		require.ErrorIs(t, err, postgres.ErrNoIDBInContext)
 	})
 }
 
-func TestTransactorDelegates(t *testing.T) {
+func TestTransactor(t *testing.T) {
 	t.Parallel()
 
-	id := "transactor"
+	t.Run("Error/CallbackRollsBack", func(t *testing.T) {
+		t.Parallel()
 
-	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
-		t.Helper()
+		id := "transactor"
 
-		err := postgres.NewTransactor(nil).WithinTx(ctx, func(ctx context.Context) error {
-			writeProbe(ctx, t, id)
+		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+			t.Helper()
 
-			return errRollback
+			err := postgres.NewTransactor(nil).WithinTx(ctx, func(ctx context.Context) error {
+				writeProbe(ctx, t, id)
+
+				return errRollback
+			})
+			require.ErrorIs(t, err, errRollback)
+
+			require.Equal(t, 0, probeCount(ctx, t, id))
 		})
-		require.ErrorIs(t, err, errRollback)
-
-		require.Equal(t, 0, probeCount(ctx, t, id))
 	})
 }
 
 func TestInTx(t *testing.T) {
 	t.Parallel()
 
-	postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
-		t.Helper()
+	t.Run("Success/PoolThenTransaction", func(t *testing.T) {
+		t.Parallel()
 
-		require.False(t, postgres.InTx(ctx), "the pool is on the context outside a transaction")
+		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+			t.Helper()
 
-		err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
-			require.True(t, postgres.InTx(ctx), "the transaction is on the context inside WithinTx")
+			require.False(t, postgres.InTx(ctx), "the pool is on the context outside a transaction")
 
-			return nil
+			err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
+				require.True(t, postgres.InTx(ctx), "the transaction is on the context inside WithinTx")
+
+				return nil
+			})
+			require.NoError(t, err)
 		})
-		require.NoError(t, err)
 	})
-}
 
-// TestInTxNoContext covers a context nothing seeded: InTx answers "is a
-// transaction open", which a missing database handle is not.
-func TestInTxNoContext(t *testing.T) {
-	t.Parallel()
+	// InTx answers "is a transaction open", which a context carrying no database is not.
+	t.Run("Success/NoDatabase", func(t *testing.T) {
+		t.Parallel()
 
-	require.False(t, postgres.InTx(t.Context()))
-}
-
-func TestWithinTxNoContext(t *testing.T) {
-	t.Parallel()
-
-	err := postgres.WithinTx(t.Context(), nil, func(context.Context) error {
-		t.Error("the callback must not run when the context carries no database")
-
-		return nil
+		require.False(t, postgres.InTx(t.Context()))
 	})
-	require.ErrorIs(t, err, postgres.ErrNoIDBInContext)
 }

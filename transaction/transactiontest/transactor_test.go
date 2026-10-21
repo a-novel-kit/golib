@@ -13,69 +13,71 @@ import (
 
 var errTest = errors.New("test")
 
-func TestTransactorRunsTheCallback(t *testing.T) {
+func TestTransactor(t *testing.T) {
 	t.Parallel()
 
-	transactor := transactiontest.NewTransactor()
-	ran := false
+	t.Run("Success/RunsTheCallback", func(t *testing.T) {
+		t.Parallel()
 
-	err := transactor.WithinTx(t.Context(), func(context.Context) error {
-		ran = true
+		transactor := transactiontest.NewTransactor()
+		ran := false
 
-		return nil
-	})
-	require.NoError(t, err)
-	require.True(t, ran)
-	require.Equal(t, 1, transactor.Calls())
-}
+		err := transactor.WithinTx(t.Context(), func(context.Context) error {
+			ran = true
 
-func TestTransactorPropagatesTheCallbackError(t *testing.T) {
-	t.Parallel()
-
-	transactor := transactiontest.NewTransactor()
-
-	err := transactor.WithinTx(t.Context(), func(context.Context) error {
-		return errTest
-	})
-	require.ErrorIs(t, err, errTest)
-}
-
-// TestFailingTransactorSkipsTheCallback covers the property the failing double
-// exists for: when the transaction cannot be opened, the callback must not run.
-func TestFailingTransactorSkipsTheCallback(t *testing.T) {
-	t.Parallel()
-
-	transactor := transactiontest.NewFailingTransactor(errTest)
-
-	err := transactor.WithinTx(t.Context(), func(context.Context) error {
-		t.Error("the callback ran despite the transaction failing to open")
-
-		return nil
-	})
-	require.ErrorIs(t, err, errTest)
-	require.Equal(t, 1, transactor.Calls())
-}
-
-func TestTransactorCountsNestedCalls(t *testing.T) {
-	t.Parallel()
-
-	transactor := transactiontest.NewTransactor()
-
-	err := transactor.WithinTx(t.Context(), func(ctx context.Context) error {
-		return transactor.WithinTx(ctx, func(context.Context) error {
 			return nil
 		})
+		require.NoError(t, err)
+		require.True(t, ran)
+		require.Equal(t, 1, transactor.Calls())
 	})
-	require.NoError(t, err)
-	require.Equal(t, 2, transactor.Calls())
-}
 
-// TestTransactorSatisfiesTheInterface fails to compile if the double drifts from
-// the contract it stands in for.
-func TestTransactorSatisfiesTheInterface(t *testing.T) {
-	t.Parallel()
+	t.Run("Error/CallbackError", func(t *testing.T) {
+		t.Parallel()
 
-	var transactor transaction.Transactor = transactiontest.NewTransactor()
+		transactor := transactiontest.NewTransactor()
 
-	require.NoError(t, transactor.WithinTx(t.Context(), func(context.Context) error { return nil }))
+		err := transactor.WithinTx(t.Context(), func(context.Context) error {
+			return errTest
+		})
+		require.ErrorIs(t, err, errTest)
+	})
+
+	// When the transaction cannot be opened, the callback must not run.
+	t.Run("Error/FailingTransactorSkipsTheCallback", func(t *testing.T) {
+		t.Parallel()
+
+		transactor := transactiontest.NewFailingTransactor(errTest)
+
+		err := transactor.WithinTx(t.Context(), func(context.Context) error {
+			t.Error("the callback ran despite the transaction failing to open")
+
+			return nil
+		})
+		require.ErrorIs(t, err, errTest)
+		require.Equal(t, 1, transactor.Calls())
+	})
+
+	t.Run("Success/CountsNestedCalls", func(t *testing.T) {
+		t.Parallel()
+
+		transactor := transactiontest.NewTransactor()
+
+		err := transactor.WithinTx(t.Context(), func(ctx context.Context) error {
+			return transactor.WithinTx(ctx, func(context.Context) error {
+				return nil
+			})
+		})
+		require.NoError(t, err)
+		require.Equal(t, 2, transactor.Calls())
+	})
+
+	// The test fails to compile if the double drifts from the contract it stands in for.
+	t.Run("Success/SatisfiesTheInterface", func(t *testing.T) {
+		t.Parallel()
+
+		var transactor transaction.Transactor = transactiontest.NewTransactor()
+
+		require.NoError(t, transactor.WithinTx(t.Context(), func(context.Context) error { return nil }))
+	})
 }

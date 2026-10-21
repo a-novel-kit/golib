@@ -96,7 +96,7 @@ func TestRunMigrations(t *testing.T) {
 		blockFor time.Duration
 	}{
 		{
-			name: "Success",
+			name: "Success/RerunIsANoOp",
 
 			runs: []run{
 				{migrations: createProbe, expectApplied: []string{"20260101000000"}},

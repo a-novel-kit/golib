@@ -33,7 +33,7 @@ func TestNewPoolTransport(t *testing.T) {
 		options httpf.PoolOptions
 	}{
 		{
-			name: "Success",
+			name: "Success/Sized",
 
 			options: httpf.PoolOptions{MaxIdleConns: 100, MaxIdleConnsPerHost: 4},
 		},

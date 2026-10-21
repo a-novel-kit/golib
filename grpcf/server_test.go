@@ -175,7 +175,7 @@ func TestNewServer(t *testing.T) {
 		expectValue string
 	}{
 		{
-			name: "Success",
+			name: "Success/BaseContext",
 
 			expectCode:  codes.OK,
 			expectValue: "process",

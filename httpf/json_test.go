@@ -163,35 +163,35 @@ func TestSendJSONStatus(t *testing.T) {
 			require.Contains(t, spans[0].Status().Description, testCase.expectSpanDescription)
 		})
 	}
-}
 
-// net/http freezes the headers at WriteHeader, so a Content-Type written afterwards never
-// leaves the process and the client is told text/plain. SendJSONStatus takes the status
-// so that its callers never write in this order.
-func TestWritingTheStatusFirstDiscardsTheContentType(t *testing.T) {
-	t.Parallel()
+	// net/http freezes the headers at WriteHeader, so a Content-Type written afterwards never
+	// leaves the process and the client is told text/plain. SendJSONStatus takes the status
+	// so that its callers never write in this order.
+	t.Run("Rationale/StatusFirstDiscardsTheContentType", func(t *testing.T) {
+		t.Parallel()
 
-	got := call(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": "abc"})
+		got := call(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "abc"})
+		})
+
+		require.Equal(t, http.StatusCreated, got.status)
+		require.NotEqual(t, "application/json", got.contentType,
+			"if this ever passes, net/http changed and the whole rationale needs revisiting")
+		require.Contains(t, got.contentType, "text/plain")
 	})
 
-	require.Equal(t, http.StatusCreated, got.status)
-	require.NotEqual(t, "application/json", got.contentType,
-		"if this ever passes, net/http changed and the whole rationale needs revisiting")
-	require.Contains(t, got.contentType, "text/plain")
-}
+	// The recorder reports the header a real response drops, so tests of this order need a server.
+	t.Run("Rationale/RecorderCannotObserveTheDiscard", func(t *testing.T) {
+		t.Parallel()
 
-// The recorder reports the header a real response drops, so tests of this order need a server.
-func TestResponseRecorderCannotObserveTheDiscard(t *testing.T) {
-	t.Parallel()
+		recorder := httptest.NewRecorder()
+		recorder.WriteHeader(http.StatusCreated)
+		recorder.Header().Set("Content-Type", "application/json")
 
-	recorder := httptest.NewRecorder()
-	recorder.WriteHeader(http.StatusCreated)
-	recorder.Header().Set("Content-Type", "application/json")
-
-	// An assertion against the recorder passes, while a real client is served text/plain.
-	require.Equal(t, "application/json", recorder.Header().Get("Content-Type"),
-		"the recorder reports the header a real response would have dropped")
+		// An assertion against the recorder passes, while a real client is served text/plain.
+		require.Equal(t, "application/json", recorder.Header().Get("Content-Type"),
+			"the recorder reports the header a real response would have dropped")
+	})
 }

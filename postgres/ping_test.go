@@ -51,7 +51,7 @@ func TestPing(t *testing.T) {
 		expectCalls int
 	}{
 		{
-			name:        "Success",
+			name:        "Success/FirstPingAnswers",
 			pinger:      pingAnswers,
 			timeout:     time.Second,
 			interval:    time.Millisecond,
@@ -116,15 +116,11 @@ func TestPing(t *testing.T) {
 			require.Equal(t, testCase.expectCalls, calls)
 		})
 	}
-}
-
-func TestPingRetries(t *testing.T) {
-	t.Parallel()
 
 	errPermanent := errors.New("permanent failure")
 	badConnection := func(err error) bool { return errors.Is(err, driver.ErrBadConn) }
 
-	testCases := []struct {
+	retryCases := []struct {
 		name string
 
 		errors    []error
@@ -175,7 +171,7 @@ func TestPingRetries(t *testing.T) {
 		},
 	}
 
-	for _, testCase := range testCases {
+	for _, testCase := range retryCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 

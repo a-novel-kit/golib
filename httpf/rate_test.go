@@ -20,7 +20,7 @@ func TestParseRate(t *testing.T) {
 		expect    httpf.Rate
 		expectErr error
 	}{
-		{name: "Success", value: "3/5m", expect: httpf.Rate{Requests: 3, Window: 5 * time.Minute}},
+		{name: "Success/Simple", value: "3/5m", expect: httpf.Rate{Requests: 3, Window: 5 * time.Minute}},
 		{name: "Success/Compound", value: "10/1h30m", expect: httpf.Rate{Requests: 10, Window: 90 * time.Minute}},
 		{name: "Error/NoSeparator", value: "5", expectErr: httpf.ErrInvalidRate},
 		{name: "Error/NoUnit", value: "5/1", expectErr: httpf.ErrInvalidRate},

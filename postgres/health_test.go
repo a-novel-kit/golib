@@ -69,33 +69,8 @@ func TestHealth(t *testing.T) {
 			require.ErrorIs(t, err, testCase.expectErr)
 		})
 	}
-}
 
-// requireClosed requires closeFunc to succeed, or to fail with tolerated.
-func requireClosed(t *testing.T, closeFunc func() error, tolerated error) {
-	t.Helper()
-
-	err := closeFunc()
-	if !errors.Is(err, tolerated) {
-		require.NoError(t, err)
-	}
-}
-
-// closeSocket closes the network connection under a pooled driver connection, and leaves the pool
-// to discover the dead peer on its next ping.
-func closeSocket(connection any) error {
-	driverConn, ok := connection.(*pgdriver.Conn)
-	if !ok {
-		return fmt.Errorf("unexpected driver connection %T", connection)
-	}
-
-	return driverConn.Conn().Close()
-}
-
-func TestHealthStalePool(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
+	staleCases := []struct {
 		name       string
 		staleConns int
 		deadline   bool
@@ -107,7 +82,7 @@ func TestHealthStalePool(t *testing.T) {
 		{name: "CallerDeadline", staleConns: 3, deadline: true, expectErr: context.DeadlineExceeded},
 	}
 
-	for _, testCase := range testCases {
+	for _, testCase := range staleCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -145,4 +120,25 @@ func TestHealthStalePool(t *testing.T) {
 			require.ErrorIs(t, err, testCase.expectErr)
 		})
 	}
+}
+
+// requireClosed requires closeFunc to succeed, or to fail with tolerated.
+func requireClosed(t *testing.T, closeFunc func() error, tolerated error) {
+	t.Helper()
+
+	err := closeFunc()
+	if !errors.Is(err, tolerated) {
+		require.NoError(t, err)
+	}
+}
+
+// closeSocket closes the network connection under a pooled driver connection, and leaves the pool
+// to discover the dead peer on its next ping.
+func closeSocket(connection any) error {
+	driverConn, ok := connection.(*pgdriver.Conn)
+	if !ok {
+		return fmt.Errorf("unexpected driver connection %T", connection)
+	}
+
+	return driverConn.Conn().Close()
 }
