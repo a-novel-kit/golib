@@ -55,13 +55,13 @@ func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 
 	migrations := os.DirFS("../testdata/roundtrip-strict/migrations")
 
-	t.Run("passes against an empty table", func(t *testing.T) {
+	t.Run("Success/EmptyTable", func(t *testing.T) {
 		t.Parallel()
 
 		require.NoError(t, verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations, nil))
 	})
 
-	t.Run("fails once the previous migration's fixture has seeded a row", func(t *testing.T) {
+	t.Run("Error/FixtureSeededARow", func(t *testing.T) {
 		t.Parallel()
 
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations,
@@ -77,7 +77,7 @@ func TestVerifyRoundtripAppliesFixturesBeforeTheNextMigration(t *testing.T) {
 func TestVerifyRoundtripSnapshots(t *testing.T) {
 	migrations := os.DirFS("../testdata/roundtrip/migrations")
 
-	t.Run("records then re-reads them", func(t *testing.T) {
+	t.Run("Success/RecordThenCheck", func(t *testing.T) {
 		dir := t.TempDir()
 
 		t.Setenv(roundtripUpdateEnv, "1")
@@ -97,7 +97,7 @@ func TestVerifyRoundtripSnapshots(t *testing.T) {
 			&RoundtripOptions{Snapshots: dir}))
 	})
 
-	t.Run("rejects a snapshot that no longer matches", func(t *testing.T) {
+	t.Run("Error/SnapshotChanged", func(t *testing.T) {
 		dir := t.TempDir()
 
 		t.Setenv(roundtripUpdateEnv, "1")
@@ -116,7 +116,7 @@ func TestVerifyRoundtripSnapshots(t *testing.T) {
 		require.Contains(t, err.Error(), "20260725000001_probe_table")
 	})
 
-	t.Run("reports a snapshot that was never recorded", func(t *testing.T) {
+	t.Run("Error/SnapshotMissing", func(t *testing.T) {
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t), migrations,
 			&RoundtripOptions{Snapshots: t.TempDir()})
 
