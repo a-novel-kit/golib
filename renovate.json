@@ -1,8 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>a-novel-kit/workflows//renovate/library#v1.66.2",
-    "github>a-novel-kit/workflows//renovate/protobuf#v1.66.2"
+    "github>a-novel-kit/workflows//renovate/library#v1.67.0",
+    "github>a-novel-kit/workflows//renovate/protobuf#v1.67.0"
   ],
   "packageRules": [
     {
