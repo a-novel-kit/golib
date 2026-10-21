@@ -188,69 +188,8 @@ func plainAuthCredentials(t *testing.T, transcript []string) (string, string, st
 	return "", "", ""
 }
 
-func TestProdSenderSendMail(t *testing.T) {
-	t.Parallel()
-
-	testCases := map[string]struct {
-		username         string
-		expectedUsername string
-	}{
-		"Success/DistinctUsername": {
-			username:         "relay-user@example.net",
-			expectedUsername: "relay-user@example.net",
-		},
-		"Success/EmailFallback": {
-			expectedUsername: "noreply@example.com",
-		},
-	}
-
-	for name, testCase := range testCases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			server := newFakeServer(t, false)
-
-			host, _, err := net.SplitHostPort(server.addr())
-			require.NoError(t, err)
-
-			sender := &smtp.ProdSender{
-				Addr:     server.addr(),
-				Name:     "A-Novel",
-				Email:    "noreply@example.com",
-				Username: testCase.username,
-				Password: "hunter2",
-				// PlainAuth checks this against the server it is talking to, so Domain is the SMTP host.
-				Domain: host,
-			}
-
-			err = sender.SendMail(
-				smtp.MailUsers{{Name: "Recipient", Email: "to@example.com"}},
-				testTemplate(t), "mail", "world",
-			)
-			require.NoError(t, err)
-			server.wait()
-
-			joined := strings.Join(server.transcript, "\n")
-			require.Equal(t, "EHLO example.com", server.transcript[0])
-			require.Contains(t, joined, "MAIL FROM:<noreply@example.com>")
-			require.Contains(t, joined, "RCPT TO:<to@example.com>")
-			require.Contains(t, joined, "DATA")
-			require.Contains(t, joined, "QUIT")
-
-			identity, username, password := plainAuthCredentials(t, server.transcript)
-			require.Empty(t, identity)
-			require.Equal(t, testCase.expectedUsername, username)
-			require.Equal(t, "hunter2", password)
-
-			// AUTH before MAIL. The transaction starts only once the client is authenticated.
-			authAt := strings.Index(joined, "AUTH")
-			mailAt := strings.Index(joined, "MAIL FROM")
-			require.Less(t, authAt, mailAt, "AUTH must precede MAIL FROM")
-		})
-	}
-}
-
-func TestProdSender(t *testing.T) { //nolint:paralleltest,tparallel // Replaces net.DefaultResolver temporarily.
+//nolint:paralleltest,tparallel // Replaces net.DefaultResolver temporarily.
+func TestProdSender(t *testing.T) {
 	t.Run("SharedNetworkDeadline", testProdSenderDeadline)
 
 	testCases := map[string]struct {
@@ -338,6 +277,142 @@ func TestProdSender(t *testing.T) { //nolint:paralleltest,tparallel // Replaces 
 			}
 		})
 	}
+
+	sendCases := map[string]struct {
+		username         string
+		expectedUsername string
+	}{
+		"Success/DistinctUsername": {
+			username:         "relay-user@example.net",
+			expectedUsername: "relay-user@example.net",
+		},
+		"Success/EmailFallback": {
+			expectedUsername: "noreply@example.com",
+		},
+	}
+
+	for name, testCase := range sendCases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newFakeServer(t, false)
+
+			host, _, err := net.SplitHostPort(server.addr())
+			require.NoError(t, err)
+
+			sender := &smtp.ProdSender{
+				Addr:     server.addr(),
+				Name:     "A-Novel",
+				Email:    "noreply@example.com",
+				Username: testCase.username,
+				Password: "hunter2",
+				// PlainAuth checks this against the server it is talking to, so Domain is the SMTP host.
+				Domain: host,
+			}
+
+			err = sender.SendMail(
+				smtp.MailUsers{{Name: "Recipient", Email: "to@example.com"}},
+				testTemplate(t), "mail", "world",
+			)
+			require.NoError(t, err)
+			server.wait()
+
+			joined := strings.Join(server.transcript, "\n")
+			require.Equal(t, "EHLO example.com", server.transcript[0])
+			require.Contains(t, joined, "MAIL FROM:<noreply@example.com>")
+			require.Contains(t, joined, "RCPT TO:<to@example.com>")
+			require.Contains(t, joined, "DATA")
+			require.Contains(t, joined, "QUIT")
+
+			identity, username, password := plainAuthCredentials(t, server.transcript)
+			require.Empty(t, identity)
+			require.Equal(t, testCase.expectedUsername, username)
+			require.Equal(t, "hunter2", password)
+
+			// AUTH before MAIL. The transaction starts only once the client is authenticated.
+			authAt := strings.Index(joined, "AUTH")
+			mailAt := strings.Index(joined, "MAIL FROM")
+			require.Less(t, authAt, mailAt, "AUTH must precede MAIL FROM")
+		})
+	}
+
+	t.Run("Error/NoAuthSupport", func(t *testing.T) {
+		t.Parallel()
+
+		// A server advertising no AUTH fails the send. Every message goes out authenticated.
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+
+		t.Cleanup(func() { _ = listener.Close() })
+
+		go serveWithoutAuth(listener)
+
+		sender := &smtp.ProdSender{Addr: listener.Addr().String(), Email: "noreply@example.com"}
+
+		err = sender.SendMail(
+			smtp.MailUsers{{Name: "R", Email: "to@example.com"}},
+			testTemplate(t), "mail", "world",
+		)
+		require.ErrorIs(t, err, smtp.ErrNoAuthSupport)
+	})
+
+	t.Run("Error/SendTimesOutOnStalledServer", func(t *testing.T) {
+		t.Parallel()
+
+		server := newFakeServer(t, true)
+
+		sender := &smtp.ProdSender{
+			Addr:    server.addr(),
+			Email:   "noreply@example.com",
+			Timeout: 150 * time.Millisecond,
+		}
+
+		// The connection is accepted, so the deadline on the connection bounds the wait for a greeting.
+		// The goroutine holding it is invisible: the HTTP request that spawned it has already returned
+		// 202.
+		start := time.Now()
+
+		err := sender.SendMail(
+			smtp.MailUsers{{Name: "R", Email: "to@example.com"}},
+			testTemplate(t), "mail", "world",
+		)
+		elapsed := time.Since(start)
+
+		require.Error(t, err)
+
+		var netErr net.Error
+
+		require.True(t, errors.As(err, &netErr) && netErr.Timeout(), "expected a timeout, got %v", err)
+		require.Less(t, elapsed, 5*time.Second, "the send must return on its own deadline")
+	})
+
+	t.Run("Error/PingTimesOutOnStalledServer", func(t *testing.T) {
+		t.Parallel()
+
+		server := newFakeServer(t, true)
+
+		// Ping backs the readiness probe, so it returns within the timeout and reports the outage it
+		// exists to detect.
+		sender := &smtp.ProdSender{
+			Addr:    server.addr(),
+			Email:   "noreply@example.com",
+			Timeout: 150 * time.Millisecond,
+		}
+
+		start := time.Now()
+		err := sender.Ping()
+
+		require.Error(t, err)
+		require.Less(t, time.Since(start), 5*time.Second)
+	})
+
+	t.Run("Success/DefaultTimeout", func(t *testing.T) {
+		t.Parallel()
+
+		// An unset Timeout selects DefaultTimeout. Proving it on a dial would cost the whole
+		// DefaultTimeout, so the test holds the constant to its contract.
+		require.Positive(t, smtp.DefaultTimeout)
+	})
 }
 
 // rejectGreeting answers every greeting of one connection with 421 and returns the commands it
@@ -374,26 +449,6 @@ func rejectGreeting(listener net.Listener, disconnect bool) []string {
 	}
 }
 
-func TestProdSenderRefusesServerWithoutAuth(t *testing.T) {
-	t.Parallel()
-
-	// A server advertising no AUTH fails the send. Every message goes out authenticated.
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	t.Cleanup(func() { _ = listener.Close() })
-
-	go serveWithoutAuth(listener)
-
-	sender := &smtp.ProdSender{Addr: listener.Addr().String(), Email: "noreply@example.com"}
-
-	err = sender.SendMail(
-		smtp.MailUsers{{Name: "R", Email: "to@example.com"}},
-		testTemplate(t), "mail", "world",
-	)
-	require.ErrorIs(t, err, smtp.ErrNoAuthSupport)
-}
-
 // serveWithoutAuth greets one connection without advertising any extension, then says goodbye to
 // the first command past EHLO.
 func serveWithoutAuth(listener net.Listener) {
@@ -424,62 +479,4 @@ func serveWithoutAuth(listener net.Listener) {
 
 		return
 	}
-}
-
-func TestProdSenderTimesOutOnStalledServer(t *testing.T) {
-	t.Parallel()
-
-	server := newFakeServer(t, true)
-
-	sender := &smtp.ProdSender{
-		Addr:    server.addr(),
-		Email:   "noreply@example.com",
-		Timeout: 150 * time.Millisecond,
-	}
-
-	// The connection is accepted, so the deadline on the connection bounds the wait for a greeting.
-	// The goroutine holding it is invisible: the HTTP request that spawned it has already returned
-	// 202.
-	start := time.Now()
-
-	err := sender.SendMail(
-		smtp.MailUsers{{Name: "R", Email: "to@example.com"}},
-		testTemplate(t), "mail", "world",
-	)
-	elapsed := time.Since(start)
-
-	require.Error(t, err)
-
-	var netErr net.Error
-
-	require.True(t, errors.As(err, &netErr) && netErr.Timeout(), "expected a timeout, got %v", err)
-	require.Less(t, elapsed, 5*time.Second, "the send must return on its own deadline")
-}
-
-func TestProdSenderPingTimesOutOnStalledServer(t *testing.T) {
-	t.Parallel()
-
-	server := newFakeServer(t, true)
-
-	// Ping backs the readiness probe, so it returns within the timeout and reports the outage it
-	// exists to detect.
-	sender := &smtp.ProdSender{
-		Addr:    server.addr(),
-		Email:   "noreply@example.com",
-		Timeout: 150 * time.Millisecond,
-	}
-
-	start := time.Now()
-	err := sender.Ping()
-
-	require.Error(t, err)
-	require.Less(t, time.Since(start), 5*time.Second)
-}
-
-func TestProdSenderDefaultTimeoutApplies(t *testing.T) {
-	t.Parallel()
-
-	// An unset Timeout selects DefaultTimeout. Proving it on a dial would cost the whole
-	// DefaultTimeout, so the test holds the constant to its contract.
-	require.Positive(t, smtp.DefaultTimeout)
 }

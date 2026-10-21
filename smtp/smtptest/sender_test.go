@@ -52,11 +52,11 @@ func TestSender(t *testing.T) {
 			require.Equal(t, testCase.expect, mail)
 		})
 	}
-}
 
-func TestPing(t *testing.T) {
-	t.Parallel()
+	t.Run("Error/Ping", func(t *testing.T) {
+		t.Parallel()
 
-	sender := smtptest.NewSender()
-	require.ErrorIs(t, sender.Ping(), smtptest.ErrPing)
+		sender := smtptest.NewSender()
+		require.ErrorIs(t, sender.Ping(), smtptest.ErrPing)
+	})
 }
