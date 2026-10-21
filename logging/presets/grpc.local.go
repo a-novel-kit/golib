@@ -15,7 +15,7 @@ var _ logging.RPCConfig = (*GRPCLocal)(nil)
 
 // GRPCLocal implements [logging.RPCConfig] for local development, producing
 // gRPC interceptors that emit human-readable text to stdout and recover from
-// handler panics.
+// handler panics. Each call writes one line, when it finishes.
 type GRPCLocal struct {
 	// Component labels every entry with the emitting subsystem.
 	Component string `json:"component" yaml:"component"`
@@ -26,13 +26,17 @@ type GRPCLocal struct {
 func (logger *GRPCLocal) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	logger.init()
 
-	return grpclog.UnaryServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceID))
+	return grpclog.UnaryServerInterceptor(
+		logInterceptor(logger.l), logFinishedCalls, grpclog.WithFieldsFromContext(logTraceID),
+	)
 }
 
 func (logger *GRPCLocal) StreamInterceptor() grpc.StreamServerInterceptor {
 	logger.init()
 
-	return grpclog.StreamServerInterceptor(logInterceptor(logger.l), grpclog.WithFieldsFromContext(logTraceID))
+	return grpclog.StreamServerInterceptor(
+		logInterceptor(logger.l), logFinishedCalls, grpclog.WithFieldsFromContext(logTraceID),
+	)
 }
 
 func (logger *GRPCLocal) PanicUnaryInterceptor() grpc.UnaryServerInterceptor {

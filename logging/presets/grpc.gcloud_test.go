@@ -3,8 +3,6 @@ package loggingpresets_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -67,26 +65,22 @@ func TestGRPCGcloud(t *testing.T) {
 			out := &bytes.Buffer{}
 			require.NoError(t, testCase.call(ctx, &loggingpresets.GRPCGcloud{ProjectID: "project", Out: out}))
 
-			lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-			require.NotEmpty(t, lines)
+			// A call writes one entry, when it finishes.
+			entry := decodeGcloudEntry(t, out)
+			require.Equal(t, "finished call", entry.Message)
+			require.Equal(t, "INFO", entry.Severity)
 
-			for _, line := range lines {
-				var entry gcloudEntry
-				require.NoError(t, json.Unmarshal([]byte(line), &entry), line)
-				require.Equal(t, "INFO", entry.Severity)
+			if !testCase.inSpan {
+				require.Empty(t, entry.Trace)
+				require.Nil(t, entry.TraceSampled)
 
-				if !testCase.inSpan {
-					require.Empty(t, entry.Trace)
-					require.Nil(t, entry.TraceSampled)
-
-					continue
-				}
-
-				spanContext := span.SpanContext()
-				require.Equal(t, "projects/project/traces/"+spanContext.TraceID().String(), entry.Trace)
-				require.Equal(t, spanContext.SpanID().String(), entry.SpanID)
-				require.Equal(t, spanContext.IsSampled(), *entry.TraceSampled)
+				return
 			}
+
+			spanContext := span.SpanContext()
+			require.Equal(t, "projects/project/traces/"+spanContext.TraceID().String(), entry.Trace)
+			require.Equal(t, spanContext.SpanID().String(), entry.SpanID)
+			require.Equal(t, spanContext.IsSampled(), *entry.TraceSampled)
 		})
 	}
 }
