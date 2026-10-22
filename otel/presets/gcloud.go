@@ -49,6 +49,8 @@ type Gcloud struct {
 	// waits indefinitely.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 
+	// The getters build tp and lp on their first call and return them on later calls, so Flush
+	// shuts down the providers in use.
 	tp *sdktrace.TracerProvider
 	lp *sdklog.LoggerProvider
 }
@@ -70,6 +72,10 @@ func (config *Gcloud) GetPropagators() (propagation.TextMapPropagator, error) {
 }
 
 func (config *Gcloud) GetTraceProvider() (trace.TracerProvider, error) {
+	if config.tp != nil {
+		return config.tp, nil
+	}
+
 	ctx := context.Background()
 
 	telemetryResource, telemetryCredentials, err := config.telemetryTarget(ctx)
@@ -99,6 +105,10 @@ func (config *Gcloud) GetTraceProvider() (trace.TracerProvider, error) {
 // GetLogger returns a logger provider that exports logs over OTLP, where Cloud Logging stores each
 // record with its severity and links it to its trace.
 func (config *Gcloud) GetLogger() (log.LoggerProvider, error) {
+	if config.lp != nil {
+		return config.lp, nil
+	}
+
 	ctx := context.Background()
 
 	telemetryResource, telemetryCredentials, err := config.telemetryTarget(ctx)
