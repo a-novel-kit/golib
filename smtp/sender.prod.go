@@ -17,9 +17,14 @@ import (
 // DefaultTimeout is the network budget used when [ProdSender.Timeout] is non-positive.
 const DefaultTimeout = 30 * time.Second
 
-// ErrNoAuthSupport is returned when the server does not advertise the AUTH extension. Delivery
-// stops there: every message goes out authenticated.
+// ErrNoAuthSupport is returned when a [ProdSender] with a Password meets a server that does not
+// advertise the AUTH extension. Delivery stops there: a configured credential is always used.
 var ErrNoAuthSupport = errors.New("SMTP server does not support AUTH")
+
+// ErrNoStartTLSSupport is returned when a [ProdSender] without a Password meets a server that does
+// not advertise the STARTTLS extension. Delivery stops there: mail sent without a credential still
+// crosses an encrypted connection.
+var ErrNoStartTLSSupport = errors.New("SMTP server does not support STARTTLS")
 
 // ProdSender delivers mail through a real SMTP server using net/smtp.
 type ProdSender struct {
@@ -30,18 +35,21 @@ type ProdSender struct {
 	// Email is the envelope sender and the address of the From header. Its domain names the client
 	// in the greeting, which falls back to localhost for a domainless address.
 	Email string `json:"email" yaml:"email"`
-	// Username is the SMTP login. Empty falls back to Email.
+	// Username is the SMTP login. Empty falls back to Email. It is unused without a Password.
 	Username string `json:"username" yaml:"username"`
 	// Domain is the server name authentication is bound to. It must match the host of Addr, since
-	// PlainAuth sends credentials to that server only.
+	// PlainAuth sends credentials to that server only. It is unused without a Password.
 	Domain string `json:"domain" yaml:"domain"`
 
 	// Password is the SMTP credential. It is never serialized.
+	//
+	// An empty Password sends without AUTH, for a relay that admits the client by its IP address.
+	// The connection must then upgrade with STARTTLS.
 	Password string `json:"-" yaml:"-"`
 
-	// ForceUnencryptedTLS allows plaintext authentication over a connection the
-	// server has not secured with TLS, sending credentials in the clear. Use it
-	// only against a local test SMTP server, never in production.
+	// ForceUnencryptedTLS allows a session over a connection the server has not secured with TLS.
+	// With a Password, it sends the credentials in the clear. Use it only against a local test SMTP
+	// server, never in production.
 	ForceUnencryptedTLS bool `json:"forceUnencryptedTLS" yaml:"forceUnencryptedTLS"`
 
 	// Timeout is the shared network budget from DNS resolution through SMTP QUIT, for both
@@ -72,8 +80,8 @@ func (sender *ProdSender) SendMail(to MailUsers, t *template.Template, tName str
 	return nil
 }
 
-// Ping reports whether the SMTP server is reachable and accepts the configured credentials,
-// within [ProdSender.Timeout].
+// Ping reports whether the SMTP server is reachable and completes the handshake of a delivery, TLS
+// upgrade and credentials included, within [ProdSender.Timeout].
 func (sender *ProdSender) Ping() error {
 	client, host, err := sender.dial()
 	if err != nil {
@@ -203,10 +211,12 @@ func (sender *ProdSender) dial() (*smtp.Client, string, error) {
 }
 
 // negotiate performs the handshake: upgrade to TLS whenever the server offers it, then
-// authenticate. A server that does not advertise AUTH stops the delivery.
+// authenticate when a Password is configured.
 //
 // The ordering is security-relevant. STARTTLS is attempted before any credential is offered, so
-// credentials only cross an upgraded connection.
+// credentials only cross an upgraded connection. PlainAuth refuses an unencrypted connection to a
+// remote server on its own. Without a Password nothing else refuses one, so negotiate requires the
+// upgrade itself.
 func (sender *ProdSender) negotiate(client *smtp.Client, host string) error {
 	// Relays may reject localhost, so the greeting names the domain of the sender address.
 	localName := "localhost"
@@ -220,8 +230,8 @@ func (sender *ProdSender) negotiate(client *smtp.Client, host string) error {
 		return fmt.Errorf("greet SMTP server: %w", err)
 	}
 
-	ok, _ := client.Extension("STARTTLS")
-	if ok {
+	encrypted, _ := client.Extension("STARTTLS")
+	if encrypted {
 		config := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
 
 		err := client.StartTLS(config)
@@ -230,7 +240,15 @@ func (sender *ProdSender) negotiate(client *smtp.Client, host string) error {
 		}
 	}
 
-	ok, _ = client.Extension("AUTH")
+	if sender.Password == "" {
+		if !encrypted && !sender.ForceUnencryptedTLS {
+			return ErrNoStartTLSSupport
+		}
+
+		return nil
+	}
+
+	ok, _ := client.Extension("AUTH")
 	if !ok {
 		return ErrNoAuthSupport
 	}
