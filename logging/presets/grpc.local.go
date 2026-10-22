@@ -3,6 +3,7 @@ package loggingpresets
 import (
 	"log/slog"
 	"os"
+	"sync"
 
 	grpclog "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
@@ -20,7 +21,8 @@ type GRPCLocal struct {
 	// Component labels every entry with the emitting subsystem.
 	Component string `json:"component" yaml:"component"`
 
-	l *slog.Logger
+	once sync.Once
+	l    *slog.Logger
 }
 
 func (logger *GRPCLocal) UnaryInterceptor() grpc.UnaryServerInterceptor {
@@ -53,10 +55,8 @@ func (logger *GRPCLocal) PanicStreamInterceptor() grpc.StreamServerInterceptor {
 
 // init builds the logger every interceptor of logger shares, on the first call.
 func (logger *GRPCLocal) init() {
-	if logger.l != nil {
-		return
-	}
-
-	logger.l = slog.New(slog.NewTextHandler(os.Stdout, nil)).
-		With("service", "gRPC/server", "component", logger.Component)
+	logger.once.Do(func() {
+		logger.l = slog.New(slog.NewTextHandler(os.Stdout, nil)).
+			With("service", "gRPC/server", "component", logger.Component)
+	})
 }

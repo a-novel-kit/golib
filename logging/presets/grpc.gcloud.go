@@ -3,6 +3,7 @@ package loggingpresets
 import (
 	"io"
 	"log/slog"
+	"sync"
 
 	grpclog "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
@@ -26,7 +27,8 @@ type GRPCGcloud struct {
 	// Logging collects them. Set it before building an interceptor.
 	Out io.Writer `json:"-" yaml:"-"`
 
-	l *slog.Logger
+	once sync.Once
+	l    *slog.Logger
 }
 
 func (logger *GRPCGcloud) UnaryInterceptor() grpc.UnaryServerInterceptor {
@@ -55,10 +57,8 @@ func (logger *GRPCGcloud) PanicStreamInterceptor() grpc.StreamServerInterceptor 
 
 // init builds the logger every interceptor of logger shares, on the first call.
 func (logger *GRPCGcloud) init() {
-	if logger.l != nil {
-		return
-	}
-
-	logger.l = slog.New(newGcloudHandler(logger.Out, logger.ProjectID)).
-		With("service", "gRPC/server", "component", logger.Component)
+	logger.once.Do(func() {
+		logger.l = slog.New(newGcloudHandler(logger.Out, logger.ProjectID)).
+			With("service", "gRPC/server", "component", logger.Component)
+	})
 }
