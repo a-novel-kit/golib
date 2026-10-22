@@ -43,6 +43,8 @@ type Sentry struct {
 	// Debug makes the Sentry SDK log its own activity to standard error.
 	Debug bool `json:"debug" yaml:"debug"`
 
+	// The getters build tp and lp on their first call and return them on later calls, so Flush
+	// shuts down the providers in use.
 	tp *sdktrace.TracerProvider
 	lp *sdklog.LoggerProvider
 }
@@ -74,6 +76,10 @@ func (config *Sentry) GetPropagators() (propagation.TextMapPropagator, error) {
 }
 
 func (config *Sentry) GetTraceProvider() (trace.TracerProvider, error) {
+	if config.tp != nil {
+		return config.tp, nil
+	}
+
 	// Spans reach Sentry through an OTLP exporter. The batch processor buffers them
 	// and is drained by Flush -> tp.Shutdown.
 	exporter, err := sentryotlp.NewTraceExporter(context.Background(), config.DSN)
@@ -87,6 +93,10 @@ func (config *Sentry) GetTraceProvider() (trace.TracerProvider, error) {
 }
 
 func (config *Sentry) GetLogger() (log.LoggerProvider, error) {
+	if config.lp != nil {
+		return config.lp, nil
+	}
+
 	// TODO: switch to Sentry native logger for production use.
 	logExporter, err := stdoutlog.New()
 	if err != nil {

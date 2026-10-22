@@ -31,6 +31,8 @@ type Local struct {
 	// waits indefinitely.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 
+	// The getters build tp and lp on their first call and return them on later calls, so Flush
+	// shuts down the providers in use.
 	tp *sdktrace.TracerProvider
 	lp *sdklog.LoggerProvider
 }
@@ -48,6 +50,10 @@ func (config *Local) GetPropagators() (propagation.TextMapPropagator, error) {
 }
 
 func (config *Local) GetTraceProvider() (trace.TracerProvider, error) {
+	if config.tp != nil {
+		return config.tp, nil
+	}
+
 	traceExporter, err := stdouttrace.New(
 		stdouttrace.WithPrettyPrint(),
 		stdouttrace.WithWriter(os.Stdout),
@@ -65,6 +71,10 @@ func (config *Local) GetTraceProvider() (trace.TracerProvider, error) {
 }
 
 func (config *Local) GetLogger() (log.LoggerProvider, error) {
+	if config.lp != nil {
+		return config.lp, nil
+	}
+
 	logExporter, err := stdoutlog.New(
 		stdoutlog.WithPrettyPrint(),
 		stdoutlog.WithWriter(os.Stdout),
