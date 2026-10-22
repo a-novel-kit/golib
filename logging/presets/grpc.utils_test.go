@@ -2,6 +2,7 @@ package loggingpresets_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,6 +60,30 @@ func requirePanicRecovered(
 	require.Len(t, spans, 1)
 	require.Equal(t, otelcodes.Error, spans[0].Status().Code)
 	require.Contains(t, spans[0].Status().Description, panicValue)
+}
+
+// buildConcurrently builds every interceptor of config, each in its own goroutine. The goroutines
+// start together, so the race detector sees any setup they share without synchronization.
+func buildConcurrently(config logging.RPCConfig) {
+	builds := []func(){
+		func() { config.UnaryInterceptor() },
+		func() { config.StreamInterceptor() },
+		func() { config.PanicUnaryInterceptor() },
+		func() { config.PanicStreamInterceptor() },
+	}
+
+	start := make(chan struct{})
+
+	var wg sync.WaitGroup
+	for _, build := range builds {
+		wg.Go(func() {
+			<-start
+			build()
+		})
+	}
+
+	close(start)
+	wg.Wait()
 }
 
 // serverStream carries the RPC context into a stream interceptor.

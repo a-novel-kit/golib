@@ -95,4 +95,10 @@ func TestGRPCGcloud(t *testing.T) {
 
 		requirePanicRecovered(t, &loggingpresets.GRPCGcloud{}, panicStreamCall)
 	})
+
+	t.Run("Concurrent", func(t *testing.T) {
+		t.Parallel()
+
+		buildConcurrently(&loggingpresets.GRPCGcloud{})
+	})
 }

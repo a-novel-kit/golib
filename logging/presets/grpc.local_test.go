@@ -20,4 +20,10 @@ func TestGRPCLocal(t *testing.T) {
 
 		requirePanicRecovered(t, &loggingpresets.GRPCLocal{}, panicStreamCall)
 	})
+
+	t.Run("Concurrent", func(t *testing.T) {
+		t.Parallel()
+
+		buildConcurrently(&loggingpresets.GRPCLocal{})
+	})
 }
