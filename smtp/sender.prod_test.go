@@ -29,6 +29,8 @@ type fakeServer struct {
 	// stall makes the server accept the connection and then never write a greeting. The dial
 	// succeeds, so only a deadline on the connection ends the wait.
 	stall bool
+	// extensions are the keywords the server advertises in its EHLO reply.
+	extensions []string
 	// transcript records the commands the client sent, in order.
 	transcript []string
 	// stop releases a stalled handler at cleanup; done reports that serve has returned. They are
@@ -37,18 +39,19 @@ type fakeServer struct {
 	done chan struct{}
 }
 
-// newFakeServer starts a fakeServer, stopped with the test.
-func newFakeServer(t *testing.T, stall bool) *fakeServer {
+// newFakeServer starts a fakeServer advertising extensions, stopped with the test.
+func newFakeServer(t *testing.T, stall bool, extensions ...string) *fakeServer {
 	t.Helper()
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	server := &fakeServer{
-		listener: listener,
-		stall:    stall,
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		listener:   listener,
+		stall:      stall,
+		extensions: extensions,
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
 	}
 
 	go server.serve()
@@ -120,10 +123,22 @@ func (s *fakeServer) serve() {
 
 		switch {
 		case strings.HasPrefix(line, "EHLO"):
-			// AUTH is advertised and STARTTLS is not, so the client skips the upgrade and carries on.
-			// PlainAuth permits plaintext credentials to a loopback server.
 			write("250-fake")
-			write("250 AUTH PLAIN")
+
+			for _, extension := range s.extensions {
+				write("250-" + extension)
+			}
+
+			write("250 HELP")
+		case strings.HasPrefix(line, "STARTTLS"):
+			// The server ends the session instead of handshaking, so the client's handshake reads EOF.
+			// A half-close drains the ClientHello, which a full close would answer with a reset.
+			write("220 2.0.0 Ready to start TLS")
+
+			_ = conn.(*net.TCPConn).CloseWrite()
+			_, _ = io.Copy(io.Discard, reader)
+
+			return
 		case strings.HasPrefix(line, "AUTH"):
 			write("235 2.7.0 Accepted")
 		case strings.HasPrefix(line, "MAIL FROM"), strings.HasPrefix(line, "RCPT TO"):
@@ -206,7 +221,7 @@ func TestProdSender(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			server := newFakeServer(t, false)
+			server := newFakeServer(t, false, "AUTH PLAIN")
 			host, _, err := net.SplitHostPort(server.addr())
 			require.NoError(t, err)
 
@@ -295,7 +310,8 @@ func TestProdSender(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			server := newFakeServer(t, false)
+			// The server offers no STARTTLS. PlainAuth permits plaintext credentials to a loopback server.
+			server := newFakeServer(t, false, "AUTH PLAIN")
 
 			host, _, err := net.SplitHostPort(server.addr())
 			require.NoError(t, err)
@@ -336,25 +352,94 @@ func TestProdSender(t *testing.T) {
 		})
 	}
 
-	t.Run("Error/NoAuthSupport", func(t *testing.T) {
-		t.Parallel()
+	// An IP relay admits the client without a Password. The client upgrades whenever the server offers
+	// STARTTLS. Without a credential, a server that offers none stops the session unless
+	// ForceUnencryptedTLS allows it.
+	handshakeCases := []struct {
+		name string
 
-		// A server advertising no AUTH fails the send. Every message goes out authenticated.
-		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-		require.NoError(t, err)
+		operation  string
+		extensions []string
+		password   string
+		force      bool
 
-		t.Cleanup(func() { _ = listener.Close() })
+		expectErr      error
+		expectCommands []string
+	}{
+		{
+			name:       "Success/IPRelay/Send",
+			operation:  "send",
+			extensions: []string{"AUTH PLAIN"},
+			force:      true,
+			expectCommands: []string{
+				"EHLO example.com", "MAIL FROM:<noreply@example.com>", "RCPT TO:<to@example.com>", "DATA", "QUIT",
+			},
+		},
+		{
+			name:           "Success/IPRelay/Ping",
+			operation:      "ping",
+			extensions:     []string{"AUTH PLAIN"},
+			force:          true,
+			expectCommands: []string{"EHLO example.com", "QUIT"},
+		},
+		{
+			name:           "Error/IPRelay/NoStartTLS/Send",
+			operation:      "send",
+			extensions:     []string{"AUTH PLAIN"},
+			expectErr:      smtp.ErrNoStartTLSSupport,
+			expectCommands: []string{"EHLO example.com"},
+		},
+		{
+			name:           "Error/IPRelay/NoStartTLS/Ping",
+			operation:      "ping",
+			extensions:     []string{"AUTH PLAIN"},
+			expectErr:      smtp.ErrNoStartTLSSupport,
+			expectCommands: []string{"EHLO example.com"},
+		},
+		{
+			name:           "Error/IPRelay/StartTLSFirst",
+			operation:      "send",
+			extensions:     []string{"STARTTLS", "AUTH PLAIN"},
+			force:          true,
+			expectErr:      io.EOF,
+			expectCommands: []string{"EHLO example.com", "STARTTLS"},
+		},
+		{
+			name:           "Error/Credential/StartTLSFirst",
+			operation:      "send",
+			extensions:     []string{"STARTTLS", "AUTH PLAIN"},
+			password:       "hunter2",
+			expectErr:      io.EOF,
+			expectCommands: []string{"EHLO example.com", "STARTTLS"},
+		},
+		{
+			name:           "Error/Credential/NoAuthSupport",
+			operation:      "send",
+			password:       "hunter2",
+			expectErr:      smtp.ErrNoAuthSupport,
+			expectCommands: []string{"EHLO example.com"},
+		},
+	}
 
-		go serveWithoutAuth(listener)
+	for _, testCase := range handshakeCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		sender := &smtp.ProdSender{Addr: listener.Addr().String(), Email: "noreply@example.com"}
+			server := newFakeServer(t, false, testCase.extensions...)
 
-		err = sender.SendMail(
-			smtp.MailUsers{{Name: "R", Email: "to@example.com"}},
-			testTemplate(t), "mail", "world",
-		)
-		require.ErrorIs(t, err, smtp.ErrNoAuthSupport)
-	})
+			sender := &smtp.ProdSender{
+				Addr:                server.addr(),
+				Email:               "noreply@example.com",
+				Password:            testCase.password,
+				ForceUnencryptedTLS: testCase.force,
+			}
+
+			err := runOperation(t, sender, testCase.operation)
+			require.ErrorIs(t, err, testCase.expectErr)
+			server.wait()
+			require.Equal(t, testCase.expectCommands, server.transcript)
+		})
+	}
 
 	t.Run("Error/SendTimesOutOnStalledServer", func(t *testing.T) {
 		t.Parallel()
@@ -446,37 +531,5 @@ func rejectGreeting(listener net.Listener, disconnect bool) []string {
 
 			return transcript
 		}
-	}
-}
-
-// serveWithoutAuth greets one connection without advertising any extension, then says goodbye to
-// the first command past EHLO.
-func serveWithoutAuth(listener net.Listener) {
-	conn, err := listener.Accept()
-	if err != nil {
-		return
-	}
-
-	defer func() { _ = conn.Close() }()
-
-	reader := bufio.NewReader(conn)
-
-	_, _ = conn.Write([]byte("220 fake ESMTP\r\n"))
-
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return
-		}
-
-		if strings.HasPrefix(line, "EHLO") {
-			_, _ = conn.Write([]byte("250 fake\r\n"))
-
-			continue
-		}
-
-		_, _ = conn.Write([]byte("221 Bye\r\n"))
-
-		return
 	}
 }
