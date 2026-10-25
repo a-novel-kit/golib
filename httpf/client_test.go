@@ -44,6 +44,8 @@ func TestNewPoolTransport(t *testing.T) {
 		},
 	}
 
+	standard := http.DefaultTransport.(*http.Transport)
+
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
@@ -55,8 +57,85 @@ func TestNewPoolTransport(t *testing.T) {
 
 			// Guards the zero written out in NewPoolTransport.
 			require.Zero(t, transport.ResponseHeaderTimeout)
+
+			// The rest comes from the standard transport.
+			require.NotNil(t, transport.Proxy)
+			require.NotNil(t, transport.DialContext)
+			require.Equal(t, standard.ForceAttemptHTTP2, transport.ForceAttemptHTTP2)
+			require.Equal(t, standard.IdleConnTimeout, transport.IdleConnTimeout)
+			require.Equal(t, standard.TLSHandshakeTimeout, transport.TLSHandshakeTimeout)
+			require.Equal(t, standard.ExpectContinueTimeout, transport.ExpectContinueTimeout)
 		})
 	}
+
+	t.Run("Success/Independent", func(t *testing.T) {
+		t.Parallel()
+
+		options := httpf.PoolOptions{MaxIdleConns: 7, MaxIdleConnsPerHost: 3}
+
+		first := httpf.NewPoolTransport(options)
+		second := httpf.NewPoolTransport(options)
+
+		first.MaxIdleConnsPerHost = 5
+		first.TLSHandshakeTimeout = time.Minute
+
+		// Neither the other transport nor the standard one sees a change made to one transport.
+		require.NotSame(t, first, second)
+		require.Equal(t, options.MaxIdleConnsPerHost, second.MaxIdleConnsPerHost)
+		require.Equal(t, standard.TLSHandshakeTimeout, second.TLSHandshakeTimeout)
+		require.NotEqual(t, options.MaxIdleConns, standard.MaxIdleConns)
+		require.NotEqual(t, time.Minute, standard.TLSHandshakeTimeout)
+	})
+
+	t.Run("Success/NegotiatesHTTP2", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		server.EnableHTTP2 = true
+		server.StartTLS()
+		t.Cleanup(server.Close)
+
+		transport := httpf.NewPoolTransport(httpf.PoolOptions{})
+		t.Cleanup(transport.CloseIdleConnections)
+
+		// The test server's certificate is trusted only through its own client configuration.
+		transport.TLSClientConfig = server.Client().Transport.(*http.Transport).TLSClientConfig
+
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+		require.NoError(t, err)
+
+		response, err := (&http.Client{Transport: transport}).Do(request)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+
+		require.Equal(t, 2, response.ProtoMajor)
+	})
+}
+
+//nolint:paralleltest // It replaces http.DefaultTransport, which every other test reads.
+func TestNewPoolTransportReplacedDefault(t *testing.T) {
+	original := http.DefaultTransport
+
+	t.Cleanup(func() { http.DefaultTransport = original })
+
+	http.DefaultTransport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("replaced default transport")
+	})
+
+	transport := httpf.NewPoolTransport(httpf.PoolOptions{MaxIdleConns: 7, MaxIdleConnsPerHost: 3})
+
+	require.Equal(t, 7, transport.MaxIdleConns)
+	require.Equal(t, 3, transport.MaxIdleConnsPerHost)
+	require.Nil(t, transport.Proxy)
+}
+
+// roundTripperFunc implements http.RoundTripper with a function.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
 }
 
 func TestNewPoolClient(t *testing.T) {

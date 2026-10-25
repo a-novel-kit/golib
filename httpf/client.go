@@ -1,19 +1,9 @@
 package httpf
 
 import (
-	"net"
 	"net/http"
-	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-)
-
-const (
-	transportDialTimeout           = 30 * time.Second
-	transportDialKeepAlive         = 30 * time.Second
-	transportIdleConnTimeout       = 90 * time.Second
-	transportTLSHandshakeTimeout   = 10 * time.Second
-	transportExpectContinueTimeout = 1 * time.Second
 )
 
 // PoolOptions sizes the connection pool [NewPoolClient] and [NewPoolTransport] build.
@@ -29,23 +19,24 @@ type PoolOptions struct {
 
 // NewPoolTransport returns the transport [NewPoolClient] runs on, untraced. Use it to read the pool
 // settings back, or to wrap the transport before building a client.
+//
+// The transport is a clone of [http.DefaultTransport], so its proxy, dial, TLS and HTTP/2 settings
+// follow the standard library. When a program has replaced the default with another
+// [http.RoundTripper], the transport starts from the zero [http.Transport] instead.
 func NewPoolTransport(options PoolOptions) *http.Transport {
-	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   transportDialTimeout,
-			KeepAlive: transportDialKeepAlive,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          options.MaxIdleConns,
-		MaxIdleConnsPerHost:   options.MaxIdleConnsPerHost,
-		IdleConnTimeout:       transportIdleConnTimeout,
-		TLSHandshakeTimeout:   transportTLSHandshakeTimeout,
-		ExpectContinueTimeout: transportExpectContinueTimeout,
-
-		// A value here cuts off a response that is slow to start.
-		ResponseHeaderTimeout: 0,
+	standard, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		standard = &http.Transport{}
 	}
+
+	transport := standard.Clone()
+	transport.MaxIdleConns = options.MaxIdleConns
+	transport.MaxIdleConnsPerHost = options.MaxIdleConnsPerHost
+
+	// A value here cuts off a response that is slow to start.
+	transport.ResponseHeaderTimeout = 0
+
+	return transport
 }
 
 // NewPoolClient returns an HTTP client for calls to other systems. It differs from
