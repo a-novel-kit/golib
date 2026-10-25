@@ -4,6 +4,7 @@ A golib release that asks something of its consumers ships a guide here, named a
 
 | Version                 | What changes                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| [v0.50.0](./v0.50.0.md) | `otel.ReportSuccess` and `otel.ReportSuccessNoContent` are removed.                                  |
 | [v0.49.0](./v0.49.0.md) | `otel/utils` is removed. Capture responses with httpsnoop.                                           |
 | [v0.47.0](./v0.47.0.md) | Unused exports are dropped, initialisms take one case, and `httpf.SendJSONStatus` loses its context. |
 | [v0.45.2](./v0.45.2.md) | `postgres.RunMigrations` records only migrations that succeed, and runs one runner per schema.       |
