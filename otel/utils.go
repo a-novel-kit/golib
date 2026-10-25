@@ -65,20 +65,6 @@ func ReportError(span trace.Span, err error) error {
 	return reportedError{err}
 }
 
-// ReportSuccess returns resp. OpenTelemetry leaves the status of a successful operation unset, so
-// it records nothing on the span.
-//
-// Deprecated: return resp directly.
-func ReportSuccess[Resp any](_ trace.Span, resp Resp) Resp {
-	return resp
-}
-
-// ReportSuccessNoContent records nothing. OpenTelemetry leaves the status of a successful
-// operation unset.
-//
-// Deprecated: omit the call.
-func ReportSuccessNoContent(_ trace.Span) {}
-
 // RecoverPanic absorbs a panic on the calling goroutine, recording it on span and logging it
 // with a stack trace. Defer it directly, since recover only works from a deferred function.
 //
