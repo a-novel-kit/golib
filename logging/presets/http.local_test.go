@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,8 +19,9 @@ func TestHTTPLocal(t *testing.T) {
 	testCases := []struct {
 		name string
 
-		status int
-		body   string
+		// statuses are passed to WriteHeader in order, before the body is written.
+		statuses []int
+		body     string
 
 		expectLine string
 		// expectBody reports whether the line is followed by the response body.
@@ -27,20 +29,27 @@ func TestHTTPLocal(t *testing.T) {
 	}{
 		{
 			name:       "Success",
-			status:     http.StatusOK,
+			statuses:   []int{http.StatusOK},
 			body:       "done",
 			expectLine: "✓ GET /items/42",
 		},
 		{
+			// net/http sends the first final status and drops the second.
+			name:       "Success/RepeatedWriteHeader",
+			statuses:   []int{http.StatusCreated, http.StatusInternalServerError},
+			body:       "created",
+			expectLine: "✓ GET /items/42",
+		},
+		{
 			name:       "Error/Client",
-			status:     http.StatusBadRequest,
+			statuses:   []int{http.StatusBadRequest},
 			body:       "bad input",
 			expectLine: "⚠ GET /items/42",
 			expectBody: true,
 		},
 		{
 			name:       "Error/Server",
-			status:     http.StatusInternalServerError,
+			statuses:   []int{http.StatusInternalServerError},
 			body:       "server failed",
 			expectLine: "🗙 GET /items/42",
 			expectBody: true,
@@ -55,13 +64,19 @@ func TestHTTPLocal(t *testing.T) {
 			logger := &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: out}}
 
 			handler := logger.Logger()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(testCase.status)
+				for _, status := range testCase.statuses {
+					w.WriteHeader(status)
+				}
+
 				_, _ = io.WriteString(w, testCase.body)
 			}))
-			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(
+
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequestWithContext(
 				t.Context(), http.MethodGet, "/items/42", nil,
 			))
 
+			require.Equal(t, testCase.body, recorder.Body.String())
 			require.Contains(t, out.String(), testCase.expectLine)
 
 			if testCase.expectBody {
@@ -71,4 +86,37 @@ func TestHTTPLocal(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("Error/LongBody", func(t *testing.T) {
+		t.Parallel()
+
+		// The log keeps the start of a long failure body. The client still receives all of it.
+		body := strings.Repeat("x", 1<<20) + "end"
+
+		out := &bytes.Buffer{}
+		logger := &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: out}}
+
+		handler := logger.Logger()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+
+			_, _ = io.WriteString(w, body)
+		}))
+
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequestWithContext(
+			t.Context(), http.MethodGet, "/items/42", nil,
+		))
+
+		require.Equal(t, body, recorder.Body.String())
+		require.Contains(t, out.String(), "xxxx")
+		require.NotContains(t, out.String(), "end")
+		require.Less(t, out.Len(), len(body))
+	})
+
+	t.Run("OptionalInterfaces", func(t *testing.T) {
+		t.Parallel()
+
+		logger := &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}}
+		requireOptionalInterfaces(t, logger.Logger())
+	})
 }

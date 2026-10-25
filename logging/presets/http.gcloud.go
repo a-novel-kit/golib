@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
+
+	"github.com/felixge/httpsnoop"
 
 	"github.com/a-novel-kit/golib/logging"
-	"github.com/a-novel-kit/golib/otel/utils"
 )
 
 var _ logging.HTTPConfig = (*HTTPGcloud)(nil)
@@ -35,17 +35,11 @@ func (logger *HTTPGcloud) Logger() func(http.Handler) http.Handler {
 
 // serve runs next, then writes the access log entry of the request at the level its status grades.
 func (logger *HTTPGcloud) serve(next http.Handler, w http.ResponseWriter, r *http.Request) {
-	wrapped := &utils.CaptureHTTPResponseWriter{ResponseWriter: w}
-	start := time.Now()
-
-	next.ServeHTTP(wrapped, r)
-
-	latency := time.Since(start)
-	status := wrapped.Status()
+	metrics := httpsnoop.CaptureMetrics(next, w, r)
 
 	write := logger.BaseLogger.Info
 
-	switch statusLevel(status) {
+	switch statusLevel(metrics.Code) {
 	case LogLevelError:
 		write = logger.BaseLogger.Err
 	case LogLevelWarn:
@@ -56,19 +50,19 @@ func (logger *HTTPGcloud) serve(next http.Handler, w http.ResponseWriter, r *htt
 	// https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields
 	write(
 		r.Context(),
-		fmt.Sprintf("%s %s %d", r.Method, r.URL.Path, status),
+		fmt.Sprintf("%s %s %d", r.Method, r.URL.Path, metrics.Code),
 		slog.Group(
 			"httpRequest",
 			slog.String("requestMethod", r.Method),
 			slog.String("requestUrl", r.URL.Path),
-			slog.Int("status", status),
+			slog.Int("status", metrics.Code),
 			slog.Int64("requestSize", r.ContentLength),
 			slog.String("remoteIp", r.RemoteAddr),
 			slog.String("userAgent", r.UserAgent()),
 			slog.String("referer", r.Referer()),
 			slog.String("protocol", r.Proto),
-			slog.String("latency", fmt.Sprintf("%.9fs", latency.Seconds())),
-			slog.String("responseSize", strconv.FormatInt(wrapped.Size(), 10)),
+			slog.String("latency", fmt.Sprintf("%.9fs", metrics.Duration.Seconds())),
+			slog.String("responseSize", strconv.FormatInt(metrics.Written, 10)),
 		),
 	)
 }
