@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -27,7 +28,7 @@ func Init(config Config) error {
 	// The zero values keep tracing off and send every error event.
 	client, err := sentry.NewClient(sentry.ClientOptions{
 		Dsn:         config.DSN,
-		Release:     config.Release,
+		Release:     releaseName(config.Release),
 		Environment: config.Environment,
 		Transport:   config.Transport,
 		BeforeSend:  dropVisitorData,
@@ -72,6 +73,17 @@ func CapturePanic(ctx context.Context, rec any) {
 	})
 
 	sentry.CurrentHub().Client().CaptureEvent(event, nil, nil)
+}
+
+// releaseName returns release with the leading "v" of its version dropped, as release CI names the
+// release in Sentry.
+func releaseName(release string) string {
+	service, version, found := strings.Cut(release, "@")
+	if !found {
+		return release
+	}
+
+	return service + "@" + strings.TrimPrefix(version, "v")
 }
 
 // newEvent returns an error event holding exception and the trace context of the span in ctx.

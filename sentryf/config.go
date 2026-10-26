@@ -9,7 +9,10 @@ type Config struct {
 	// Without one, the reporter sends nothing.
 	DSN string `json:"dsn" yaml:"dsn"`
 	// Release names the deployed build as <service>@<semver>, such as
-	// service-authentication@2.17.0. Sentry resolves an issue "in the next release" by it.
+	// service-authentication@2.17.0, the name release CI gives the release in Sentry. The version
+	// takes no leading "v", and [Init] drops one, so the tag v2.17.0 names the same release. An event
+	// whose release differs from that name splits the release in two, and "resolve in the next
+	// release" then fails.
 	Release string `json:"release" yaml:"release"`
 	// Environment names the deployment, such as production.
 	Environment string `json:"environment" yaml:"environment"`

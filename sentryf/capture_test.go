@@ -80,6 +80,7 @@ func TestInit(t *testing.T) {
 
 		expectErr     bool
 		expectEnabled bool
+		expectRelease string
 	}{
 		{
 			name: "Success",
@@ -87,6 +88,16 @@ func TestInit(t *testing.T) {
 			config: sentryf.Config{DSN: testDSN, Release: "golib@1.0.0", Environment: "test"},
 
 			expectEnabled: true,
+			expectRelease: "golib@1.0.0",
+		},
+		{
+			// Release CI names a release from its tag with the "v" stripped, so the event must as well.
+			name: "Success/ReleaseFromTag",
+
+			config: sentryf.Config{DSN: testDSN, Release: "golib@v1.0.0", Environment: "test"},
+
+			expectEnabled: true,
+			expectRelease: "golib@1.0.0",
 		},
 		{
 			// A service and its local runs report nothing until they get a DSN.
@@ -143,7 +154,9 @@ func TestInit(t *testing.T) {
 				return
 			}
 
-			require.Len(t, transport.Events(), 1)
+			events := transport.Events()
+			require.Len(t, events, 1)
+			require.Equal(t, testCase.expectRelease, events[0].Release)
 		})
 	}
 
