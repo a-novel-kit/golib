@@ -2,6 +2,8 @@ package grpcf_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net"
 	"strconv"
 	"testing"
@@ -13,13 +15,21 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/grpcf"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
+	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
 const grpcServerTestTimeout = 5 * time.Second
@@ -322,5 +332,216 @@ func waitForGRPCServer(t *testing.T, address string) {
 			panic(ctx.Err())
 		case <-time.After(10 * time.Millisecond):
 		}
+	}
+}
+
+// faultBehavior is how a call to faultService ends.
+type faultBehavior func(ctx context.Context) error
+
+// faultService ends each call as the faultBehavior it is registered with.
+var faultService = &grpc.ServiceDesc{
+	ServiceName: "test.Fault",
+	HandlerType: (*any)(nil),
+	Methods:     []grpc.MethodDesc{{MethodName: "Call", Handler: faultCall}},
+	Streams:     []grpc.StreamDesc{{StreamName: "Stream", Handler: faultStream, ServerStreams: true}},
+}
+
+// faultCall decodes the empty request of test.Fault/Call, then ends it through interceptor.
+func faultCall(
+	srv any, ctx context.Context, decode func(any) error, interceptor grpc.UnaryServerInterceptor,
+) (any, error) {
+	err := decode(&emptypb.Empty{})
+	if err != nil {
+		return nil, err
+	}
+
+	handler := func(ctx context.Context, _ any) (any, error) { return &emptypb.Empty{}, srv.(faultBehavior)(ctx) }
+
+	return interceptor(ctx, &emptypb.Empty{}, &grpc.UnaryServerInfo{FullMethod: "/test.Fault/Call"}, handler)
+}
+
+// faultStream ends test.Fault/Stream.
+func faultStream(srv any, stream grpc.ServerStream) error {
+	return srv.(faultBehavior)(stream.Context())
+}
+
+// panicCall panics with a value that holds caller input.
+func panicCall(context.Context) error {
+	panic("secret")
+}
+
+// tracedConfig is a telemetry backend that exports nothing but traces each call on provider,
+// continuing the W3C trace context the call carries.
+type tracedConfig struct {
+	otelpresets.Disabled
+
+	provider trace.TracerProvider
+}
+
+func (config *tracedConfig) RPCInterceptor() grpc.ServerOption {
+	return grpc.StatsHandler(otelgrpc.NewServerHandler(
+		otelgrpc.WithTracerProvider(config.provider), otelgrpc.WithPropagators(propagation.TraceContext{}),
+	))
+}
+
+// driverError stands for an error type of a dependency, whose message holds caller input.
+type driverError struct{}
+
+func (*driverError) Error() string {
+	return "password authentication failed for user=secret"
+}
+
+//nolint:paralleltest // Records through the process-wide Sentry reporter.
+func TestNewServerSentry(t *testing.T) {
+	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+	started := time.Now().Add(-time.Hour)
+
+	// The refusal a dependency in planned downtime sends.
+	_, errDowntime := downtime.UnaryServerInterceptor(&started)(
+		t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/jsonkeys.ClaimsSignService/ClaimsSign"}, nil,
+	)
+
+	provider := sdktrace.NewTracerProvider()
+
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+
+	testCases := []struct {
+		name string
+
+		behavior      faultBehavior
+		downtimeStart *time.Time
+
+		expectCode codes.Code
+		// The innermost type of a reported fault. Empty expects no event, and "panic" one for a panic.
+		expectType string
+	}{
+		{
+			name: "Error/Fault",
+
+			behavior: func(context.Context) error {
+				return grpcf.Fault(codes.Internal, "internal error", fmt.Errorf("select jwk: %w", &driverError{}))
+			},
+
+			expectCode: codes.Internal,
+			expectType: "*grpcf_test.driverError",
+		},
+		{
+			// A bare status error ends the chain.
+			name: "Error/Unavailable",
+
+			behavior: func(context.Context) error {
+				return status.Error(codes.Unavailable, "service dependencies unavailable")
+			},
+
+			expectCode: codes.Unavailable,
+			expectType: "*status.Error",
+		},
+		{
+			name: "Error/Panic",
+
+			behavior: panicCall,
+
+			expectCode: codes.Internal,
+			expectType: "panic",
+		},
+		{
+			name: "Error/NotFound",
+
+			behavior: func(context.Context) error { return status.Error(codes.NotFound, "jwk not found") },
+
+			expectCode: codes.NotFound,
+		},
+		{
+			name: "Error/InvalidArgument",
+
+			behavior: func(context.Context) error { return status.Error(codes.InvalidArgument, "invalid key id") },
+
+			expectCode: codes.InvalidArgument,
+		},
+		{
+			name: "Error/DependencyDowntime",
+
+			behavior: func(context.Context) error { return errDowntime },
+
+			expectCode: codes.Unavailable,
+		},
+		{
+			name: "Error/Downtime",
+
+			behavior:      func(context.Context) error { return nil },
+			downtimeStart: &started,
+
+			expectCode: codes.Unavailable,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			transport := sentryftest.Record(t)
+
+			server := grpcf.NewServer(
+				t.Context(), &tracedConfig{provider: provider}, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, nil,
+			)
+			server.RegisterService(faultService, testCase.behavior)
+
+			address, config := freeGRPCServer(t, time.Second)
+			go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
+
+			waitForGRPCServer(t, address)
+
+			connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+			ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
+			t.Cleanup(cancel)
+
+			// Nothing a caller sends reaches Sentry.
+			ctx = metadata.AppendToOutgoingContext(ctx,
+				"traceparent", "00-"+traceID+"-00f067aa0ba902b7-01", "authorization", "Bearer secret",
+			)
+
+			err = connection.Invoke(ctx, "/test.Fault/Call", &emptypb.Empty{}, &emptypb.Empty{})
+			require.Equal(t, testCase.expectCode, status.Code(err))
+			require.NotContains(t, err.Error(), "secret")
+
+			stream, err := connection.NewStream(ctx, &faultService.Streams[0], "/test.Fault/Stream")
+			require.NoError(t, err)
+			require.NoError(t, stream.CloseSend())
+			require.Equal(t, testCase.expectCode, status.Code(stream.RecvMsg(&emptypb.Empty{})))
+
+			events := transport.Events()
+			if testCase.expectType == "" {
+				require.Empty(t, events)
+
+				return
+			}
+
+			// One event for the unary call, then one for the stream.
+			require.Len(t, events, 2)
+
+			for i, method := range []string{"/test.Fault/Call", "/test.Fault/Stream"} {
+				event := events[i]
+				require.Equal(t, sentryftest.Release, event.Release)
+				require.Equal(t, traceID, event.Contexts["trace"]["trace_id"])
+				require.Nil(t, event.Request)
+
+				payload, err := json.Marshal(event)
+				require.NoError(t, err)
+				require.NotContains(t, string(payload), "secret")
+
+				if testCase.expectType == "panic" {
+					// Sentry groups a panic by its stack, which ends where the panic began.
+					frames := event.Exception[0].Stacktrace.Frames
+					require.Equal(t, "panicCall", frames[len(frames)-1].Function)
+					require.Empty(t, event.Fingerprint)
+
+					continue
+				}
+
+				require.Equal(t, []string{method, testCase.expectType}, event.Fingerprint)
+			}
+		})
 	}
 }
