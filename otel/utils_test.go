@@ -6,14 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/require"
 
+	gootel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/a-novel-kit/golib/otel"
 	"github.com/a-novel-kit/golib/sentryf/sentryftest"
@@ -146,4 +149,28 @@ func TestRecoverPanicSentry(t *testing.T) {
 	payload, err := json.Marshal(event)
 	require.NoError(t, err)
 	require.NotContains(t, string(payload), "secret")
+}
+
+//nolint:paralleltest // Swaps the process-wide tracer provider.
+func TestForceFlush(t *testing.T) {
+	t.Run("Success/ExportsBufferedSpans", func(t *testing.T) {
+		exporter := tracetest.NewInMemoryExporter()
+		provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
+
+		t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+
+		gootel.SetTracerProvider(provider)
+		t.Cleanup(func() { gootel.SetTracerProvider(noop.NewTracerProvider()) })
+
+		_, span := otel.Tracer().Start(t.Context(), "buffered")
+		span.End()
+
+		require.Empty(t, exporter.GetSpans())
+		require.NoError(t, otel.ForceFlush(t.Context()))
+		require.Len(t, exporter.GetSpans(), 1)
+	})
+
+	t.Run("Success/NothingToFlush", func(t *testing.T) {
+		require.NoError(t, otel.ForceFlush(t.Context()))
+	})
 }

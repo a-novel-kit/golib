@@ -2,6 +2,7 @@ package httpf
 
 import (
 	"context"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -152,6 +153,28 @@ func EndOnShutdown(ctx context.Context) func(http.Handler) http.Handler {
 			defer stop()
 
 			next.ServeHTTP(w, r.WithContext(requestCtx))
+		})
+	}
+}
+
+// SendTelemetry sends the Sentry events, spans and logs of a request before its answer completes,
+// each within timeout. Wrap the whole router with it, outside its tracing, so the request's own span
+// leaves too. It suits a server no consumer waits on, billed per request: its platform withdraws the
+// CPU once it answers, so telemetry left to the background would wait for the next request.
+func SendTelemetry(timeout time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+
+			sentryf.Flush(timeout)
+
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
+			defer cancel()
+
+			err := otel.ForceFlush(ctx)
+			if err != nil {
+				log.Println("send telemetry: " + err.Error())
+			}
 		})
 	}
 }
