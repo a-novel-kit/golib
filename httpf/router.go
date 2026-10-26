@@ -15,12 +15,13 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
+	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
-// visitor IP, the request timeout, the body limit, tracing, CORS, request logs, the planned
-// downtime and the standard rate limit. The liveness path answers during a downtime and is never
-// rate-limited.
+// visitor IP, the request timeout, the body limit, tracing, the report of panics to Sentry, CORS,
+// request logs, the planned downtime and the standard rate limit. The liveness path answers during
+// a downtime and is never rate-limited.
 func NewRouter(
 	config ServerConfig, tracing otel.Config, logger logging.HTTPConfig, downtimeStart *time.Time,
 ) *chi.Mux {
@@ -37,6 +38,7 @@ func NewRouter(
 	router.Use(middleware.Timeout(config.Timeouts.Request))
 	router.Use(middleware.RequestSize(config.MaxRequestSize))
 	router.Use(tracing.HTTPHandler())
+	router.Use(capturePanics)
 	router.Use(cors.Handler(corsOptions(config.Cors)))
 	router.Use(logger.Logger())
 	router.Use(downtime.Middleware(downtimeStart, config.Liveness))
@@ -46,6 +48,33 @@ func NewRouter(
 	}
 
 	return router
+}
+
+// capturePanics sends a panic of a later handler to Sentry, then passes it on to
+// [middleware.Recoverer], which answers it. It runs inside tracing, so the event links the request's
+// trace.
+func capturePanics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer capturePanic(r.Context())
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// capturePanic sends a panic on the calling goroutine to Sentry, then panics again with its value.
+// Defer it directly, since recover only works from a deferred function. A handler aborts its response
+// with an [http.ErrAbortHandler] panic, which is no fault and stays out of Sentry.
+func capturePanic(ctx context.Context) {
+	rec := recover()
+	if rec == nil {
+		return
+	}
+
+	if rec != http.ErrAbortHandler { //nolint:errorlint // The abort is a panic value, never wrapped.
+		sentryf.CapturePanic(ctx, rec)
+	}
+
+	panic(rec)
 }
 
 // corsOptions translates config for the CORS middleware. Browsers hide Retry-After from scripts

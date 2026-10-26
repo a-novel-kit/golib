@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -23,6 +25,7 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/httpf"
 	"github.com/a-novel-kit/golib/otel"
+	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
 // logEntry is one call recorded by recordingLog.
@@ -306,6 +309,121 @@ func TestWithTag(t *testing.T) {
 			require.ErrorIs(t, err, testCase.expectErr)
 			require.Equal(t, testCase.expectErr, errors.Unwrap(err))
 			require.Equal(t, testCase.expectErr.Error(), err.Error())
+		})
+	}
+}
+
+// driverError stands for an error type of a dependency, whose message holds caller input.
+type driverError struct{}
+
+func (*driverError) Error() string {
+	return "password authentication failed for user=secret"
+}
+
+//nolint:paralleltest // Records through the process-wide Sentry reporter.
+func TestHandleErrorSentry(t *testing.T) {
+	errMapped := errors.New("mapped")
+	errValidation := validator.New().Var("jane.doe", "email")
+
+	// The refusal a dependency in planned downtime sends.
+	started := time.Now().Add(-time.Minute)
+	_, errDowntime := downtime.UnaryServerInterceptor(&started)(
+		t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/jsonkeys.ClaimsSignService/ClaimsSign"}, nil,
+	)
+
+	testCases := []struct {
+		name string
+
+		errMap httpf.ErrMap
+		err    error
+
+		// A nil fingerprint expects no event.
+		expectFingerprint []string
+	}{
+		{
+			name: "Error/ServerFault",
+
+			err: fmt.Errorf("select item: %w", &driverError{}),
+
+			expectFingerprint: []string{"GET /items/{id}", "*httpf_test.driverError"},
+		},
+		{
+			name: "Error/MappedServerFault",
+
+			errMap: httpf.ErrMap{errMapped: http.StatusServiceUnavailable},
+			err:    errors.Join(&driverError{}, errMapped),
+
+			expectFingerprint: []string{"GET /items/{id}", "*httpf_test.driverError"},
+		},
+		{
+			name: "Error/ClientError",
+
+			errMap: httpf.ErrMap{errMapped: http.StatusNotFound},
+			err:    fmt.Errorf("%w: %w", errMapped, &driverError{}),
+		},
+		{
+			name: "Error/Validation",
+
+			errMap: httpf.ErrMap{errMapped: http.StatusUnprocessableEntity},
+			err:    errors.Join(errValidation, errMapped),
+		},
+		{
+			name: "Downtime/Dependency",
+
+			err: fmt.Errorf("issue access token: %w", errDowntime),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			transport := sentryftest.Record(t)
+
+			provider := sdktrace.NewTracerProvider()
+
+			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+
+			var spanContext trace.SpanContext
+
+			router := chi.NewRouter()
+			router.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
+				ctx, span := provider.Tracer("httpf-test").Start(r.Context(), "handler")
+				defer span.End()
+
+				spanContext = span.SpanContext()
+
+				httpf.HandleError(ctx, &recordingLog{}, w, span, testCase.errMap, testCase.err)
+			})
+
+			// Nothing a visitor sends reaches Sentry.
+			request := httptest.NewRequestWithContext(
+				t.Context(), http.MethodGet, "/items/secret?token=secret", strings.NewReader("secret"),
+			)
+			request.RemoteAddr = "203.0.113.7:41234"
+			request.Header.Set("Authorization", "Bearer secret")
+			request.Header.Set("Cookie", "session=secret")
+
+			router.ServeHTTP(httptest.NewRecorder(), request)
+
+			events := transport.Events()
+			if testCase.expectFingerprint == nil {
+				require.Empty(t, events)
+
+				return
+			}
+
+			require.Len(t, events, 1)
+
+			event := events[0]
+			require.Equal(t, testCase.expectFingerprint, event.Fingerprint)
+			require.Equal(t, sentryftest.Release, event.Release)
+			require.Equal(t, spanContext.TraceID().String(), event.Contexts["trace"]["trace_id"])
+			require.Equal(t, spanContext.SpanID().String(), event.Contexts["trace"]["span_id"])
+			require.Nil(t, event.Request)
+
+			payload, err := json.Marshal(event)
+			require.NoError(t, err)
+			require.NotContains(t, string(payload), "secret")
+			require.NotContains(t, string(payload), "203.0.113.7")
 		})
 	}
 }

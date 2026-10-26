@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
+	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // ErrMap maps sentinel errors to the HTTP status HandleError returns for them. An error matching
@@ -26,8 +29,9 @@ type ErrMap map[error]int
 // and the trace keep it. When err carries tags from [WithTag], or a client error comes from a
 // validator, the body is an RFC 9457 problem details object holding those tags instead.
 //
-// A server error logs at error level and marks the span failed. A client error logs at warning
-// level and leaves the span status unset, since the handler answered it.
+// A server error logs at error level, marks the span failed and reaches Sentry through
+// [sentryf.Capture], under its method and chi route pattern. A client error logs at warning level
+// and leaves the span status unset, since the handler answered it.
 //
 // A gRPC dependency's planned downtime refusal anywhere in err wins over errMap: the response is
 // the one [downtime.Middleware] gives, logged as a warning, since the server did nothing wrong.
@@ -45,6 +49,7 @@ func HandleError(
 
 	if status >= http.StatusInternalServerError {
 		logger.Err(ctx, otel.ReportError(span, err).Error())
+		sentryf.Capture(ctx, route(ctx), err)
 	} else {
 		logger.Warn(ctx, err.Error())
 	}
@@ -86,4 +91,15 @@ func (errMap ErrMap) status(err error) int {
 	}
 
 	return http.StatusInternalServerError
+}
+
+// route names the route chi matched for the request of ctx, such as "GET /v2/session/". It is empty
+// outside a chi router.
+func route(ctx context.Context) string {
+	routeCtx := chi.RouteContext(ctx)
+	if routeCtx == nil {
+		return ""
+	}
+
+	return routeCtx.RouteMethod + " " + routeCtx.RoutePattern()
 }
