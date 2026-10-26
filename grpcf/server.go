@@ -19,6 +19,7 @@ import (
 	golibproto "github.com/a-novel-kit/golib/grpcf/proto/gen"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
+	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // errShuttingDown ends the streams a server holds when its shutdown begins.
@@ -97,7 +98,9 @@ func endStreamsInterceptor(ctx context.Context) grpc.StreamServerInterceptor {
 
 // ListenAndServe serves server on the configured port until ctx is canceled or the server stops.
 // Cancellation lets active RPCs finish within the configured shutdown timeout, then stops remaining
-// RPCs. A forced shutdown returns an error wrapping [context.DeadlineExceeded].
+// RPCs. A forced shutdown returns an error wrapping [context.DeadlineExceeded]. ListenAndServe
+// reports the error it returns to Sentry as a fault of "serve gRPC", since calls were cut short or
+// the server stopped serving.
 //
 // [grpc.ErrServerStopped] is a normal result. A serving error that races with shutdown is joined
 // with the shutdown error so callers can inspect both with [errors.Is].
@@ -110,6 +113,16 @@ func endStreamsInterceptor(ctx context.Context) grpc.StreamServerInterceptor {
 //		log.Printf("run gRPC server: %v", err)
 //	}
 func ListenAndServe(ctx context.Context, config ServerConfig, server *grpc.Server) error {
+	err := listenAndServe(ctx, config, server)
+	if err != nil {
+		sentryf.Capture(ctx, "serve gRPC", err)
+	}
+
+	return err
+}
+
+// listenAndServe runs server and drains it as [ListenAndServe] describes.
+func listenAndServe(ctx context.Context, config ServerConfig, server *grpc.Server) error {
 	address := ":" + strconv.Itoa(config.Port)
 	listenerConfig := &net.ListenConfig{}
 

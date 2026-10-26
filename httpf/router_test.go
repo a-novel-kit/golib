@@ -3,6 +3,7 @@ package httpf_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -12,17 +13,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	gootel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/a-novel-kit/golib/httpf"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
+	"github.com/a-novel-kit/golib/otel"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
+	"github.com/a-novel-kit/golib/sentryf"
 	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
@@ -419,3 +426,63 @@ func TestNewRouterSentry(t *testing.T) {
 		require.Empty(t, transport.Events())
 	})
 }
+
+//nolint:paralleltest // Swaps the process-wide Sentry reporter and tracer provider.
+func TestSendTelemetry(t *testing.T) {
+	transport := &heldTransport{}
+
+	err := sentryf.Init(sentryf.Config{
+		DSN:         "https://public@sentry.invalid/1",
+		Release:     sentryftest.Release,
+		Environment: sentryftest.Environment,
+		Transport:   transport,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sentryf.Init(sentryf.Config{})) })
+
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
+
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+
+	gootel.SetTracerProvider(provider)
+	t.Cleanup(func() { gootel.SetTracerProvider(noop.NewTracerProvider()) })
+
+	handler := httpf.SendTelemetry(time.Second)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, span := otel.Tracer().Start(r.Context(), "sweep")
+		span.End()
+
+		sentryf.Capture(r.Context(), "POST /sweep", errors.New("sweep"))
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/sweep", nil))
+
+	require.Len(t, transport.sent, 1)
+	require.Len(t, exporter.GetSpans(), 1)
+}
+
+// heldTransport keeps each event until a flush sends it, as a sender left without CPU would.
+type heldTransport struct {
+	held []*sentry.Event
+	sent []*sentry.Event
+}
+
+func (transport *heldTransport) Configure(sentry.ClientOptions) {}
+
+func (transport *heldTransport) SendEvent(event *sentry.Event) {
+	transport.held = append(transport.held, event)
+}
+
+func (transport *heldTransport) Flush(time.Duration) bool {
+	transport.sent = append(transport.sent, transport.held...)
+	transport.held = nil
+
+	return true
+}
+
+func (transport *heldTransport) FlushWithContext(context.Context) bool {
+	return transport.Flush(0)
+}
+
+func (transport *heldTransport) Close() {}

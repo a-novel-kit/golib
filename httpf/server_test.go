@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
 const serverTestTimeout = 5 * time.Second
@@ -116,6 +117,42 @@ func TestServe(t *testing.T) {
 		case <-time.After(serverTestTimeout):
 			require.FailNow(t, "HTTP request did not finish after forced shutdown")
 		}
+	})
+}
+
+//nolint:paralleltest // Records through the process-wide Sentry reporter.
+func TestServeSentry(t *testing.T) {
+	t.Run("Error/BindFailure", func(t *testing.T) {
+		transport := sentryftest.Record(t)
+
+		listenerConfig := &net.ListenConfig{}
+		listener, err := listenerConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, listener.Close()) })
+
+		server := &http.Server{Addr: listener.Addr().String(), ReadHeaderTimeout: time.Second}
+		require.Error(t, httpf.Serve(t.Context(), server, time.Second))
+
+		events := transport.Events()
+		require.Len(t, events, 1)
+		require.Equal(t, "serve HTTP", events[0].Exception[0].Value)
+	})
+
+	t.Run("Success/ProcessCancellation", func(t *testing.T) {
+		transport := sentryftest.Record(t)
+
+		address := freeHTTPAddress(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		server := &http.Server{Addr: address, ReadHeaderTimeout: time.Second}
+
+		serveErrors := make(chan error, 1)
+		go func() { serveErrors <- httpf.Serve(ctx, server, time.Second) }()
+
+		waitForHTTPServer(t, address)
+		cancel()
+
+		require.NoError(t, <-serveErrors)
+		require.Empty(t, transport.Events())
 	})
 }
 
