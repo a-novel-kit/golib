@@ -11,6 +11,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // errRecoveredPanic wraps panic values absorbed by [RecoverPanic].
@@ -65,8 +67,9 @@ func ReportError(span trace.Span, err error) error {
 	return reportedError{err}
 }
 
-// RecoverPanic absorbs a panic on the calling goroutine, recording it on span and logging it
-// with a stack trace. Defer it directly, since recover only works from a deferred function.
+// RecoverPanic absorbs a panic on the calling goroutine. It records the panic on span, logs it with
+// a stack trace and sends it to Sentry through [sentryf.CapturePanic]. Defer it directly, since
+// recover only works from a deferred function.
 //
 // Use it on detached goroutines, where an escaped panic ends the process.
 func RecoverPanic(ctx context.Context, span trace.Span) {
@@ -77,4 +80,5 @@ func RecoverPanic(ctx context.Context, span trace.Span) {
 
 	err := fmt.Errorf("%w: %v", errRecoveredPanic, rec)
 	Logger().ErrorContext(ctx, ReportError(span, err).Error()+"\n"+string(debug.Stack()))
+	sentryf.CapturePanic(trace.ContextWithSpan(ctx, span), rec)
 }
