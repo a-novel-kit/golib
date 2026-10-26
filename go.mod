@@ -6,8 +6,6 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/felixge/httpsnoop v1.1.0
 	github.com/getsentry/sentry-go v0.50.0
-	github.com/getsentry/sentry-go/otel v0.50.0
-	github.com/getsentry/sentry-go/otel/otlp v0.50.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-chi/cors v1.2.2
 	github.com/go-chi/httprate v0.16.1
@@ -77,7 +75,6 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect

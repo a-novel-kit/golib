@@ -2,10 +2,12 @@ package otel_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/codes"
@@ -14,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/otel"
+	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
 func TestReportError(t *testing.T) {
@@ -101,4 +104,46 @@ func TestRecoverPanic(t *testing.T) {
 
 		otel.RecoverPanic(t.Context(), span)
 	})
+}
+
+// panicDetached panics with a value that holds caller input, on a goroutine RecoverPanic guards.
+func panicDetached(ctx context.Context, span trace.Span) {
+	defer otel.RecoverPanic(ctx, span)
+
+	panic("secret")
+}
+
+//nolint:paralleltest // Records through the process-wide Sentry reporter.
+func TestRecoverPanicSentry(t *testing.T) {
+	transport := sentryftest.Record(t)
+
+	provider := sdktrace.NewTracerProvider()
+
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+
+	// RecoverPanic takes the context of the span's parent, as a goroutine that starts its span does.
+	_, span := provider.Tracer("otel-test").Start(t.Context(), "detached")
+	defer span.End()
+
+	panicDetached(t.Context(), span)
+
+	events := transport.Events()
+	require.Len(t, events, 1)
+
+	event := events[0]
+	require.Equal(t, "string", event.Exception[0].Type)
+	require.Equal(t, sentryftest.Release, event.Release)
+	require.Equal(t, sentry.Context{
+		"trace_id": span.SpanContext().TraceID().String(),
+		"span_id":  span.SpanContext().SpanID().String(),
+	}, event.Contexts["trace"])
+	require.Nil(t, event.Request)
+
+	// The stack ends where the panic began.
+	frames := event.Exception[0].Stacktrace.Frames
+	require.Equal(t, "panicDetached", frames[len(frames)-1].Function)
+
+	payload, err := json.Marshal(event)
+	require.NoError(t, err)
+	require.NotContains(t, string(payload), "secret")
 }
