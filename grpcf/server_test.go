@@ -171,6 +171,41 @@ func TestListenAndServe(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Records through the process-wide Sentry reporter.
+func TestListenAndServeSentry(t *testing.T) {
+	t.Run("Error/BindFailure", func(t *testing.T) {
+		transport := sentryftest.Record(t)
+
+		listenerConfig := &net.ListenConfig{}
+		listener, err := listenerConfig.Listen(t.Context(), "tcp", ":0")
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, listener.Close()) })
+
+		config := grpcf.ServerConfig{Port: listener.Addr().(*net.TCPAddr).Port, Shutdown: time.Second}
+		require.Error(t, grpcf.ListenAndServe(t.Context(), config, grpc.NewServer()))
+
+		events := transport.Events()
+		require.Len(t, events, 1)
+		require.Equal(t, "serve gRPC", events[0].Exception[0].Value)
+	})
+
+	t.Run("Success/ProcessCancellation", func(t *testing.T) {
+		transport := sentryftest.Record(t)
+
+		address, config := freeGRPCServer(t, time.Second)
+		ctx, cancel := context.WithCancel(t.Context())
+
+		serveErrors := make(chan error, 1)
+		go func() { serveErrors <- grpcf.ListenAndServe(ctx, config, grpc.NewServer()) }()
+
+		waitForGRPCServer(t, address)
+		cancel()
+
+		require.NoError(t, <-serveErrors)
+		require.Empty(t, transport.Events())
+	})
+}
+
 func TestNewServer(t *testing.T) {
 	t.Parallel()
 

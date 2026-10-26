@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // Serve listens on server.Addr until ctx is canceled or the server stops. Cancellation drains
 // active requests within shutdownTimeout, then closes remaining connections. A forced shutdown
-// returns an error wrapping [context.DeadlineExceeded].
+// returns an error wrapping [context.DeadlineExceeded]. Serve reports the error it returns to
+// Sentry as a fault of "serve HTTP", since requests were cut short or the server stopped serving.
 //
 // [http.ErrServerClosed] is a normal result. A serving error that races with shutdown is joined
 // with the shutdown error so callers can inspect both with [errors.Is].
@@ -23,6 +26,16 @@ import (
 //		log.Printf("run HTTP server: %v", err)
 //	}
 func Serve(ctx context.Context, server *http.Server, shutdownTimeout time.Duration) error {
+	err := serve(ctx, server, shutdownTimeout)
+	if err != nil {
+		sentryf.Capture(ctx, "serve HTTP", err)
+	}
+
+	return err
+}
+
+// serve runs server and drains it as [Serve] describes.
+func serve(ctx context.Context, server *http.Server, shutdownTimeout time.Duration) error {
 	serveErrors := make(chan error, 1)
 	go func() {
 		serveErrors <- server.ListenAndServe()
