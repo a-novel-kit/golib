@@ -12,6 +12,11 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// SendTimeout bounds one event's delivery to Sentry. A process can start before its network: a fresh
+// Cloud Run instance's first connection out waits 30 seconds or more for Cloud NAT. TCP retries the
+// connection meanwhile, so an event sent then arrives late. A job's [Flush] outlasts this timeout.
+const SendTimeout = 2 * time.Minute
+
 // Init installs the reporter config describes, process-wide, so a capture point needs no handle to
 // it. Without a DSN, the capture functions send nothing and no connection opens.
 func Init(config Config) error {
@@ -25,12 +30,19 @@ func Init(config Config) error {
 		return errors.New("sentry release and environment are required with a DSN")
 	}
 
+	transport := config.Transport
+	if transport == nil {
+		httpTransport := sentry.NewHTTPTransport()
+		httpTransport.Timeout = SendTimeout
+		transport = httpTransport
+	}
+
 	// The zero values keep tracing off and send every error event.
 	client, err := sentry.NewClient(sentry.ClientOptions{
 		Dsn:         config.DSN,
 		Release:     releaseName(config.Release),
 		Environment: config.Environment,
-		Transport:   config.Transport,
+		Transport:   transport,
 		BeforeSend:  dropVisitorData,
 	})
 	if err != nil {
@@ -43,7 +55,8 @@ func Init(config Config) error {
 }
 
 // Flush waits up to timeout for buffered events to reach Sentry. Defer it in main, so the event of a
-// failing job leaves before the process exits.
+// failing job leaves before the process exits. A job's timeout exceeds [SendTimeout], so an event it
+// sent before its network came up still leaves. A server's fits its platform's shutdown grace.
 func Flush(timeout time.Duration) {
 	sentry.Flush(timeout)
 }

@@ -16,7 +16,8 @@ type Config struct {
 	Release string `json:"release" yaml:"release"`
 	// Environment names the deployment, such as production.
 	Environment string `json:"environment" yaml:"environment"`
-	// Transport delivers the events. Nil sends them to the host the DSN names.
+	// Transport delivers the events. Nil sends each one to the host the DSN names, within
+	// [SendTimeout].
 	Transport sentry.Transport `json:"-" yaml:"-"`
 }
 

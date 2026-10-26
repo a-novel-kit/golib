@@ -160,6 +160,18 @@ func TestInit(t *testing.T) {
 		})
 	}
 
+	// A process can start before its network, so the default transport gives each event SendTimeout.
+	t.Run("Success/DefaultTransportOutlastsTheNetworkStart", func(t *testing.T) {
+		t.Cleanup(func() { require.NoError(t, sentryf.Init(sentryf.Config{})) })
+		require.NoError(t, sentryf.Init(sentryf.Config{DSN: testDSN, Release: "golib@1.0.0", Environment: "test"}))
+
+		transport, ok := sentry.CurrentHub().Client().Transport.(*sentry.HTTPTransport)
+		require.True(t, ok)
+		t.Cleanup(transport.Close)
+
+		require.Equal(t, sentryf.SendTimeout, transport.Timeout)
+	})
+
 	t.Run("Success/DropsVisitorData", func(t *testing.T) {
 		transport := sentryftest.Record(t)
 
