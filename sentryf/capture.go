@@ -1,0 +1,124 @@
+package sentryf
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/getsentry/sentry-go"
+
+	"go.opentelemetry.io/otel/trace"
+)
+
+// Init installs the reporter config describes, process-wide, so a capture point needs no handle to
+// it. Without a DSN, the capture functions send nothing and no connection opens.
+func Init(config Config) error {
+	if config.DSN == "" {
+		sentry.CurrentHub().BindClient(nil)
+
+		return nil
+	}
+
+	if config.Release == "" || config.Environment == "" {
+		return errors.New("sentry release and environment are required with a DSN")
+	}
+
+	// The zero values keep tracing off and send every error event.
+	client, err := sentry.NewClient(sentry.ClientOptions{
+		Dsn:         config.DSN,
+		Release:     config.Release,
+		Environment: config.Environment,
+		Transport:   config.Transport,
+		BeforeSend:  dropVisitorData,
+	})
+	if err != nil {
+		return fmt.Errorf("create sentry client: %w", err)
+	}
+
+	sentry.CurrentHub().BindClient(client)
+
+	return nil
+}
+
+// Flush waits up to timeout for buffered events to reach Sentry. Defer it in main, so the event of a
+// failing job leaves before the process exits.
+func Flush(timeout time.Duration) {
+	sentry.Flush(timeout)
+}
+
+// Capture sends err as a server fault of operation, such as the route "GET /v2/session/" or the name
+// of a job. A job's main calls it with its failure.
+//
+// Sentry groups the events by operation and the type of the innermost error err wraps, since a
+// wrapped error carries no stack trace. The event holds the trace and span IDs of the span in ctx.
+func Capture(ctx context.Context, operation string, err error) {
+	root := innermostType(err)
+
+	event := newEvent(ctx, sentry.Exception{Type: root, Value: operation})
+	event.Fingerprint = []string{operation, root}
+
+	sentry.CurrentHub().Client().CaptureEvent(event, nil, nil)
+}
+
+// CapturePanic sends rec, a recovered panic, as a server fault. Call it from the deferred function
+// that recovered rec: the event then holds the stack of the panic, which Sentry groups it by. The
+// event names the type of rec, never its value.
+func CapturePanic(ctx context.Context, rec any) {
+	event := newEvent(ctx, sentry.Exception{
+		Type:       fmt.Sprintf("%T", rec),
+		Value:      "recovered panic",
+		Stacktrace: sentry.NewStacktrace(),
+	})
+
+	sentry.CurrentHub().Client().CaptureEvent(event, nil, nil)
+}
+
+// newEvent returns an error event holding exception and the trace context of the span in ctx.
+func newEvent(ctx context.Context, exception sentry.Exception) *sentry.Event {
+	event := sentry.NewEvent()
+	event.Level = sentry.LevelError
+	event.Exception = []sentry.Exception{exception}
+
+	spanContext := trace.SpanContextFromContext(ctx)
+	if spanContext.IsValid() {
+		event.Contexts["trace"] = sentry.Context{
+			"trace_id": spanContext.TraceID().String(),
+			"span_id":  spanContext.SpanID().String(),
+		}
+	}
+
+	return event
+}
+
+// innermostType names the type of the innermost error err wraps. Through an error joining several,
+// it follows the first.
+func innermostType(err error) string {
+	for {
+		var next error
+
+		switch wrapper := err.(type) { //nolint:errorlint // It walks the chain one level at a time.
+		case interface{ Unwrap() error }:
+			next = wrapper.Unwrap()
+		case interface{ Unwrap() []error }:
+			if causes := wrapper.Unwrap(); len(causes) > 0 {
+				next = causes[0]
+			}
+		}
+
+		if next == nil {
+			return fmt.Sprintf("%T", err)
+		}
+
+		err = next
+	}
+}
+
+// dropVisitorData strips the request and the user from event. It keeps an SDK default from
+// attaching either.
+func dropVisitorData(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
+	event.Request = nil
+	event.User = sentry.User{}
+
+	return event
+}
