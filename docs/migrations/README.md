@@ -4,6 +4,7 @@ A golib release that asks something of its consumers ships a guide here, named a
 
 | Version                 | What changes                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| [v0.52.0](./v0.52.0.md) | `sentryf` gives each event 2 minutes to reach Sentry, so a job's flush outlasts it.                  |
 | [v0.51.0](./v0.51.0.md) | `sentryf` reports server faults to Sentry, and the unused `otelpresets.Sentry` is removed.           |
 | [v0.50.0](./v0.50.0.md) | `otel.ReportSuccess` and `otel.ReportSuccessNoContent` are removed.                                  |
 | [v0.49.0](./v0.49.0.md) | `otel/utils` is removed. Capture responses with httpsnoop.                                           |
