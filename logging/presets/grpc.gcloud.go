@@ -18,6 +18,8 @@ var _ logging.RPCConfig = (*GRPCGcloud)(nil)
 // interceptors that write entries Cloud Logging parses and recover from
 // handler panics. Each call writes one entry, when it finishes. An entry logged
 // under the RPC's span links to its trace.
+//
+// Deprecated: use [GRPCOTel], which leaves each call's record to its RPC span.
 type GRPCGcloud struct {
 	// Component labels every entry with the emitting subsystem.
 	Component string `json:"component" yaml:"component"`

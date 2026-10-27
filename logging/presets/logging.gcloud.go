@@ -15,6 +15,8 @@ import (
 // entries as structured JSON with a severity field that Cloud Logging
 // understands. An entry logged under a span carries the fields Cloud Logging
 // reads to attach it to that span's trace.
+//
+// Deprecated: use [LogOTel], which logs through the OpenTelemetry backend.
 type LogGcloud struct {
 	// ProjectID names the Google Cloud project that scopes trace resource names.
 	ProjectID string `json:"projectID" yaml:"projectID"`
