@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/logging"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	"github.com/a-novel-kit/golib/otel"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
@@ -44,6 +45,8 @@ func TestNewRouter(t *testing.T) {
 		clientIPHeader string
 		downtimeStart  *time.Time
 		rateLimited    bool
+		// withoutRequestLog builds the router with a nil logger.
+		withoutRequestLog bool
 
 		method  string
 		paths   []string
@@ -96,6 +99,17 @@ func TestNewRouter(t *testing.T) {
 
 			expectStatus:  http.StatusOK,
 			expectHeaders: map[string]string{"Access-Control-Expose-Headers": "Retry-After"},
+		},
+		{
+			name: "Success/WithoutRequestLog",
+
+			withoutRequestLog: true,
+
+			method: http.MethodGet,
+			paths:  []string{"/visitor"},
+
+			expectStatus: http.StatusOK,
+			expectBody:   "192.0.2.1",
 		},
 		{
 			name: "Success/DowntimeLiveness",
@@ -171,12 +185,14 @@ func TestNewRouter(t *testing.T) {
 			config.RateLimitsEnabled = testCase.rateLimited
 			config.RateLimit = httpf.Rate{Requests: 2, Window: time.Minute}
 
-			router := httpf.NewRouter(
-				config,
-				&otelpresets.Disabled{},
-				&loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}},
-				testCase.downtimeStart,
-			)
+			var requestLog logging.HTTPConfig = &loggingpresets.HTTPLocal{
+				BaseLogger: &loggingpresets.LogLocal{Out: io.Discard},
+			}
+			if testCase.withoutRequestLog {
+				requestLog = nil
+			}
+
+			router := httpf.NewRouter(config, &otelpresets.Disabled{}, requestLog, testCase.downtimeStart)
 			ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 			router.Get("/ping", ok)
 			router.Get("/items/{id}", ok)

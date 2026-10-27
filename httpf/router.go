@@ -23,6 +23,8 @@ import (
 // visitor IP, the request timeout, the body limit, tracing, the report of panics to Sentry, CORS,
 // request logs, the planned downtime and the standard rate limit. The liveness path answers during
 // a downtime and is never rate-limited.
+//
+// A nil logger writes no request log, for a server whose spans record each request.
 func NewRouter(
 	config ServerConfig, tracing otel.Config, logger logging.HTTPConfig, downtimeStart *time.Time,
 ) *chi.Mux {
@@ -41,7 +43,11 @@ func NewRouter(
 	router.Use(tracing.HTTPHandler())
 	router.Use(capturePanics)
 	router.Use(cors.Handler(corsOptions(config.Cors)))
-	router.Use(logger.Logger())
+
+	if logger != nil {
+		router.Use(logger.Logger())
+	}
+
 	router.Use(downtime.Middleware(downtimeStart, config.Liveness))
 
 	if config.RateLimitsEnabled {
