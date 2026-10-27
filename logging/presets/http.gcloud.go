@@ -21,6 +21,9 @@ var _ logging.HTTPConfig = (*HTTPGcloud)(nil)
 // Install it inside the OpenTelemetry HTTP middleware, which opens that span.
 // HTTPGcloud passes the request on unchanged, so the server span takes its name
 // from the route the router matches.
+//
+// Deprecated: pass a nil logger to httpf.NewRouter. Under the otelpresets.OTLP backend, the server
+// span is each request's record.
 type HTTPGcloud struct {
 	BaseLogger *LogGcloud
 }

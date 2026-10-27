@@ -40,6 +40,8 @@ var _ otel.Config = (*Gcloud)(nil)
 // Gcloud is a Config that exports traces and logs to Google Cloud over
 // authenticated OTLP. Cloud Trace and Cloud Logging read the trace context and
 // severity from the OTLP records.
+//
+// Deprecated: use [OTLP], which exports to any OTLP/HTTP endpoint the standard variables name.
 type Gcloud struct {
 	// ProjectID is the Google Cloud project telemetry is sent to. When empty, the
 	// project is detected from Google Application Default Credentials or the
