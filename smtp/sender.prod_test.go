@@ -23,12 +23,22 @@ import (
 // The fake server is a real listener speaking enough SMTP to complete a transaction, so the client
 // under test is the real net/smtp client on a real socket.
 
+// fakeMode is how a fakeServer departs from a complete session.
+type fakeMode int
+
+const (
+	fakeComplete fakeMode = iota
+	// fakeStall accepts the connection and then never writes a greeting. The dial succeeds, so only a
+	// deadline on the connection ends the wait.
+	fakeStall
+	// fakeDropQuit ends the session at QUIT without a reply.
+	fakeDropQuit
+)
+
 // fakeServer is a minimal SMTP server for one connection.
 type fakeServer struct {
 	listener net.Listener
-	// stall makes the server accept the connection and then never write a greeting. The dial
-	// succeeds, so only a deadline on the connection ends the wait.
-	stall bool
+	mode     fakeMode
 	// extensions are the keywords the server advertises in its EHLO reply.
 	extensions []string
 	// transcript records the commands the client sent, in order.
@@ -40,7 +50,7 @@ type fakeServer struct {
 }
 
 // newFakeServer starts a fakeServer advertising extensions, stopped with the test.
-func newFakeServer(t *testing.T, stall bool, extensions ...string) *fakeServer {
+func newFakeServer(t *testing.T, mode fakeMode, extensions ...string) *fakeServer {
 	t.Helper()
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
@@ -48,7 +58,7 @@ func newFakeServer(t *testing.T, stall bool, extensions ...string) *fakeServer {
 
 	server := &fakeServer{
 		listener:   listener,
-		stall:      stall,
+		mode:       mode,
 		extensions: extensions,
 		stop:       make(chan struct{}),
 		done:       make(chan struct{}),
@@ -87,7 +97,7 @@ func (s *fakeServer) serve() {
 
 	defer func() { _ = conn.Close() }()
 
-	if s.stall {
+	if s.mode == fakeStall {
 		// Accept and say nothing. The client waits here for a greeting until its deadline fires.
 		<-s.stop
 
@@ -148,7 +158,9 @@ func (s *fakeServer) serve() {
 
 			write("354 End data with <CR><LF>.<CR><LF>")
 		case strings.HasPrefix(line, "QUIT"):
-			write("221 2.0.0 Bye")
+			if s.mode != fakeDropQuit {
+				write("221 2.0.0 Bye")
+			}
 
 			return
 		default:
@@ -221,7 +233,7 @@ func TestProdSender(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			server := newFakeServer(t, false, "AUTH PLAIN")
+			server := newFakeServer(t, fakeComplete, "AUTH PLAIN")
 			host, _, err := net.SplitHostPort(server.addr())
 			require.NoError(t, err)
 
@@ -311,7 +323,7 @@ func TestProdSender(t *testing.T) {
 			t.Parallel()
 
 			// The server offers no STARTTLS. PlainAuth permits plaintext credentials to a loopback server.
-			server := newFakeServer(t, false, "AUTH PLAIN")
+			server := newFakeServer(t, fakeComplete, "AUTH PLAIN")
 
 			host, _, err := net.SplitHostPort(server.addr())
 			require.NoError(t, err)
@@ -425,7 +437,7 @@ func TestProdSender(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			server := newFakeServer(t, false, testCase.extensions...)
+			server := newFakeServer(t, fakeComplete, testCase.extensions...)
 
 			sender := &smtp.ProdSender{
 				Addr:                server.addr(),
@@ -441,10 +453,22 @@ func TestProdSender(t *testing.T) {
 		})
 	}
 
+	t.Run("Success/QuitDisconnect", func(t *testing.T) {
+		t.Parallel()
+
+		// The reply to the final "." accepted the message before QUIT, so a failed QUIT is no failed
+		// send, and a caller never reports a delivered mail as lost.
+		server := newFakeServer(t, fakeDropQuit)
+
+		sender := &smtp.ProdSender{Addr: server.addr(), Email: "noreply@example.com", ForceUnencryptedTLS: true}
+
+		require.NoError(t, runOperation(t, sender, "send"))
+	})
+
 	t.Run("Error/SendTimesOutOnStalledServer", func(t *testing.T) {
 		t.Parallel()
 
-		server := newFakeServer(t, true)
+		server := newFakeServer(t, fakeStall)
 
 		sender := &smtp.ProdSender{
 			Addr:    server.addr(),
@@ -474,7 +498,7 @@ func TestProdSender(t *testing.T) {
 	t.Run("Error/PingTimesOutOnStalledServer", func(t *testing.T) {
 		t.Parallel()
 
-		server := newFakeServer(t, true)
+		server := newFakeServer(t, fakeStall)
 
 		// Ping backs the readiness probe, so it returns within the timeout and reports the outage it
 		// exists to detect.

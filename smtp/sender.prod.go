@@ -146,7 +146,10 @@ func (sender *ProdSender) deliver(recipients []string, msg string) error {
 		return err
 	}
 
-	return client.Quit()
+	// The server has accepted the message, so a failed QUIT changes nothing.
+	_ = client.Quit()
+
+	return nil
 }
 
 // timeout returns the network budget of one exchange.
