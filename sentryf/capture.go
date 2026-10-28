@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -19,7 +20,12 @@ const SendTimeout = 2 * time.Minute
 
 // Init installs the reporter config describes, process-wide, so a capture point needs no handle to
 // it. Without a DSN, the capture functions send nothing and no connection opens.
+//
+// With a DSN, Init also starts the sampler, which sends the resource use of the process every minute.
+// Each call stops the sampler the previous call started.
 func Init(config Config) error {
+	stopSampler()
+
 	if config.DSN == "" {
 		sentry.CurrentHub().BindClient(nil)
 
@@ -50,6 +56,8 @@ func Init(config Config) error {
 	}
 
 	sentry.CurrentHub().BindClient(client)
+
+	stopSampler = startSampler(sentry.NewMeter(context.Background()), os.DirFS(cgroupRoot), sampleInterval)
 
 	return nil
 }
