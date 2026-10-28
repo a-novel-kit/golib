@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/servicetoken"
 )
 
 const (
@@ -228,5 +231,60 @@ func TestNewPoolClient(t *testing.T) {
 		require.NoError(t, response.Body.Close())
 
 		require.Contains(t, <-received, clientTraceID)
+	})
+}
+
+func TestServiceTokenTransport(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Success/ReadsEachRequest", func(t *testing.T) {
+		t.Parallel()
+
+		// Buffered so the handler never blocks, and read after Do returns.
+		received := make(chan string, 1)
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			received <- r.Header.Get(servicetoken.Header)
+
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(server.Close)
+
+		path := filepath.Join(t.TempDir(), "token")
+		client := &http.Client{
+			Transport: &httpf.ServiceTokenTransport{ServiceTokenPath: path, Base: http.DefaultTransport},
+		}
+
+		// The kubelet replaces the file between the requests.
+		for _, token := range []string{"first", "rotated"} {
+			require.NoError(t, os.WriteFile(path, []byte(token), 0o600))
+
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+			require.NoError(t, err)
+
+			response, err := client.Do(request)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+
+			require.Equal(t, token, <-received)
+			require.Empty(t, request.Header.Get(servicetoken.Header))
+		}
+	})
+
+	t.Run("Error/MissingToken", func(t *testing.T) {
+		t.Parallel()
+
+		transport := &httpf.ServiceTokenTransport{
+			ServiceTokenPath: filepath.Join(t.TempDir(), "token"),
+			Base:             http.DefaultTransport,
+		}
+
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:1", nil)
+		require.NoError(t, err)
+
+		//nolint:bodyclose // The call never returns a response, so there is no body to close.
+		response, err := transport.RoundTrip(request)
+		require.ErrorIs(t, err, os.ErrNotExist)
+		require.Nil(t, response)
 	})
 }

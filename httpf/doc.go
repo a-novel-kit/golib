@@ -3,7 +3,9 @@
 // Inbound, it assembles a REST server from its REST_* configuration: the standard middleware
 // chain, rate limits, and the server itself, which Serve runs under a bounded shutdown lifecycle.
 // Handler responses stay consistent with the service's OpenTelemetry tracing and structured
-// logging: a server fault marks the request span failed, and every error is logged once.
+// logging: a server fault marks the request span failed, and every error is logged once. Its
+// service token middleware admits only the services allowed to call.
 //
-// Outbound, it builds the pooled, traced client a service calls other systems through.
+// Outbound, it builds the pooled, traced client a service calls other systems through, and the
+// transport that sends a service token to another service.
 package httpf

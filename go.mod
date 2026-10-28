@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	charm.land/lipgloss/v2 v2.0.6
+	github.com/a-novel-kit/jwt/v2 v2.6.0
 	github.com/felixge/httpsnoop v1.1.0
 	github.com/getsentry/sentry-go v0.50.0
 	github.com/go-chi/chi/v5 v5.5.0
