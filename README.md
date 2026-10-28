@@ -47,7 +47,7 @@ go get github.com/a-novel-kit/golib
 | `smtp/smtptest`               | Records sent mail in memory, for tests to assert on.                                                                                                                                                             |
 | `transaction`                 | Declares a unit of work in one interface that names no database, so business code can require atomicity without reaching a driver. `postgres` implements it.                                                     |
 | `transaction/transactiontest` | Runs a unit of work in memory, for tests to assert that a caller opened one.                                                                                                                                     |
-| `worker`                      | Runs the background loops that live beside the request path, each run traced on its own.                                                                                                                         |
+| `worker`                      | Runs the background loops that live beside the request path, each run traced on its own and a failing or panicking run reported to Sentry.                                                                       |
 
 ## Contributing
 
