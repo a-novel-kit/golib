@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
+	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 	"github.com/a-novel-kit/golib/worker"
 )
 
@@ -210,4 +211,71 @@ func TestPollTelemetry(t *testing.T) {
 	}
 
 	require.NotEqual(t, spans[0].SpanContext().TraceID(), spans[1].SpanContext().TraceID())
+}
+
+//nolint:paralleltest // Records through the process-wide Sentry reporter.
+func TestPollSentry(t *testing.T) {
+	errFoo := errors.New("foo")
+
+	testCases := []struct {
+		name string
+
+		// fail ends the first run.
+		fail func() error
+
+		// expectEvent is the value of the one Sentry event the loop sends.
+		expectEvent string
+	}{
+		{
+			name: "Error/Fails",
+
+			fail: func() error { return errFoo },
+
+			expectEvent: "test",
+		},
+		{
+			name: "Error/Panics",
+
+			fail: func() error { panic(errFoo) },
+
+			expectEvent: "recovered panic",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			transport := sentryftest.Record(t)
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			var calls atomic.Int64
+
+			recovered := make(chan struct{})
+
+			// Only a loop that survives the failed run reaches the second one.
+			failOnce := func(context.Context) (bool, error) {
+				switch calls.Add(1) {
+				case 1:
+					return false, testCase.fail()
+				case 2:
+					close(recovered)
+				}
+
+				return false, nil
+			}
+
+			go worker.Poll(ctx, discardLogger, "test", time.Millisecond, 0, failOnce)
+
+			select {
+			case <-recovered:
+			case <-time.After(pollTimeout):
+				require.FailNow(t, "Poll stopped after the failed run")
+			}
+
+			events := transport.Events()
+			require.Len(t, events, 1)
+			require.Equal(t, testCase.expectEvent, events[0].Exception[0].Value)
+		})
+	}
 }
