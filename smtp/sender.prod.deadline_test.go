@@ -13,8 +13,9 @@ import (
 	"github.com/a-novel-kit/golib/smtp"
 )
 
-// testProdSenderDeadline checks that DNS resolution and the SMTP exchange share one timeout. It runs
-// sequentially, under TestProdSender, because it replaces net.DefaultResolver.
+// testProdSenderDeadline checks that DNS resolution shares one timeout with the exchange of a ping,
+// and with the greeting of a send. It runs sequentially, under TestProdSender, because it replaces
+// net.DefaultResolver.
 func testProdSenderDeadline(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -25,7 +26,6 @@ func testProdSenderDeadline(t *testing.T) {
 		expectErr string
 	}{
 		{name: "Send/NoGreeting", operation: "send", expectErr: "open SMTP client"},
-		{name: "Send/Greeting", operation: "send", greeting: true, expectErr: "greet SMTP server"},
 		{name: "Ping/NoGreeting", operation: "ping", expectErr: "open SMTP client"},
 		{name: "Ping/Greeting", operation: "ping", greeting: true, expectErr: "greet SMTP server"},
 	}
@@ -49,9 +49,10 @@ func testProdSenderDeadline(t *testing.T) {
 			require.NoError(t, err)
 
 			sender := &smtp.ProdSender{
-				Addr:    net.JoinHostPort("smtp-deadline.invalid.", port),
-				Email:   "noreply@example.com",
-				Timeout: timeout,
+				Addr:     net.JoinHostPort("smtp-deadline.invalid.", port),
+				Email:    "noreply@example.com",
+				Timeout:  timeout,
+				Timeouts: smtp.SendTimeouts{Greeting: timeout},
 			}
 			start := time.Now()
 
