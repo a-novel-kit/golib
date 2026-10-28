@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/a-novel-kit/golib/servicetoken"
 )
 
 // PoolOptions sizes the connection pool [NewPoolClient] and [NewPoolTransport] build.
@@ -52,4 +54,34 @@ func NewPoolClient(options PoolOptions) *http.Client {
 		Transport: otelhttp.NewTransport(NewPoolTransport(options)),
 		Timeout:   0,
 	}
+}
+
+// ServiceTokenTransport sends the caller's service token with every request it carries, which the
+// callee checks with [ServiceTokenMiddleware]. Wrap the transport of a client that calls services of
+// the same cluster, and no other: whoever receives the token can replay it against the service it
+// was projected for.
+type ServiceTokenTransport struct {
+	// ServiceTokenPath is the file the kubelet projects the caller's service token into. Each request
+	// reads it again, so a rotated token takes effect on the next request.
+	ServiceTokenPath string
+	// Base carries the requests, such as the transport of a client from [NewPoolClient].
+	Base http.RoundTripper
+}
+
+func (transport *ServiceTokenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	token, err := servicetoken.Read(transport.ServiceTokenPath)
+	if err != nil {
+		// A transport closes the request body, even when it fails.
+		if r.Body != nil {
+			_ = r.Body.Close()
+		}
+
+		return nil, err
+	}
+
+	// A transport leaves the caller's request unchanged.
+	authenticated := r.Clone(r.Context())
+	authenticated.Header.Set(servicetoken.Header, token)
+
+	return transport.Base.RoundTrip(authenticated)
 }
