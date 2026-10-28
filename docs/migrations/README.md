@@ -4,7 +4,6 @@ A golib release that asks something of its consumers ships a guide here, named a
 
 | Version                 | What changes                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------- |
-| [v0.55.0](./v0.55.0.md) | `smtp.ProdSender` times each SMTP command and classifies each failed send.                           |
 | [v0.54.0](./v0.54.0.md) | Telemetry exports over OTLP/HTTP, and the Google Cloud presets are deprecated.                       |
 | [v0.52.0](./v0.52.0.md) | `sentryf` gives each event 2 minutes to reach Sentry, so a job's flush outlasts it.                  |
 | [v0.51.0](./v0.51.0.md) | `sentryf` reports server faults to Sentry, and the unused `otelpresets.Sentry` is removed.           |
