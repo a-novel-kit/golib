@@ -19,6 +19,8 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	gootel "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -375,10 +377,11 @@ func abortHandler(http.ResponseWriter, *http.Request) {
 }
 
 //nolint:paralleltest // Records through the process-wide Sentry reporter.
-func TestNewRouterSentry(t *testing.T) {
+func TestNewRouterFaults(t *testing.T) {
 	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
 
-	provider := sdktrace.NewTracerProvider()
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 
 	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
 
@@ -412,6 +415,11 @@ func TestNewRouterSentry(t *testing.T) {
 
 		require.Equal(t, http.StatusInternalServerError, response.Code)
 
+		// The recoverer answers outside tracing, so the server span holds the fault itself.
+		spans := recorder.Ended()
+		require.Equal(t, codes.Error, spans[len(spans)-1].Status().Code)
+		require.Contains(t, spans[len(spans)-1].Attributes(), attribute.String("error.type", "string"))
+
 		events := transport.Events()
 		require.Len(t, events, 1)
 
@@ -439,6 +447,8 @@ func TestNewRouterSentry(t *testing.T) {
 			router.ServeHTTP(httptest.NewRecorder(), newRequest(t, "/abort"))
 		})
 
+		spans := recorder.Ended()
+		require.Equal(t, codes.Unset, spans[len(spans)-1].Status().Code)
 		require.Empty(t, transport.Events())
 	})
 }

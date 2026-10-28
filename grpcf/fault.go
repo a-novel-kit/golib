@@ -7,21 +7,24 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/a-novel-kit/golib/downtime"
+	"github.com/a-novel-kit/golib/otel"
 	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // Fault returns the error a handler answers a server fault with, such as
 // Fault(codes.Internal, "internal error", err). The caller receives code and msg alone.
 //
-// A server from [NewServer] sends a call that ends with Internal or Unavailable to Sentry, grouped by
-// the type of the innermost error the call returned. A bare status error wraps nothing, so Fault
-// keeps cause for that grouping.
+// A server from [NewServer] reports a call that ends with Internal or Unavailable as a fault. The
+// call's server span and its Sentry event both name the type of the innermost error the call
+// returned. A bare status error wraps nothing, so Fault keeps cause for that type.
 func Fault(code codes.Code, msg string, cause error) error {
 	return &faultError{status: status.New(code, msg), cause: cause}
 }
 
-// faultError answers a call with status, and wraps cause for errors.Is, errors.As and Sentry.
+// faultError answers a call with status, and wraps cause for errors.Is, errors.As and fault reports.
 type faultError struct {
 	status *status.Status
 	cause  error
@@ -60,11 +63,13 @@ func captureStreamInterceptor(
 	return err
 }
 
-// captureFault sends err to Sentry when it ends the call to method with Internal or Unavailable. A
-// dependency's planned downtime refusal is not a fault.
+// captureFault reports err when it ends the call to method with Internal or Unavailable: the call's
+// server span names its type, and Sentry receives it. A dependency's planned downtime refusal is not
+// a fault.
 func captureFault(ctx context.Context, method string, err error) {
 	code := status.Code(err)
 	if (code == codes.Internal || code == codes.Unavailable) && !downtime.Refused(err) {
+		trace.SpanFromContext(ctx).SetAttributes(otel.ErrorType(err))
 		sentryf.Capture(ctx, method, err)
 	}
 }

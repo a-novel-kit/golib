@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -321,7 +321,7 @@ func (*driverError) Error() string {
 }
 
 //nolint:paralleltest // Records through the process-wide Sentry reporter.
-func TestHandleErrorSentry(t *testing.T) {
+func TestHandleErrorFaults(t *testing.T) {
 	errMapped := errors.New("mapped")
 	errValidation := validator.New().Var("jane.doe", "email")
 
@@ -337,15 +337,15 @@ func TestHandleErrorSentry(t *testing.T) {
 		errMap httpf.ErrMap
 		err    error
 
-		// A nil fingerprint expects no event.
-		expectFingerprint []string
+		// The innermost type of a server fault. Empty expects no event and no error.type.
+		expectType string
 	}{
 		{
 			name: "Error/ServerFault",
 
 			err: fmt.Errorf("select item: %w", &driverError{}),
 
-			expectFingerprint: []string{"GET /items/{id}", "*httpf_test.driverError"},
+			expectType: "*httpf_test.driverError",
 		},
 		{
 			name: "Error/MappedServerFault",
@@ -353,7 +353,7 @@ func TestHandleErrorSentry(t *testing.T) {
 			errMap: httpf.ErrMap{errMapped: http.StatusServiceUnavailable},
 			err:    errors.Join(&driverError{}, errMapped),
 
-			expectFingerprint: []string{"GET /items/{id}", "*httpf_test.driverError"},
+			expectType: "*httpf_test.driverError",
 		},
 		{
 			name: "Error/ClientError",
@@ -378,13 +378,14 @@ func TestHandleErrorSentry(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			transport := sentryftest.Record(t)
 
-			provider := sdktrace.NewTracerProvider()
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 
 			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
 
 			var spanContext trace.SpanContext
 
-			router := chi.NewRouter()
+			router := httpf.NewRouter(httpf.ServerConfigDefault, &tracedConfig{provider: provider}, nil, nil)
 			router.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
 				ctx, span := provider.Tracer("httpf-test").Start(r.Context(), "handler")
 				defer span.End()
@@ -404,8 +405,17 @@ func TestHandleErrorSentry(t *testing.T) {
 
 			router.ServeHTTP(httptest.NewRecorder(), request)
 
+			// The handler's span ends first. The server span then names the fault.
+			spans := recorder.Ended()
+			require.Len(t, spans, 2)
+			require.Equal(t, trace.SpanKindServer, spans[1].SpanKind())
+
+			attributes := attribute.NewSet(spans[1].Attributes()...)
+			errorType, _ := attributes.Value("error.type")
+			require.Equal(t, testCase.expectType, errorType.AsString())
+
 			events := transport.Events()
-			if testCase.expectFingerprint == nil {
+			if testCase.expectType == "" {
 				require.Empty(t, events)
 
 				return
@@ -414,7 +424,7 @@ func TestHandleErrorSentry(t *testing.T) {
 			require.Len(t, events, 1)
 
 			event := events[0]
-			require.Equal(t, testCase.expectFingerprint, event.Fingerprint)
+			require.Equal(t, []string{"GET /items/{id}", testCase.expectType}, event.Fingerprint)
 			require.Equal(t, sentryftest.Release, event.Release)
 			require.Equal(t, spanContext.TraceID().String(), event.Contexts["trace"]["trace_id"])
 			require.Equal(t, spanContext.SpanID().String(), event.Contexts["trace"]["span_id"])

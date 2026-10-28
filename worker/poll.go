@@ -15,7 +15,8 @@ import (
 
 // Poll runs fn on a fixed interval until ctx is canceled. When fn reports it did work, Poll runs
 // it again immediately, so a backlog drains at full speed. A run that returns an error or panics is
-// logged and sent to Sentry as a fault, and the loop continues.
+// logged, recorded on its span with the fault's type in error.type, and sent to Sentry. The loop then
+// continues.
 //
 // stagger delays the first run, so loops sharing an interval de-synchronize. name identifies the
 // loop in its log lines, on its spans and as the operation of its Sentry events.
@@ -60,6 +61,7 @@ func runOnce(
 	worked, err := fn(ctx)
 	if err != nil {
 		err = otel.ReportError(span, err)
+		span.SetAttributes(otel.ErrorType(err))
 		logger.Err(ctx, fmt.Sprintf("poll %s: %v", name, err))
 		sentryf.Capture(ctx, name, err)
 

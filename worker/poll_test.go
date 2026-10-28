@@ -3,6 +3,7 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	otelglobal "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
@@ -213,10 +215,15 @@ func TestPollTelemetry(t *testing.T) {
 	require.NotEqual(t, spans[0].SpanContext().TraceID(), spans[1].SpanContext().TraceID())
 }
 
-//nolint:paralleltest // Records through the process-wide Sentry reporter.
-func TestPollSentry(t *testing.T) {
-	errFoo := errors.New("foo")
+// driverError stands for an error type of a dependency.
+type driverError struct{}
 
+func (*driverError) Error() string {
+	return "connection refused"
+}
+
+//nolint:paralleltest // Records through the process-wide Sentry reporter and tracer provider.
+func TestPollFaults(t *testing.T) {
 	testCases := []struct {
 		name string
 
@@ -229,14 +236,14 @@ func TestPollSentry(t *testing.T) {
 		{
 			name: "Error/Fails",
 
-			fail: func() error { return errFoo },
+			fail: func() error { return fmt.Errorf("sweep: %w", &driverError{}) },
 
 			expectEvent: "test",
 		},
 		{
 			name: "Error/Panics",
 
-			fail: func() error { panic(errFoo) },
+			fail: func() error { panic(fmt.Errorf("connect: %w", &driverError{})) },
 
 			expectEvent: "recovered panic",
 		},
@@ -245,6 +252,16 @@ func TestPollSentry(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			transport := sentryftest.Record(t)
+
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			previous := otelglobal.GetTracerProvider()
+
+			otelglobal.SetTracerProvider(provider)
+			t.Cleanup(func() {
+				otelglobal.SetTracerProvider(previous)
+				require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context())))
+			})
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -276,6 +293,20 @@ func TestPollSentry(t *testing.T) {
 			events := transport.Events()
 			require.Len(t, events, 1)
 			require.Equal(t, testCase.expectEvent, events[0].Exception[0].Value)
+
+			// Only the failed run's span names a fault, by the innermost error's type.
+			var errorTypes []string
+
+			for _, span := range recorder.Ended() {
+				attributes := attribute.NewSet(span.Attributes()...)
+
+				errorType, ok := attributes.Value("error.type")
+				if ok {
+					errorTypes = append(errorTypes, errorType.AsString())
+				}
+			}
+
+			require.Equal(t, []string{"*worker_test.driverError"}, errorTypes)
 		})
 	}
 }
