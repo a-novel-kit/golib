@@ -10,14 +10,15 @@ import (
 
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
+	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // Poll runs fn on a fixed interval until ctx is canceled. When fn reports it did work, Poll runs
-// it again immediately, so a backlog drains at full speed. An error is logged and the loop
-// continues.
+// it again immediately, so a backlog drains at full speed. A run that returns an error or panics is
+// logged and sent to Sentry as a fault, and the loop continues.
 //
 // stagger delays the first run, so loops sharing an interval de-synchronize. name identifies the
-// loop in its log lines and on its spans.
+// loop in its log lines, on its spans and as the operation of its Sentry events.
 //
 // Each run is the root of its own trace, so each reaches the exporter as soon as it ends.
 //
@@ -46,7 +47,7 @@ func Poll(
 }
 
 // runOnce runs fn as the root of its own trace, so one run's latency and outcome stay visible, and
-// logs under it. It reports whether fn did work.
+// logs under it. It reports whether fn did work, which a run that panicked did not.
 func runOnce(
 	ctx context.Context, logger logging.Log, name string, fn func(context.Context) (bool, error),
 ) bool {
@@ -54,10 +55,13 @@ func runOnce(
 		ctx, "worker.Poll", trace.WithNewRoot(), trace.WithAttributes(attribute.String("poll.name", name)),
 	)
 	defer span.End()
+	defer otel.RecoverPanic(ctx, span)
 
 	worked, err := fn(ctx)
 	if err != nil {
-		logger.Err(ctx, fmt.Sprintf("poll %s: %v", name, otel.ReportError(span, err)))
+		err = otel.ReportError(span, err)
+		logger.Err(ctx, fmt.Sprintf("poll %s: %v", name, err))
+		sentryf.Capture(ctx, name, err)
 
 		return false
 	}
