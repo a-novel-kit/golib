@@ -13,6 +13,8 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
@@ -20,9 +22,9 @@ import (
 )
 
 // NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
-// visitor IP, the request timeout, the body limit, tracing, the report of panics to Sentry, CORS,
-// request logs, the planned downtime and the standard rate limit. The liveness path answers during
-// a downtime and is never rate-limited.
+// visitor IP, the request timeout, the body limit, tracing, the report of faults on the request's
+// span and to Sentry, CORS, request logs, the planned downtime and the standard rate limit. The
+// liveness path answers during a downtime and is never rate-limited.
 //
 // A nil logger writes no request log, for a server whose spans record each request.
 func NewRouter(
@@ -41,7 +43,7 @@ func NewRouter(
 	router.Use(middleware.Timeout(config.Timeouts.Request))
 	router.Use(middleware.RequestSize(config.MaxRequestSize))
 	router.Use(tracing.HTTPHandler())
-	router.Use(capturePanics)
+	router.Use(recordFaults)
 	router.Use(cors.Handler(corsOptions(config.Cors)))
 
 	if logger != nil {
@@ -57,31 +59,49 @@ func NewRouter(
 	return router
 }
 
-// capturePanics sends a panic of a later handler to Sentry, then passes it on to
-// [middleware.Recoverer], which answers it. It runs inside tracing, so the event links the request's
-// trace.
-func capturePanics(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer capturePanic(r.Context())
+// serverSpanKey holds the span tracing opened for a request, on which [HandleError] names the type of
+// a server fault.
+type serverSpanKey struct{}
 
-		next.ServeHTTP(w, r)
+// recordFaults keeps the request's server span in its context, for [HandleError]. It records a panic
+// of a later handler on that span and sends it to Sentry, then passes it on to [middleware.Recoverer],
+// which answers it. It runs inside tracing, so the server span exists and the event links its trace.
+func recordFaults(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		span := trace.SpanFromContext(r.Context())
+		defer capturePanic(r.Context(), span)
+
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serverSpanKey{}, span)))
 	})
 }
 
-// capturePanic sends a panic on the calling goroutine to Sentry, then panics again with its value.
-// Defer it directly, since recover only works from a deferred function. A handler aborts its response
-// with an [http.ErrAbortHandler] panic, which is no fault and stays out of Sentry.
-func capturePanic(ctx context.Context) {
+// capturePanic records a panic on the calling goroutine on span and sends it to Sentry, then panics
+// again with its value. Defer it directly, since recover only works from a deferred function. A
+// handler aborts its response with an [http.ErrAbortHandler] panic, which is no fault and stays out of
+// both.
+func capturePanic(ctx context.Context, span trace.Span) {
 	rec := recover()
 	if rec == nil {
 		return
 	}
 
 	if rec != http.ErrAbortHandler { //nolint:errorlint // The abort is a panic value, never wrapped.
+		_ = otel.ReportPanic(span, rec)
 		sentryf.CapturePanic(ctx, rec)
 	}
 
 	panic(rec)
+}
+
+// serverSpan returns the span tracing opened for the request of ctx, under a router from
+// [NewRouter]. Elsewhere, it returns the span of ctx.
+func serverSpan(ctx context.Context) trace.Span {
+	span, ok := ctx.Value(serverSpanKey{}).(trace.Span)
+	if !ok {
+		return trace.SpanFromContext(ctx)
+	}
+
+	return span
 }
 
 // corsOptions translates config for the CORS middleware. Browsers hide Retry-After from scripts

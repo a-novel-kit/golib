@@ -21,8 +21,10 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/downtime"
@@ -427,7 +429,7 @@ func (*driverError) Error() string {
 }
 
 //nolint:paralleltest // Records through the process-wide Sentry reporter.
-func TestNewServerSentry(t *testing.T) {
+func TestNewServerFaults(t *testing.T) {
 	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
 
 	started := time.Now().Add(-time.Hour)
@@ -437,18 +439,16 @@ func TestNewServerSentry(t *testing.T) {
 		t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/jsonkeys.ClaimsSignService/ClaimsSign"}, nil,
 	)
 
-	provider := sdktrace.NewTracerProvider()
-
-	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
-
 	testCases := []struct {
 		name string
 
 		behavior      faultBehavior
 		downtimeStart *time.Time
+		// panics marks a behavior that panics, which Sentry groups by its stack.
+		panics bool
 
 		expectCode codes.Code
-		// The innermost type of a reported fault. Empty expects no event, and "panic" one for a panic.
+		// The innermost type of a reported fault. Empty expects no event and no error.type.
 		expectType string
 	}{
 		{
@@ -476,9 +476,10 @@ func TestNewServerSentry(t *testing.T) {
 			name: "Error/Panic",
 
 			behavior: panicCall,
+			panics:   true,
 
 			expectCode: codes.Internal,
-			expectType: "panic",
+			expectType: "string",
 		},
 		{
 			name: "Error/NotFound",
@@ -515,6 +516,11 @@ func TestNewServerSentry(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			transport := sentryftest.Record(t)
 
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+
+			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
+
 			server := grpcf.NewServer(
 				t.Context(), &tracedConfig{provider: provider}, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, nil,
 			)
@@ -546,6 +552,15 @@ func TestNewServerSentry(t *testing.T) {
 			require.NoError(t, stream.CloseSend())
 			require.Equal(t, testCase.expectCode, status.Code(stream.RecvMsg(&emptypb.Empty{})))
 
+			// A server span ends after its caller has the answer.
+			require.Eventually(t, func() bool { return len(recorder.Ended()) == 2 }, grpcServerTestTimeout, 10*time.Millisecond)
+
+			for _, span := range recorder.Ended() {
+				attributes := attribute.NewSet(span.Attributes()...)
+				errorType, _ := attributes.Value("error.type")
+				require.Equal(t, testCase.expectType, errorType.AsString(), span.Name())
+			}
+
 			events := transport.Events()
 			if testCase.expectType == "" {
 				require.Empty(t, events)
@@ -566,7 +581,7 @@ func TestNewServerSentry(t *testing.T) {
 				require.NoError(t, err)
 				require.NotContains(t, string(payload), "secret")
 
-				if testCase.expectType == "panic" {
+				if testCase.panics {
 					// Sentry groups a panic by its stack, which ends where the panic began.
 					frames := event.Exception[0].Stacktrace.Frames
 					require.Equal(t, "panicCall", frames[len(frames)-1].Function)

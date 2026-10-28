@@ -30,7 +30,8 @@ type ErrMap map[error]int
 // validator, the body is an RFC 9457 problem details object holding those tags instead.
 //
 // A server error logs at error level, marks the span failed and reaches Sentry through
-// [sentryf.Capture], under its method and chi route pattern. A client error logs at warning level
+// [sentryf.Capture], under its method and chi route pattern. Under a router from [NewRouter], the
+// request's server span names its type through [otel.ErrorType]. A client error logs at warning level
 // and leaves the span status unset, since the handler answered it.
 //
 // A gRPC dependency's planned downtime refusal anywhere in err wins over errMap: the response is
@@ -49,6 +50,7 @@ func HandleError(
 
 	if status >= http.StatusInternalServerError {
 		logger.Err(ctx, otel.ReportError(span, err).Error())
+		serverSpan(ctx).SetAttributes(otel.ErrorType(err))
 		sentryf.Capture(ctx, route(ctx), err)
 	} else {
 		logger.Warn(ctx, err.Error())

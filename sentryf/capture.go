@@ -11,6 +11,8 @@ import (
 	"github.com/getsentry/sentry-go"
 
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/a-novel-kit/golib/internal/errtype"
 )
 
 // SendTimeout bounds one event's delivery to Sentry. A process can start before its network: a fresh
@@ -75,7 +77,7 @@ func Flush(timeout time.Duration) {
 // Sentry groups the events by operation and the type of the innermost error err wraps, since a
 // wrapped error carries no stack trace. The event holds the trace and span IDs of the span in ctx.
 func Capture(ctx context.Context, operation string, err error) {
-	root := innermostType(err)
+	root := errtype.Innermost(err)
 
 	event := newEvent(ctx, sentry.Exception{Type: root, Value: operation})
 	event.Fingerprint = []string{operation, root}
@@ -122,29 +124,6 @@ func newEvent(ctx context.Context, exception sentry.Exception) *sentry.Event {
 	}
 
 	return event
-}
-
-// innermostType names the type of the innermost error err wraps. Through an error joining several,
-// it follows the first.
-func innermostType(err error) string {
-	for {
-		var next error
-
-		switch wrapper := err.(type) { //nolint:errorlint // It walks the chain one level at a time.
-		case interface{ Unwrap() error }:
-			next = wrapper.Unwrap()
-		case interface{ Unwrap() []error }:
-			if causes := wrapper.Unwrap(); len(causes) > 0 {
-				next = causes[0]
-			}
-		}
-
-		if next == nil {
-			return fmt.Sprintf("%T", err)
-		}
-
-		err = next
-	}
 }
 
 // dropVisitorData strips the request and the user from event. It keeps an SDK default from

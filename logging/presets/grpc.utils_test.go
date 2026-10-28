@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -60,6 +61,7 @@ func requirePanicRecovered(
 	require.Len(t, spans, 1)
 	require.Equal(t, otelcodes.Error, spans[0].Status().Code)
 	require.Contains(t, spans[0].Status().Description, panicValue)
+	require.Contains(t, spans[0].Attributes(), attribute.String("error.type", "string"))
 }
 
 // buildConcurrently builds every interceptor of config, each in its own goroutine. The goroutines

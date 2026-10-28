@@ -27,7 +27,7 @@ var errShuttingDown = errors.New("server shutting down")
 
 // NewServer returns a server with the standard interceptors, outermost first: tracing, the end of
 // streams at shutdown, the base context, call logs, panic recovery, the planned downtime and the
-// report of server faults to Sentry, which [Fault] describes.
+// report of server faults on the call's span and to Sentry, which [Fault] describes.
 //
 // Pass as ctx the context [ListenAndServe] drains the server under. Once ctx is done, every stream
 // ends with Unavailable, and its client resumes on another instance. A long-lived stream then cannot
