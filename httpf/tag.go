@@ -147,7 +147,7 @@ func invalidFields(fields validator.ValidationErrors) map[string]string {
 }
 
 // lowerCamel lowers the leading capital of a Go name, or its whole leading initialism: "UserID"
-// becomes "userID", "ID" becomes "id", "URLPath" becomes "urlPath".
+// becomes "userID", "ID" becomes "id", "URLPath" becomes "urlPath", "IDs" becomes "ids".
 func lowerCamel(name string) string {
 	runes := []rune(name)
 
@@ -156,8 +156,14 @@ func lowerCamel(name string) string {
 		upper++
 	}
 
-	// When an initialism precedes a word, its last capital starts that word.
-	if upper > 1 && upper < len(runes) && unicode.IsLower(runes[upper]) {
+	lower := upper
+	for lower < len(runes) && unicode.IsLower(runes[lower]) {
+		lower++
+	}
+
+	// When an initialism precedes a word, its last capital starts that word. A lone "s" is no
+	// word but the plural of the initialism.
+	if upper > 1 && lower > upper && string(runes[upper:lower]) != "s" {
 		upper--
 	}
 
