@@ -35,10 +35,14 @@ func TestLoadServerConfig(t *testing.T) {
 		{
 			name: "Success/Overrides",
 
-			env:      map[string]string{"GRPC_PORT": "9090", "GRPC_TIMEOUT_SHUTDOWN": "3s"},
+			env: map[string]string{
+				"GRPC_PORT":                 "9090",
+				"GRPC_TIMEOUT_SHUTDOWN":     "3s",
+				"GRPC_MAX_CONCURRENT_CALLS": "20",
+			},
 			defaults: grpcf.ServerConfigDefault,
 
-			expect: grpcf.ServerConfig{Port: 9090, Shutdown: 3 * time.Second},
+			expect: grpcf.ServerConfig{Port: 9090, Shutdown: 3 * time.Second, MaxConcurrentCalls: 20},
 		},
 		{
 			name: "Error/Unparsable",

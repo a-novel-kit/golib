@@ -13,6 +13,9 @@ type ServerConfig struct {
 	Port int `json:"port" yaml:"port"`
 	// Shutdown bounds the drain of active calls before remaining ones stop.
 	Shutdown time.Duration `json:"shutdown" yaml:"shutdown"`
+	// MaxConcurrentCalls bounds the calls the server runs at once, once passed to
+	// [MaxConcurrentCalls]. Zero bounds nothing.
+	MaxConcurrentCalls int `json:"maxConcurrentCalls" yaml:"maxConcurrentCalls"`
 }
 
 // ServerConfigDefault holds the values [LoadServerConfig] keeps for unset variables. A service
@@ -28,5 +31,8 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 	return ServerConfig{
 		Port:     config.LoadEnv(getenv("GRPC_PORT"), defaults.Port, config.IntParser),
 		Shutdown: config.LoadEnv(getenv("GRPC_TIMEOUT_SHUTDOWN"), defaults.Shutdown, config.DurationParser),
+		MaxConcurrentCalls: config.LoadEnv(
+			getenv("GRPC_MAX_CONCURRENT_CALLS"), defaults.MaxConcurrentCalls, config.IntParser,
+		),
 	}
 }
