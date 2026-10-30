@@ -3,13 +3,17 @@ package grpcf_test
 import (
 	"context"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/resolver"
+	"google.golang.org/grpc/resolver/manual"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/tap"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -22,44 +26,102 @@ import (
 func TestServiceTokenCredentialsProvider(t *testing.T) {
 	t.Parallel()
 
-	issuer := servicetokentest.NewIssuer(t)
-	verifier := newServiceTokenVerifier(issuer.URL)
+	t.Run("Success/ServiceToken", func(t *testing.T) {
+		t.Parallel()
 
-	server := grpcf.NewServer(
-		t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil,
-		grpc.ChainUnaryInterceptor(grpcf.ServiceTokenUnaryInterceptor(verifier)),
-		grpc.ChainStreamInterceptor(grpcf.ServiceTokenStreamInterceptor(verifier)),
-	)
-	server.RegisterService(probeService, struct{}{})
+		issuer := servicetokentest.NewIssuer(t)
+		verifier := newServiceTokenVerifier(issuer.URL)
 
-	address, config := freeGRPCServer(t, time.Second)
-	go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
+		server := grpcf.NewServer(
+			t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil,
+			grpc.ChainUnaryInterceptor(grpcf.ServiceTokenUnaryInterceptor(verifier)),
+			grpc.ChainStreamInterceptor(grpcf.ServiceTokenStreamInterceptor(verifier)),
+		)
+		server.RegisterService(probeService, struct{}{})
 
-	waitForGRPCServer(t, address)
+		address, config := freeGRPCServer(t, time.Second)
+		go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
 
-	path := filepath.Join(t.TempDir(), "token")
-	writeServiceToken(t, path, signServiceToken(t, issuer, serviceTokenCaller))
+		waitForGRPCServer(t, address)
 
-	provider := &grpcf.ServiceTokenCredentialsProvider{ServiceTokenPath: path}
-	options, err := provider.Options(t.Context())
-	require.NoError(t, err)
+		path := filepath.Join(t.TempDir(), "token")
+		writeServiceToken(t, path, signServiceToken(t, issuer, serviceTokenCaller))
 
-	connection, err := grpc.NewClient(address, options...)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+		provider := &grpcf.ServiceTokenCredentialsProvider{ServiceTokenPath: path}
+		options, err := provider.Options(t.Context())
+		require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
-	t.Cleanup(cancel)
+		connection, err := grpc.NewClient(address, options...)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, connection.Close()) })
 
-	err = connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
-	require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
+		t.Cleanup(cancel)
 
-	_, err = callProbeStream(ctx, connection)
-	require.NoError(t, err)
+		err = connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
+		require.NoError(t, err)
 
-	// The kubelet replaces the file, and the next call sends the new token.
-	writeServiceToken(t, path, signServiceToken(t, issuer, "system:serviceaccount:studio:platform"))
+		_, err = callProbeStream(ctx, connection)
+		require.NoError(t, err)
 
-	err = connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
-	require.Equal(t, codes.Unauthenticated, status.Code(err))
+		// The kubelet replaces the file, and the next call sends the new token.
+		writeServiceToken(t, path, signServiceToken(t, issuer, "system:serviceaccount:studio:platform"))
+
+		err = connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
+		require.Equal(t, codes.Unauthenticated, status.Code(err))
+	})
+
+	t.Run("Success/RetryOnAnotherServer", func(t *testing.T) {
+		t.Parallel()
+
+		// The full server refuses every call from its tap handle, as a CallLimit at its limit does.
+		var refused atomic.Int32
+
+		refuse := func(ctx context.Context, _ *tap.Info) (context.Context, error) {
+			refused.Add(1)
+
+			return ctx, status.Error(codes.Unavailable, "server at its concurrent call limit: retry later")
+		}
+
+		full := grpc.NewServer(grpc.InTapHandle(refuse))
+		open := grpcf.NewServer(t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
+		open.RegisterService(probeService, struct{}{})
+
+		fullAddress, fullConfig := freeGRPCServer(t, time.Second)
+		go func() { _ = grpcf.ListenAndServe(t.Context(), fullConfig, full) }()
+
+		openAddress, openConfig := freeGRPCServer(t, time.Second)
+		go func() { _ = grpcf.ListenAndServe(t.Context(), openConfig, open) }()
+
+		waitForGRPCServer(t, fullAddress)
+		waitForGRPCServer(t, openAddress)
+
+		// The target resolves to both servers, the full one first, as a headless Service resolves to its
+		// pods.
+		targets := manual.NewBuilderWithScheme("test")
+		targets.InitialState(resolver.State{
+			Addresses: []resolver.Address{{Addr: fullAddress}, {Addr: openAddress}},
+		})
+
+		path := filepath.Join(t.TempDir(), "token")
+		writeServiceToken(t, path, "token")
+
+		provider := &grpcf.ServiceTokenCredentialsProvider{ServiceTokenPath: path}
+		options, err := provider.Options(t.Context())
+		require.NoError(t, err)
+
+		connection, err := grpc.NewClient("test:///service", append(options, grpc.WithResolvers(targets))...)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+		ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
+		t.Cleanup(cancel)
+
+		// Calls take turns between the servers, so one reaches the full server once the client has
+		// connected to it. Every call succeeds.
+		for refused.Load() == 0 {
+			err = connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
+			require.NoError(t, err)
+		}
+	})
 }

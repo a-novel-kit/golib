@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -319,6 +320,53 @@ func TestNewServer(t *testing.T) {
 
 		_, err = watch.Recv()
 		require.Equal(t, codes.Unavailable, status.Code(err))
+	})
+
+	t.Run("Success/ConnectionEndsAtItsAge", func(t *testing.T) {
+		t.Parallel()
+
+		// A call outlives the connection it started on, and the next call opens a new one.
+		calls := &heldCalls{started: make(chan struct{}, 1), release: make(chan struct{})}
+
+		server := grpcf.NewServer(t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
+		server.RegisterService(heldService, calls)
+
+		address, config := freeGRPCServer(t, time.Second)
+		go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
+
+		waitForGRPCServer(t, address)
+
+		connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+		ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
+		t.Cleanup(cancel)
+
+		opened := time.Now()
+		held := make(chan error, 1)
+
+		go func() { held <- connection.Invoke(ctx, "/test.Held/Hold", &emptypb.Empty{}, &emptypb.Empty{}) }()
+
+		select {
+		case <-calls.started:
+		case <-ctx.Done():
+			require.FailNow(t, "held call did not start")
+		}
+
+		// The client leaves Ready once the server announces the end of the connection, 30 seconds after
+		// it opened, give or take a tenth.
+		require.True(t, connection.WaitForStateChange(ctx, connectivity.Ready))
+
+		age := time.Since(opened)
+		require.GreaterOrEqual(t, age, 27*time.Second)
+		require.Less(t, age, 34*time.Second)
+
+		close(calls.release)
+		require.NoError(t, <-held)
+
+		err = connection.Invoke(ctx, "/test.Held/Pass", &emptypb.Empty{}, &emptypb.Empty{})
+		require.NoError(t, err)
 	})
 }
 

@@ -4,6 +4,7 @@ A golib release that asks something of its consumers ships a guide here, named a
 
 | Version                 | What changes                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| [v0.57.0](./v0.57.0.md) | In-cluster gRPC calls balance and retry, and `NewCallLimit` replaces `MaxConcurrentCalls`.           |
 | [v0.56.0](./v0.56.0.md) | The Google Cloud telemetry presets are removed.                                                      |
 | [v0.54.0](./v0.54.0.md) | Telemetry exports over OTLP/HTTP, and the Google Cloud presets are deprecated.                       |
 | [v0.52.0](./v0.52.0.md) | `sentryf` gives each event 2 minutes to reach Sentry, so a job's flush outlasts it.                  |

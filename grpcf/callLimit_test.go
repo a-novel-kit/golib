@@ -2,6 +2,9 @@ package grpcf_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -58,7 +61,24 @@ func passCall(_ any, _ context.Context, decode func(any) error, _ grpc.UnaryServ
 	return &emptypb.Empty{}, decode(&emptypb.Empty{})
 }
 
-func TestMaxConcurrentCalls(t *testing.T) {
+// scrapeCallLimit returns what callLimit answers a scrape.
+func scrapeCallLimit(t *testing.T, callLimit *grpcf.CallLimit) *httptest.ResponseRecorder {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	callLimit.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+
+	return recorder
+}
+
+// callsInFlightGauge is the gauge a CallLimit serves while running calls run.
+func callsInFlightGauge(running int) string {
+	return "# HELP grpc_server_calls_in_flight The gRPC calls the server runs now.\n" +
+		"# TYPE grpc_server_calls_in_flight gauge\n" +
+		"grpc_server_calls_in_flight " + strconv.Itoa(running) + "\n"
+}
+
+func TestCallLimit(t *testing.T) {
 	t.Parallel()
 
 	// Each case holds two calls, then makes one more.
@@ -67,7 +87,10 @@ func TestMaxConcurrentCalls(t *testing.T) {
 	testCases := []struct {
 		name string
 
-		limit int
+		limit   int
+		options []grpcf.CallLimitOption
+		// next is the method of the call made after the held ones: test.Held/Pass when empty.
+		next string
 		// end ends the first held call before the next one starts, or leaves it running when nil.
 		end func(release chan<- struct{}, cancel context.CancelFunc)
 
@@ -113,6 +136,42 @@ func TestMaxConcurrentCalls(t *testing.T) {
 			expectCode:    codes.OK,
 		},
 		{
+			name: "Error/MethodAtLimit",
+
+			options: []grpcf.CallLimitOption{grpcf.MethodCallLimit("/test.Held/Hold", held)},
+			next:    "/test.Held/Hold",
+
+			expectCode: codes.Unavailable,
+		},
+		{
+			// A method's cap leaves the others alone.
+			name: "Success/OtherMethodUnderLimit",
+
+			options: []grpcf.CallLimitOption{grpcf.MethodCallLimit("/test.Held/Hold", held)},
+
+			expectCode: codes.OK,
+		},
+		{
+			// A method's cap never lifts the server's. The refusal also hands back the method's slot,
+			// which the last call checks.
+			name: "Error/ServerAtLimitUnderMethodLimit",
+
+			limit:   held,
+			options: []grpcf.CallLimitOption{grpcf.MethodCallLimit("/test.Held/Pass", 1)},
+
+			expectCode: codes.Unavailable,
+		},
+		{
+			name: "Success/MethodSlotFreedOnEnd",
+
+			options: []grpcf.CallLimitOption{grpcf.MethodCallLimit("/test.Held/Hold", held)},
+			next:    "/test.Held/Hold",
+			end:     func(release chan<- struct{}, _ context.CancelFunc) { release <- struct{}{} },
+
+			expectEndCode: codes.OK,
+			expectCode:    codes.OK,
+		},
+		{
 			name: "Success/SlotFreedOnCancel",
 
 			limit: held,
@@ -128,10 +187,15 @@ func TestMaxConcurrentCalls(t *testing.T) {
 			t.Parallel()
 
 			calls := &heldCalls{started: make(chan struct{}, held), release: make(chan struct{})}
+			callLimit := grpcf.NewCallLimit(testCase.limit, testCase.options...)
+
+			next := testCase.next
+			if next == "" {
+				next = "/test.Held/Pass"
+			}
 
 			server := grpcf.NewServer(
-				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil,
-				grpcf.MaxConcurrentCalls(testCase.limit),
+				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil, callLimit,
 			)
 			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 			server.RegisterService(heldService, calls)
@@ -166,6 +230,11 @@ func TestMaxConcurrentCalls(t *testing.T) {
 				}
 			}
 
+			// Even an unbounded server counts its calls.
+			scrape := scrapeCallLimit(t, callLimit)
+			require.Equal(t, "text/plain; version=0.0.4; charset=utf-8", scrape.Header().Get("Content-Type"))
+			require.Equal(t, callsInFlightGauge(held), scrape.Body.String())
+
 			running := held
 
 			if testCase.end != nil {
@@ -181,20 +250,44 @@ func TestMaxConcurrentCalls(t *testing.T) {
 				}
 			}
 
-			// A slot frees once the transport cancels its call's context, just after the call returns.
-			require.Eventually(t, func() bool {
-				err := connection.Invoke(ctx, "/test.Held/Pass", &emptypb.Empty{}, &emptypb.Empty{})
+			// A slot frees once the transport cancels its call's context, just after the call returns. An
+			// admitted test.Held/Hold call holds until the release.
+			nextResult := make(chan error, 1)
+			heldLeft, nextHeld := running, false
 
-				return status.Code(err) == testCase.expectCode
+			require.Eventually(t, func() bool {
+				if next != "/test.Held/Hold" {
+					err := connection.Invoke(ctx, next, &emptypb.Empty{}, &emptypb.Empty{})
+
+					return status.Code(err) == testCase.expectCode
+				}
+
+				go func() { nextResult <- connection.Invoke(ctx, next, &emptypb.Empty{}, &emptypb.Empty{}) }()
+
+				select {
+				case err := <-nextResult:
+					return status.Code(err) == testCase.expectCode
+				case <-calls.started:
+					running++
+					nextHeld = true
+
+					return testCase.expectCode == codes.OK
+				}
 			}, grpcServerTestTimeout, 10*time.Millisecond)
 
 			healthResponse, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
 			require.NoError(t, err)
 			require.Equal(t, healthpb.HealthCheckResponse_SERVING, healthResponse.GetStatus())
 
+			// Each passing call leaves the count once its context ends. Refused calls and health checks
+			// never enter it.
+			require.Eventually(t, func() bool {
+				return scrapeCallLimit(t, callLimit).Body.String() == callsInFlightGauge(running)
+			}, grpcServerTestTimeout, 10*time.Millisecond)
+
 			close(calls.release)
 
-			for range running {
+			for range heldLeft {
 				select {
 				case err = <-results:
 					require.NoError(t, err)
@@ -202,6 +295,17 @@ func TestMaxConcurrentCalls(t *testing.T) {
 					require.FailNow(t, "held calls did not end")
 				}
 			}
+
+			if nextHeld {
+				require.NoError(t, <-nextResult)
+			}
+
+			require.Eventually(t, func() bool {
+				return scrapeCallLimit(t, callLimit).Body.String() == callsInFlightGauge(0)
+			}, grpcServerTestTimeout, 10*time.Millisecond)
+
+			// Every slot came back, a refused call's included.
+			require.NoError(t, connection.Invoke(ctx, "/test.Held/Pass", &emptypb.Empty{}, &emptypb.Empty{}))
 		})
 	}
 }

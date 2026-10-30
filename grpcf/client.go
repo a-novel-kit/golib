@@ -22,9 +22,9 @@ var (
 )
 
 // CredentialsProvider supplies the gRPC dial options of a connection. They set its transport
-// security and, when the target needs it, the authentication of each call. Pick the implementation
-// that matches the target: [LocalCredentialsProvider] for a plaintext local connection,
-// [GcloudCredentialsProvider] for a Google Cloud endpoint behind TLS, or
+// security and, when the target needs it, the authentication and balancing of each call. Pick the
+// implementation that matches the target: [LocalCredentialsProvider] for a plaintext local
+// connection, [GcloudCredentialsProvider] for a Google Cloud endpoint behind TLS, or
 // [ServiceTokenCredentialsProvider] for a service in the same Kubernetes cluster.
 type CredentialsProvider interface {
 	// Options returns the dial options to pass when creating the client. The
@@ -74,6 +74,14 @@ func (provider *GcloudCredentialsProvider) Options(ctx context.Context) ([]grpc.
 // ServiceTokenCredentialsProvider dials a service in the same Kubernetes cluster over the cluster
 // network, without transport security. It sends the caller's service token with every call, which
 // the callee checks with [ServiceTokenUnaryInterceptor] and [ServiceTokenStreamInterceptor].
+//
+// The connection sends each call to the next address the target resolves to, as a headless Service
+// resolves to its ready pods. A call refused with Unavailable is retried on the next address, up to
+// 4 attempts in all, and a throttle pauses retries while many calls fail.
+//
+// The retry rests on one rule for servers: Unavailable means the call did not run. [CallLimit] and a
+// planned downtime refuse that way, before the handler. A handler that has had an effect answers
+// another code.
 type ServiceTokenCredentialsProvider struct {
 	// ServiceTokenPath is the file the kubelet projects the caller's service token into. Each call
 	// reads it again, so a rotated token takes effect on the next call.
@@ -84,8 +92,28 @@ func (provider *ServiceTokenCredentialsProvider) Options(_ context.Context) ([]g
 	return []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(serviceTokenCredentials(provider.ServiceTokenPath)),
+		grpc.WithDefaultServiceConfig(inClusterServiceConfig),
 	}, nil
 }
+
+// inClusterServiceConfig balances the calls of a [ServiceTokenCredentialsProvider] connection
+// round robin, and retries every method on Unavailable. The retry throttle holds 10 tokens. Each
+// refused attempt spends one and each success earns a tenth back, and retries stop while 5 or fewer
+// remain.
+const inClusterServiceConfig = `{
+	"loadBalancingConfig": [{"round_robin": {}}],
+	"methodConfig": [{
+		"name": [{}],
+		"retryPolicy": {
+			"maxAttempts": 4,
+			"initialBackoff": "0.1s",
+			"maxBackoff": "1s",
+			"backoffMultiplier": 2,
+			"retryableStatusCodes": ["UNAVAILABLE"]
+		}
+	}],
+	"retryThrottling": {"maxTokens": 10, "tokenRatio": 0.1}
+}`
 
 // serviceTokenCredentials sends the service token in the file it names with every call.
 type serviceTokenCredentials string
