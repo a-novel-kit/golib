@@ -13,8 +13,8 @@ type ServerConfig struct {
 	Port int `json:"port" yaml:"port"`
 	// Shutdown bounds the drain of active calls before remaining ones stop.
 	Shutdown time.Duration `json:"shutdown" yaml:"shutdown"`
-	// MaxConcurrentCalls bounds the calls the server runs at once, once passed to
-	// [MaxConcurrentCalls]. Zero bounds nothing.
+	// MaxConcurrentCalls bounds the calls the server runs at once, once passed to [NewCallLimit].
+	// Zero bounds nothing.
 	MaxConcurrentCalls int `json:"maxConcurrentCalls" yaml:"maxConcurrentCalls"`
 }
 

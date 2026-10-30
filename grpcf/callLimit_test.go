@@ -2,6 +2,9 @@ package grpcf_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -58,7 +61,24 @@ func passCall(_ any, _ context.Context, decode func(any) error, _ grpc.UnaryServ
 	return &emptypb.Empty{}, decode(&emptypb.Empty{})
 }
 
-func TestMaxConcurrentCalls(t *testing.T) {
+// scrapeCallLimit returns what callLimit answers a scrape.
+func scrapeCallLimit(t *testing.T, callLimit *grpcf.CallLimit) *httptest.ResponseRecorder {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	callLimit.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+
+	return recorder
+}
+
+// callsInFlightGauge is the gauge a CallLimit serves while running calls run.
+func callsInFlightGauge(running int) string {
+	return "# HELP grpc_server_calls_in_flight The gRPC calls the server runs now.\n" +
+		"# TYPE grpc_server_calls_in_flight gauge\n" +
+		"grpc_server_calls_in_flight " + strconv.Itoa(running) + "\n"
+}
+
+func TestCallLimit(t *testing.T) {
 	t.Parallel()
 
 	// Each case holds two calls, then makes one more.
@@ -128,10 +148,10 @@ func TestMaxConcurrentCalls(t *testing.T) {
 			t.Parallel()
 
 			calls := &heldCalls{started: make(chan struct{}, held), release: make(chan struct{})}
+			callLimit := grpcf.NewCallLimit(testCase.limit)
 
 			server := grpcf.NewServer(
-				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil,
-				grpcf.MaxConcurrentCalls(testCase.limit),
+				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil, callLimit,
 			)
 			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 			server.RegisterService(heldService, calls)
@@ -166,6 +186,11 @@ func TestMaxConcurrentCalls(t *testing.T) {
 				}
 			}
 
+			// Even an unbounded server counts its calls.
+			scrape := scrapeCallLimit(t, callLimit)
+			require.Equal(t, "text/plain; version=0.0.4; charset=utf-8", scrape.Header().Get("Content-Type"))
+			require.Equal(t, callsInFlightGauge(held), scrape.Body.String())
+
 			running := held
 
 			if testCase.end != nil {
@@ -192,6 +217,12 @@ func TestMaxConcurrentCalls(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, healthpb.HealthCheckResponse_SERVING, healthResponse.GetStatus())
 
+			// Each passing call leaves the count once its context ends. Refused calls and health checks
+			// never enter it.
+			require.Eventually(t, func() bool {
+				return scrapeCallLimit(t, callLimit).Body.String() == callsInFlightGauge(running)
+			}, grpcServerTestTimeout, 10*time.Millisecond)
+
 			close(calls.release)
 
 			for range running {
@@ -202,6 +233,10 @@ func TestMaxConcurrentCalls(t *testing.T) {
 					require.FailNow(t, "held calls did not end")
 				}
 			}
+
+			require.Eventually(t, func() bool {
+				return scrapeCallLimit(t, callLimit).Body.String() == callsInFlightGauge(0)
+			}, grpcServerTestTimeout, 10*time.Millisecond)
 		})
 	}
 }
