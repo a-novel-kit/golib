@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
 	"github.com/a-novel-kit/golib/downtime"
@@ -21,6 +22,11 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 	"github.com/a-novel-kit/golib/sentryf"
 )
+
+// maxConnectionAge bounds the life of each connection a server accepts. Its client then connects
+// again and resolves the server's name anew. gRPC-Go resolves a name at most once every 30 seconds,
+// so a shorter age finds no new instance sooner.
+const maxConnectionAge = 30 * time.Second
 
 // errShuttingDown ends the streams a server holds when its shutdown begins.
 var errShuttingDown = errors.New("server shutting down")
@@ -35,6 +41,10 @@ var errShuttingDown = errors.New("server shutting down")
 //
 // baseContext derives the context of each call, so a call reaches process-wide values such as the
 // database connection. A nil baseContext keeps the call's own context.
+//
+// Each connection closes gracefully after 30 seconds, give or take a tenth: calls in progress
+// finish, and the client connects again. A client that balances over every instance of a service
+// then reaches instances added since. An extra [grpc.KeepaliveParams] option replaces this age.
 //
 // The health and echo services that [RegisterEchoServers] adds still answer during a downtime.
 func NewServer(
@@ -71,6 +81,7 @@ func NewServer(
 			downtime.StreamServerInterceptor(downtimeStart, open...),
 			captureStreamInterceptor,
 		),
+		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionAge: maxConnectionAge}),
 	}
 
 	return grpc.NewServer(slices.Concat(options, extra)...)
