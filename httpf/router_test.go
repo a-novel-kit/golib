@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/stretchr/testify/require"
 
@@ -59,6 +60,10 @@ func TestNewRouter(t *testing.T) {
 		expectStatus  int
 		expectBody    string
 		expectHeaders map[string]string
+		// expectSpanName, when set, is the name of the request's server span, and expectRoute its
+		// http.route, empty when absent.
+		expectSpanName string
+		expectRoute    string
 	}{
 		{
 			name: "Success/VisitorFromPeer",
@@ -66,8 +71,31 @@ func TestNewRouter(t *testing.T) {
 			method: http.MethodGet,
 			paths:  []string{"/visitor"},
 
-			expectStatus: http.StatusOK,
-			expectBody:   "192.0.2.1",
+			expectStatus:   http.StatusOK,
+			expectBody:     "192.0.2.1",
+			expectSpanName: "GET /visitor",
+			expectRoute:    "/visitor",
+		},
+		{
+			// A path parameter must not reach the span name.
+			name: "Success/PathParameters",
+
+			method: http.MethodGet,
+			paths:  []string{"/items/42"},
+
+			expectStatus:   http.StatusOK,
+			expectSpanName: "GET /items/{id}",
+			expectRoute:    "/items/{id}",
+		},
+		{
+			name: "Success/Subrouter",
+
+			method: http.MethodGet,
+			paths:  []string{"/v2/items/42"},
+
+			expectStatus:   http.StatusOK,
+			expectSpanName: "GET /v2/items/{id}",
+			expectRoute:    "/v2/items/{id}",
 		},
 		{
 			name: "Success/VisitorFromTrustedHeader",
@@ -135,6 +163,7 @@ func TestNewRouter(t *testing.T) {
 			expectStatus: http.StatusOK,
 		},
 		{
+			// The limit refuses the request before routing.
 			name: "Error/RateLimit",
 
 			rateLimited: true,
@@ -142,8 +171,9 @@ func TestNewRouter(t *testing.T) {
 			method: http.MethodGet,
 			paths:  []string{"/visitor", "/visitor", "/visitor"},
 
-			expectStatus:  http.StatusTooManyRequests,
-			expectHeaders: map[string]string{"Retry-After": "60"},
+			expectStatus:   http.StatusTooManyRequests,
+			expectHeaders:  map[string]string{"Retry-After": "60"},
+			expectSpanName: "GET",
 		},
 		{
 			// Path parameters must not open a fresh budget per value.
@@ -155,6 +185,27 @@ func TestNewRouter(t *testing.T) {
 			paths:  []string{"/items/1", "/items/2", "/items/3"},
 
 			expectStatus: http.StatusTooManyRequests,
+		},
+		{
+			// The raw path of an unknown route must not reach the span name.
+			name: "Error/NotFound",
+
+			method: http.MethodGet,
+			paths:  []string{"/missing/42"},
+
+			expectStatus:   http.StatusNotFound,
+			expectSpanName: "GET",
+		},
+		{
+			// Under a subrouter, an unknown path takes the subrouter's pattern.
+			name: "Error/NotFound/Subrouter",
+
+			method: http.MethodGet,
+			paths:  []string{"/v2/missing/42"},
+
+			expectStatus:   http.StatusNotFound,
+			expectSpanName: "GET /v2/*",
+			expectRoute:    "/v2/*",
 		},
 		{
 			name: "Error/BodyTooLarge",
@@ -194,10 +245,14 @@ func TestNewRouter(t *testing.T) {
 				requestLog = nil
 			}
 
-			router := httpf.NewRouter(config, &otelpresets.Disabled{}, requestLog, testCase.downtimeStart)
+			recorder := tracetest.NewSpanRecorder()
+			tracing := &tracedConfig{provider: sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))}
+
+			router := httpf.NewRouter(config, tracing, requestLog, testCase.downtimeStart)
 			ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 			router.Get("/ping", ok)
 			router.Get("/items/{id}", ok)
+			router.Route("/v2", func(api chi.Router) { api.Get("/items/{id}", ok) })
 			router.Get("/visitor", func(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write([]byte(middleware.GetClientIP(r.Context())))
 			})
@@ -232,6 +287,16 @@ func TestNewRouter(t *testing.T) {
 
 			for name, value := range testCase.expectHeaders {
 				require.Equal(t, value, response.Header().Get(name))
+			}
+
+			if testCase.expectSpanName != "" {
+				spans := recorder.Ended()
+				span := spans[len(spans)-1]
+				attributes := attribute.NewSet(span.Attributes()...)
+				route, _ := attributes.Value("http.route")
+
+				require.Equal(t, testCase.expectSpanName, span.Name())
+				require.Equal(t, testCase.expectRoute, route.AsString())
 			}
 		})
 	}
@@ -415,8 +480,10 @@ func TestNewRouterFaults(t *testing.T) {
 
 		require.Equal(t, http.StatusInternalServerError, response.Code)
 
-		// The recoverer answers outside tracing, so the server span holds the fault itself.
+		// The recoverer answers outside tracing, so the server span holds the fault itself, under its
+		// route.
 		spans := recorder.Ended()
+		require.Equal(t, "GET /panic", spans[len(spans)-1].Name())
 		require.Equal(t, codes.Error, spans[len(spans)-1].Status().Code)
 		require.Contains(t, spans[len(spans)-1].Attributes(), attribute.String("error.type", "string"))
 

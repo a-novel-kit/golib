@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/downtime"
@@ -25,6 +26,11 @@ import (
 // visitor IP, the request timeout, the body limit, tracing, the report of faults on the request's
 // span and to Sentry, CORS, request logs, the planned downtime and the standard rate limit. The
 // liveness path answers during a downtime and is never rate-limited.
+//
+// The request's span takes the name of the route chi matched, such as "GET /v2/session/{id}", and
+// the route pattern as its http.route. A request that reaches no route keeps its method alone, such
+// as one the rate limit refuses. Under a subrouter, an unknown path takes the subrouter's pattern,
+// such as "GET /v2/*". A path never names a span.
 //
 // A nil logger writes no request log, for a server whose spans record each request.
 func NewRouter(
@@ -66,13 +72,28 @@ type serverSpanKey struct{}
 // recordFaults keeps the request's server span in its context, for [HandleError]. It records a panic
 // of a later handler on that span and sends it to Sentry, then passes it on to [middleware.Recoverer],
 // which answers it. It runs inside tracing, so the server span exists and the event links its trace.
+// It names that span after the request's route once the handlers return, even through a panic.
 func recordFaults(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
 		defer capturePanic(r.Context(), span)
+		defer nameSpan(r.Context(), span)
 
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serverSpanKey{}, span)))
 	})
+}
+
+// nameSpan names span after the route chi matched for the request of ctx, and sets the route pattern
+// as its http.route, as the OpenTelemetry HTTP server conventions do. A request chi routed nowhere
+// keeps the name tracing gave it.
+func nameSpan(ctx context.Context, span trace.Span) {
+	pattern := chi.RouteContext(ctx).RoutePattern()
+	if pattern == "" {
+		return
+	}
+
+	span.SetName(route(ctx))
+	span.SetAttributes(semconv.HTTPRoute(pattern))
 }
 
 // capturePanic records a panic on the calling goroutine on span and sends it to Sentry, then panics
