@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/a-novel-kit/golib/grpcf"
+	"github.com/a-novel-kit/golib/servertls"
 )
 
 func TestLoadServerConfig(t *testing.T) {
@@ -37,12 +38,21 @@ func TestLoadServerConfig(t *testing.T) {
 
 			env: map[string]string{
 				"GRPC_PORT":                 "9090",
+				"GRPC_TLS_CERT_FILE":        "/etc/tls/tls.crt",
+				"GRPC_TLS_KEY_FILE":         "/etc/tls/tls.key",
+				"GRPC_PLAINTEXT_PORT":       "8080",
 				"GRPC_TIMEOUT_SHUTDOWN":     "3s",
 				"GRPC_MAX_CONCURRENT_CALLS": "20",
 			},
 			defaults: grpcf.ServerConfigDefault,
 
-			expect: grpcf.ServerConfig{Port: 9090, Shutdown: 3 * time.Second, MaxConcurrentCalls: 20},
+			expect: grpcf.ServerConfig{
+				Port:               9090,
+				TLS:                servertls.Files{CertFile: "/etc/tls/tls.crt", KeyFile: "/etc/tls/tls.key"},
+				PlaintextPort:      8080,
+				Shutdown:           3 * time.Second,
+				MaxConcurrentCalls: 20,
+			},
 		},
 		{
 			name: "Error/Unparsable",

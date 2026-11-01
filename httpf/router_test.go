@@ -2,11 +2,11 @@ package httpf_test
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,10 +25,12 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/internal/tlstest"
 	"github.com/a-novel-kit/golib/logging"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	"github.com/a-novel-kit/golib/otel"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
+	"github.com/a-novel-kit/golib/servertls"
 )
 
 func TestNewRouter(t *testing.T) {
@@ -299,28 +301,124 @@ func TestNewRouter(t *testing.T) {
 func TestListenAndServe(t *testing.T) {
 	t.Parallel()
 
-	address := freeHTTPAddress(t)
-	_, port, err := net.SplitHostPort(address)
-	require.NoError(t, err)
+	authority := tlstest.NewAuthority(t)
+	client := &http.Client{
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: authority.Pool, MinVersion: tls.VersionTLS13}},
+		Timeout:   serverTestTimeout,
+	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	config := httpf.ServerConfigDefault
-	config.Port, err = strconv.Atoi(port)
-	require.NoError(t, err)
+	testCases := []struct {
+		name string
 
-	config.Timeouts.Shutdown = time.Second
+		tls bool
+		// keyPair alters the key pair files the server loads.
+		keyPair func(files servertls.Files) servertls.Files
+		// plaintextAddress returns the address of the plaintext port, or none.
+		plaintextAddress func(t *testing.T) string
 
-	served := make(chan error, 1)
-	go func() { served <- httpf.ListenAndServe(ctx, config, http.NotFoundHandler()) }()
+		expectErr bool
+	}{
+		{
+			name: "Success",
+		},
+		{
+			name: "Success/TLS",
 
-	waitForHTTPServer(t, address)
-	cancel()
+			tls: true,
+		},
+		{
+			name: "Success/TLSBesidePlaintext",
 
-	select {
-	case err := <-served:
-		require.NoError(t, err)
-	case <-time.After(serverTestTimeout):
-		require.FailNow(t, "the server did not stop after cancellation")
+			tls:              true,
+			plaintextAddress: freeHTTPAddress,
+		},
+		{
+			name: "Error/KeyPair",
+
+			tls: true,
+			keyPair: func(files servertls.Files) servertls.Files {
+				files.KeyFile += ".missing"
+
+				return files
+			},
+
+			expectErr: true,
+		},
+		{
+			// The TLS port serves, and stops once its plaintext port fails to bind.
+			name: "Error/PlaintextPortTaken",
+
+			tls:              true,
+			plaintextAddress: takenHTTPAddress,
+
+			expectErr: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			address := freeHTTPAddress(t)
+			config := httpf.ServerConfigDefault
+			config.Port = httpPort(t, address)
+			config.Timeouts.Shutdown = time.Second
+
+			if testCase.tls {
+				config.TLS, _ = authority.WriteKeyPair(t, t.TempDir())
+			}
+
+			if testCase.keyPair != nil {
+				config.TLS = testCase.keyPair(config.TLS)
+			}
+
+			var plaintextAddress string
+			if testCase.plaintextAddress != nil {
+				plaintextAddress = testCase.plaintextAddress(t)
+				config.PlaintextPort = httpPort(t, plaintextAddress)
+			}
+
+			ctx, cancel := context.WithCancel(t.Context())
+			t.Cleanup(cancel)
+
+			served := make(chan error, 1)
+			go func() { served <- httpf.ListenAndServe(ctx, config, http.NotFoundHandler()) }()
+
+			if testCase.expectErr {
+				select {
+				case err := <-served:
+					require.Error(t, err)
+				case <-time.After(serverTestTimeout):
+					require.FailNow(t, "the server did not stop after its failure")
+				}
+
+				return
+			}
+
+			waitForHTTPServer(t, address)
+
+			if testCase.tls {
+				require.Equal(t, http.StatusNotFound, getStatus(t, client, "https://"+address))
+				// The TLS port answers a plaintext request only to refuse it.
+				require.Equal(t, http.StatusBadRequest, getStatus(t, client, "http://"+address))
+			} else {
+				require.Equal(t, http.StatusNotFound, getStatus(t, client, "http://"+address))
+			}
+
+			if plaintextAddress != "" {
+				waitForHTTPServer(t, plaintextAddress)
+				require.Equal(t, http.StatusNotFound, getStatus(t, client, "http://"+plaintextAddress))
+			}
+
+			cancel()
+
+			select {
+			case err := <-served:
+				require.NoError(t, err)
+			case <-time.After(serverTestTimeout):
+				require.FailNow(t, "the server did not stop after cancellation")
+			}
+		})
 	}
 }
 

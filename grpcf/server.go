@@ -2,6 +2,7 @@ package grpcf
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +21,7 @@ import (
 	golibproto "github.com/a-novel-kit/golib/grpcf/proto/gen"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
+	"github.com/a-novel-kit/golib/servertls"
 )
 
 // maxConnectionAge bounds the life of each connection a server accepts. Its client then connects
@@ -120,34 +122,97 @@ func endStreamsInterceptor(ctx context.Context) grpc.StreamServerInterceptor {
 //	if err := grpcf.ListenAndServe(processCtx, cfg.Grpc, server); err != nil {
 //		log.Printf("run gRPC server: %v", err)
 //	}
+//
+// The port serves TLS once config.TLS names a key pair, which [servertls.Config] loads and reloads
+// at renewal. A config.PlaintextPort also serves plaintext beside it, on the same server.
 func ListenAndServe(ctx context.Context, config ServerConfig, server *grpc.Server) error {
-	address := ":" + strconv.Itoa(config.Port)
-	listenerConfig := &net.ListenConfig{}
-
-	listener, err := listenerConfig.Listen(ctx, "tcp", address)
+	listeners, err := listen(ctx, config)
 	if err != nil {
-		return fmt.Errorf("listen for gRPC on %s: %w", address, err)
+		return err
 	}
 
-	serveErrors := make(chan error, 1)
-	go func() {
-		serveErrors <- server.Serve(listener)
-	}()
+	serveErrors := make(chan error, len(listeners))
+	for _, listener := range listeners {
+		go func() {
+			serveErrors <- server.Serve(listener)
+		}()
+	}
 
 	select {
 	case err = <-serveErrors:
-		err = serveError(err)
-		if err != nil {
-			server.Stop()
-		}
+		// A stopped server ends every listener, and stopping it again does nothing.
+		server.Stop()
 
-		return err
+		return errors.Join(serveError(err), waitServe(serveErrors, len(listeners)-1))
 	case <-ctx.Done():
 	}
 
 	shutdownErr := drain(ctx, server, config.Shutdown)
 
-	return errors.Join(serveError(<-serveErrors), shutdownErr)
+	return errors.Join(waitServe(serveErrors, len(listeners)), shutdownErr)
+}
+
+// listen opens the listeners config names: its port, over TLS once config.TLS names a key pair,
+// and its plaintext port when set.
+func listen(ctx context.Context, config ServerConfig) ([]net.Listener, error) {
+	var tlsConfig *tls.Config
+
+	if config.TLS != (servertls.Files{}) {
+		loaded, err := servertls.Config(config.TLS)
+		if err != nil {
+			return nil, fmt.Errorf("serve gRPC over TLS: %w", err)
+		}
+
+		// gRPC clients require HTTP/2, which TLS negotiates through ALPN.
+		loaded.NextProtos = []string{"h2"}
+		tlsConfig = loaded
+	}
+
+	listener, err := listenPort(ctx, config.Port)
+	if err != nil {
+		return nil, err
+	}
+
+	if tlsConfig != nil {
+		listener = tls.NewListener(listener, tlsConfig)
+	}
+
+	if config.PlaintextPort == 0 {
+		return []net.Listener{listener}, nil
+	}
+
+	plaintext, err := listenPort(ctx, config.PlaintextPort)
+	if err != nil {
+		// The port's listener never served, so its close error adds nothing.
+		_ = listener.Close()
+
+		return nil, err
+	}
+
+	return []net.Listener{listener, plaintext}, nil
+}
+
+// listenPort opens a TCP listener on port.
+func listenPort(ctx context.Context, port int) (net.Listener, error) {
+	address := ":" + strconv.Itoa(port)
+	listenerConfig := &net.ListenConfig{}
+
+	listener, err := listenerConfig.Listen(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("listen for gRPC on %s: %w", address, err)
+	}
+
+	return listener, nil
+}
+
+// waitServe reads count results of server.Serve, and joins their errors.
+func waitServe(serveErrors <-chan error, count int) error {
+	var err error
+	for range count {
+		err = errors.Join(err, serveError(<-serveErrors))
+	}
+
+	return err
 }
 
 // drain stops server gracefully, then forcefully once shutdownTimeout passes. A forced stop returns

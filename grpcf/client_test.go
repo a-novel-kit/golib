@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/a-novel-kit/golib/grpcf"
+	"github.com/a-novel-kit/golib/internal/tlstest"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 	"github.com/a-novel-kit/golib/servicetoken/servicetokentest"
@@ -69,6 +70,21 @@ func TestServiceTokenCredentialsProvider(t *testing.T) {
 
 		err = connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
 		require.Equal(t, codes.Unauthenticated, status.Code(err))
+	})
+
+	t.Run("Error/TLSToPlaintextServer", func(t *testing.T) {
+		t.Parallel()
+
+		server := grpcf.NewServer(t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
+		server.RegisterService(probeService, struct{}{})
+
+		address, config := freeGRPCServer(t, time.Second)
+		go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
+
+		waitForGRPCServer(t, address)
+
+		err := invokeProbe(t, address, &grpcf.ServiceTokenCredentialsProvider{ServiceTokenPath: tokenFile(t), TLS: true})
+		require.Equal(t, codes.Unavailable, status.Code(err))
 	})
 
 	t.Run("Success/RetryOnAnotherServer", func(t *testing.T) {
@@ -124,4 +140,85 @@ func TestServiceTokenCredentialsProvider(t *testing.T) {
 			require.NoError(t, err)
 		}
 	})
+}
+
+// TestServiceTokenCredentialsProviderTLS trusts its authority through SSL_CERT_DIR, as a pod trusts
+// the cluster's CA. Go reads the variable once, when the process first verifies a certificate
+// against the system roots, and no other test of this package does.
+//
+//nolint:paralleltest // t.Setenv changes the process environment.
+func TestServiceTokenCredentialsProviderTLS(t *testing.T) {
+	trusted := tlstest.NewAuthority(t)
+	roots := t.TempDir()
+	trusted.WriteCertificate(t, roots)
+	t.Setenv("SSL_CERT_DIR", roots)
+
+	testCases := []struct {
+		name string
+
+		authority *tlstest.Authority
+
+		expectCode codes.Code
+	}{
+		{
+			name: "Success",
+
+			authority: trusted,
+
+			expectCode: codes.OK,
+		},
+		{
+			name: "Error/UnknownAuthority",
+
+			authority: tlstest.NewAuthority(t),
+
+			expectCode: codes.Unavailable,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := grpcf.NewServer(t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
+			server.RegisterService(probeService, struct{}{})
+
+			address, config := freeGRPCServer(t, time.Second)
+			config.TLS, _ = testCase.authority.WriteKeyPair(t, t.TempDir())
+
+			go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
+
+			waitForGRPCServer(t, address)
+
+			provider := &grpcf.ServiceTokenCredentialsProvider{ServiceTokenPath: tokenFile(t), TLS: true}
+			require.Equal(t, testCase.expectCode, status.Code(invokeProbe(t, address, provider)))
+		})
+	}
+}
+
+// tokenFile returns a file holding a service token, which a server without the service token
+// interceptors ignores.
+func tokenFile(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "token")
+	writeServiceToken(t, path, "token")
+
+	return path
+}
+
+// invokeProbe calls the probe service at address once, through the connection provider configures.
+func invokeProbe(t *testing.T, address string, provider grpcf.CredentialsProvider) error {
+	t.Helper()
+
+	options, err := provider.Options(t.Context())
+	require.NoError(t, err)
+
+	connection, err := grpc.NewClient(address, options...)
+	require.NoError(t, err)
+
+	defer func() { _ = connection.Close() }()
+
+	ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
+	defer cancel()
+
+	return connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
 }

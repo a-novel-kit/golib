@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -153,6 +154,57 @@ func freeHTTPAddress(t *testing.T) string {
 	}
 
 	return address
+}
+
+// takenHTTPAddress returns a loopback address whose port another listener holds until the test
+// ends, on every interface, so the server fails to bind it.
+func takenHTTPAddress(t *testing.T) string {
+	t.Helper()
+
+	listenerConfig := &net.ListenConfig{}
+
+	listener, err := listenerConfig.Listen(t.Context(), "tcp", ":0")
+	if err != nil {
+		panic(err)
+	}
+
+	t.Cleanup(func() { _ = listener.Close() })
+
+	return "127.0.0.1:" + strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+}
+
+// httpPort returns the port of address.
+func httpPort(t *testing.T, address string) int {
+	t.Helper()
+
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		panic(err)
+	}
+
+	number, err := strconv.Atoi(port)
+	if err != nil {
+		panic(err)
+	}
+
+	return number
+}
+
+// getStatus sends a GET to url through client, and returns the status of the answer.
+func getStatus(t *testing.T, client *http.Client, url string) int {
+	t.Helper()
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	response, err := client.Do(request)
+	require.NoError(t, err)
+
+	_ = response.Body.Close()
+
+	return response.StatusCode
 }
 
 // waitForHTTPServer returns once address accepts connections.

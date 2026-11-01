@@ -2,8 +2,10 @@ package grpcf
 
 import (
 	"context"
+	"crypto/tls"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/a-novel-kit/golib/servicetoken"
@@ -32,9 +34,9 @@ func (provider *LocalCredentialsProvider) Options(_ context.Context) ([]grpc.Dia
 	return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, nil
 }
 
-// ServiceTokenCredentialsProvider dials a service in the same Kubernetes cluster over the cluster
-// network, without transport security. It sends the caller's service token with every call, which
-// the callee checks with [ServiceTokenUnaryInterceptor] and [ServiceTokenStreamInterceptor].
+// ServiceTokenCredentialsProvider dials a service in the same Kubernetes cluster, over TLS once
+// [ServiceTokenCredentialsProvider.TLS] is set. It sends the caller's service token with every call,
+// which the callee checks with [ServiceTokenUnaryInterceptor] and [ServiceTokenStreamInterceptor].
 //
 // The connection sends each call to the next address the target resolves to, as a headless Service
 // resolves to its ready pods. A call refused with Unavailable is retried on the next address, up to
@@ -47,11 +49,19 @@ type ServiceTokenCredentialsProvider struct {
 	// ServiceTokenPath is the file the kubelet projects the caller's service token into. Each call
 	// reads it again, so a rotated token takes effect on the next call.
 	ServiceTokenPath string
+	// TLS dials TLS 1.3, and verifies the server's certificate for the target's host against the
+	// system roots, which SSL_CERT_DIR extends. False dials plaintext.
+	TLS bool
 }
 
 func (provider *ServiceTokenCredentialsProvider) Options(_ context.Context) ([]grpc.DialOption, error) {
+	transport := insecure.NewCredentials()
+	if provider.TLS {
+		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13})
+	}
+
 	return []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(transport),
 		grpc.WithPerRPCCredentials(serviceTokenCredentials(provider.ServiceTokenPath)),
 		grpc.WithDefaultServiceConfig(inClusterServiceConfig),
 	}, nil

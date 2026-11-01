@@ -2,6 +2,7 @@ package httpf
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
+	"github.com/a-novel-kit/golib/servertls"
 )
 
 // NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
@@ -224,6 +226,27 @@ func SendTelemetry(timeout time.Duration) func(http.Handler) http.Handler {
 
 // ListenAndServe serves handler on the configured port until ctx is canceled, then drains active
 // requests within the configured shutdown timeout. See [Serve].
+//
+// The port serves TLS once config.TLS names a key pair, which [servertls.Config] loads and reloads
+// at renewal. A config.PlaintextPort also serves plaintext beside it. The listeners stop together:
+// one that fails stops the other.
 func ListenAndServe(ctx context.Context, config ServerConfig, handler http.Handler) error {
-	return Serve(ctx, NewServer(ctx, config, handler), config.Timeouts.Shutdown)
+	servers := []*http.Server{NewServer(ctx, config, handler)}
+
+	if config.TLS != (servertls.Files{}) {
+		tlsConfig, err := servertls.Config(config.TLS)
+		if err != nil {
+			return fmt.Errorf("serve HTTPS: %w", err)
+		}
+
+		servers[0].TLSConfig = tlsConfig
+	}
+
+	if config.PlaintextPort != 0 {
+		plaintext := config
+		plaintext.Port = config.PlaintextPort
+		servers = append(servers, NewServer(ctx, plaintext, handler))
+	}
+
+	return serveAll(ctx, servers, config.Timeouts.Shutdown)
 }

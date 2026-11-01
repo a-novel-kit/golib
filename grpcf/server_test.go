@@ -2,6 +2,7 @@ package grpcf_test
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -27,8 +29,10 @@ import (
 
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/grpcf"
+	"github.com/a-novel-kit/golib/internal/tlstest"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
+	"github.com/a-novel-kit/golib/servertls"
 )
 
 const grpcServerTestTimeout = 5 * time.Second
@@ -111,6 +115,74 @@ func TestListenAndServe(t *testing.T) {
 		case <-time.After(grpcServerTestTimeout):
 			require.FailNow(t, "gRPC server did not stop after process cancellation")
 		}
+	})
+
+	t.Run("Success/TLSBesidePlaintext", func(t *testing.T) {
+		t.Parallel()
+
+		authority := tlstest.NewAuthority(t)
+		address, config := freeGRPCServer(t, time.Second)
+		plaintextAddress, plaintextConfig := freeGRPCServer(t, time.Second)
+		config.TLS, _ = authority.WriteKeyPair(t, t.TempDir())
+		config.PlaintextPort = plaintextConfig.Port
+
+		server := grpc.NewServer()
+		healthpb.RegisterHealthServer(server, health.NewServer())
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		serveErrors := make(chan error, 1)
+		go func() { serveErrors <- grpcf.ListenAndServe(ctx, config, server) }()
+
+		waitForGRPCServer(t, address)
+		waitForGRPCServer(t, plaintextAddress)
+
+		trusted := credentials.NewTLS(&tls.Config{RootCAs: authority.Pool, MinVersion: tls.VersionTLS13})
+		require.NoError(t, checkHealth(t, address, trusted))
+		require.NoError(t, checkHealth(t, plaintextAddress, insecure.NewCredentials()))
+
+		// The TLS port refuses plaintext, and the plaintext port refuses TLS.
+		require.Equal(t, codes.Unavailable, status.Code(checkHealth(t, address, insecure.NewCredentials())))
+		require.Equal(t, codes.Unavailable, status.Code(checkHealth(t, plaintextAddress, trusted)))
+
+		cancel()
+
+		select {
+		case err := <-serveErrors:
+			require.NoError(t, err)
+		case <-time.After(grpcServerTestTimeout):
+			require.FailNow(t, "gRPC server did not stop after process cancellation")
+		}
+	})
+
+	t.Run("Error/KeyPair", func(t *testing.T) {
+		t.Parallel()
+
+		_, config := freeGRPCServer(t, time.Second)
+		config.TLS = servertls.Files{CertFile: "missing.crt", KeyFile: "missing.key"}
+
+		err := grpcf.ListenAndServe(t.Context(), config, grpc.NewServer())
+		require.ErrorContains(t, err, "serve gRPC over TLS")
+	})
+
+	t.Run("Error/PlaintextPortTaken", func(t *testing.T) {
+		t.Parallel()
+
+		listenerConfig := &net.ListenConfig{}
+		listener, err := listenerConfig.Listen(t.Context(), "tcp", ":0")
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, listener.Close()) })
+
+		address, config := freeGRPCServer(t, time.Second)
+		config.PlaintextPort = listener.Addr().(*net.TCPAddr).Port
+
+		err = grpcf.ListenAndServe(t.Context(), config, grpc.NewServer())
+		require.ErrorContains(t, err, "listen for gRPC")
+
+		// The port's listener closed with the failure, so the port binds again.
+		bound, err := listenerConfig.Listen(t.Context(), "tcp", address)
+		require.NoError(t, err)
+		require.NoError(t, bound.Close())
 	})
 
 	t.Run("Error/BindFailure", func(t *testing.T) {
@@ -351,6 +423,26 @@ func freeGRPCServer(t *testing.T, shutdown time.Duration) (string, grpcf.ServerC
 	}
 
 	return "127.0.0.1:" + strconv.Itoa(port), grpcf.ServerConfig{Port: port, Shutdown: shutdown}
+}
+
+// checkHealth calls the health service at address over transport, failing fast when the
+// connection fails.
+func checkHealth(t *testing.T, address string, transport credentials.TransportCredentials) error {
+	t.Helper()
+
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(transport))
+	if err != nil {
+		panic(err)
+	}
+
+	defer func() { _ = connection.Close() }()
+
+	ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
+	defer cancel()
+
+	_, err = healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
+
+	return err
 }
 
 // waitForGRPCServer returns once address accepts connections.

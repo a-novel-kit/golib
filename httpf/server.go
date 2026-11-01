@@ -10,7 +10,8 @@ import (
 
 // Serve listens on server.Addr until ctx is canceled or the server stops. Cancellation drains
 // active requests within shutdownTimeout, then closes remaining connections. A forced shutdown
-// returns an error wrapping [context.DeadlineExceeded].
+// returns an error wrapping [context.DeadlineExceeded]. A server with a TLSConfig serves TLS, with
+// the certificate its configuration presents.
 //
 // [http.ErrServerClosed] is a normal result. A serving error that races with shutdown is joined
 // with the shutdown error so callers can inspect both with [errors.Is].
@@ -24,8 +25,16 @@ import (
 //	}
 func Serve(ctx context.Context, server *http.Server, shutdownTimeout time.Duration) error {
 	serveErrors := make(chan error, 1)
+
 	go func() {
-		serveErrors <- server.ListenAndServe()
+		if server.TLSConfig == nil {
+			serveErrors <- server.ListenAndServe()
+
+			return
+		}
+
+		// The configuration presents the certificate, so no file is named here.
+		serveErrors <- server.ListenAndServeTLS("", "")
 	}()
 
 	select {
@@ -63,6 +72,29 @@ func Serve(ctx context.Context, server *http.Server, shutdownTimeout time.Durati
 		wrapServerError("shut down HTTP server", shutdownErr),
 		wrapServerError("close HTTP server", closeErr),
 	)
+}
+
+// serveAll runs [Serve] for each server, and stops them all once ctx is canceled or one of them
+// stops.
+func serveAll(ctx context.Context, servers []*http.Server, shutdownTimeout time.Duration) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	serveErrors := make(chan error, len(servers))
+	for _, server := range servers {
+		go func() {
+			serveErrors <- Serve(ctx, server, shutdownTimeout)
+
+			cancel()
+		}()
+	}
+
+	var err error
+	for range servers {
+		err = errors.Join(err, <-serveErrors)
+	}
+
+	return err
 }
 
 // wrapServerError prefixes err with the operation that failed, and keeps a nil err nil.
