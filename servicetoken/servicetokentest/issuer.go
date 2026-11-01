@@ -3,6 +3,7 @@ package servicetokentest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,44 +15,68 @@ import (
 	"github.com/a-novel-kit/jwt/v2/jws"
 )
 
-// An Issuer publishes its key as a GKE cluster does, and signs service tokens with it.
+// An Issuer publishes its key as a GKE cluster does, and signs service tokens with it. As an
+// [http.Handler], it serves the discovery document and key set a servicetoken.Verifier fetches.
+//
+// It also signs a token for callers outside Go, which ask for one with
+// GET /token?subject=<caller>&audience=<audience>. The token's "iss" claim is [Issuer.URL] whatever
+// address the request reached, so a caller on the host gets a token a verifier inside a container
+// network accepts.
 type Issuer struct {
 	// URL is the issuer, as servicetoken.Config and a token's "iss" claim name it.
 	URL string
 
 	producer *jwt.Producer
+	mux      *http.ServeMux
 }
 
-// NewIssuer starts an Issuer with a new RS256 key. The test's cleanup stops it.
+// NewIssuer starts an Issuer on a local port. The test's cleanup stops it.
 func NewIssuer(t *testing.T) *Issuer {
 	t.Helper()
 
-	privateKey, publicKey, err := jwk.GenerateRSA(jwk.RS256)
+	server := httptest.NewUnstartedServer(nil)
+
+	issuer, err := NewIssuerAt("http://" + server.Listener.Addr().String())
 	if err != nil {
 		panic(err)
+	}
+
+	server.Config.Handler = issuer
+	server.Start()
+	t.Cleanup(server.Close)
+
+	return issuer
+}
+
+// NewIssuerAt returns an Issuer for a server that serves it at url. Its new RS256 key lives in
+// memory only, so the tokens it signs die with the process.
+func NewIssuerAt(url string) (*Issuer, error) {
+	privateKey, publicKey, err := jwk.GenerateRSA(jwk.RS256)
+	if err != nil {
+		return nil, fmt.Errorf("generate key: %w", err)
 	}
 
 	// A GKE key set marks its keys with "use" alone.
 	published := *publicKey.JWK
 	published.KeyOps = nil
 
-	mux := http.NewServeMux()
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	mux.Handle("GET /.well-known/openid-configuration", serveJSON(map[string]string{
-		"issuer":   server.URL,
-		"jwks_uri": server.URL + "/jwks",
-	}))
-	mux.Handle("GET /jwks", serveJSON(map[string][]jwa.JWK{"keys": {published}}))
-
-	return &Issuer{
-		URL: server.URL,
+	issuer := &Issuer{
+		URL: url,
 		producer: jwt.NewProducer(jwt.ProducerConfig{
 			StaticPlugins: []jwt.ProducerStaticPlugin{keyID(publicKey.KID)},
 			Plugins:       []jwt.ProducerPlugin{jws.NewRSASigner(privateKey.Key(), jws.RS256)},
 		}),
+		mux: http.NewServeMux(),
 	}
+
+	issuer.mux.Handle("GET /.well-known/openid-configuration", serveJSON(map[string]string{
+		"issuer":   url,
+		"jwks_uri": url + "/jwks",
+	}))
+	issuer.mux.Handle("GET /jwks", serveJSON(map[string][]jwa.JWK{"keys": {published}}))
+	issuer.mux.HandleFunc("GET /token", issuer.serveToken)
+
+	return issuer, nil
 }
 
 // Claims returns the claims of a token that subject holds for audience, valid for an hour from now.
@@ -79,6 +104,33 @@ func (issuer *Issuer) Sign(t *testing.T, claims *jwa.Claims) string {
 	}
 
 	return token
+}
+
+// ServeHTTP answers the routes [Issuer] describes.
+func (issuer *Issuer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	issuer.mux.ServeHTTP(w, r)
+}
+
+// serveToken answers the query's subject and audience with a token of [Issuer.Claims], as plain
+// text. That text is what a projected token file holds, so a caller can write it to the file it
+// reads its token from.
+func (issuer *Issuer) serveToken(w http.ResponseWriter, r *http.Request) {
+	subject, audience := r.URL.Query().Get("subject"), r.URL.Query().Get("audience")
+	if subject == "" || audience == "" {
+		http.Error(w, "subject and audience are required", http.StatusBadRequest)
+
+		return
+	}
+
+	token, err := issuer.producer.Issue(r.Context(), issuer.Claims(subject, audience), nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	_, _ = w.Write([]byte(token)) //nolint:gosec // A token is base64url text, which no browser renders as markup.
 }
 
 // keyID stamps the ID of the signing key on each token, as a Kubernetes issuer does.
