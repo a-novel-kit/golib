@@ -13,7 +13,6 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
-	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // ErrMap maps sentinel errors to the HTTP status HandleError returns for them. An error matching
@@ -29,8 +28,7 @@ type ErrMap map[error]int
 // and the trace keep it. When err carries tags from [WithTag], or a client error comes from a
 // validator, the body is an RFC 9457 problem details object holding those tags instead.
 //
-// A server error logs at error level, marks the span failed and reaches Sentry through
-// [sentryf.Capture], under its method and chi route pattern. Under a router from [NewRouter], the
+// A server error logs at error level and marks the span failed. Under a router from [NewRouter], the
 // request's server span names its type through [otel.ErrorType]. A client error logs at warning level
 // and leaves the span status unset, since the handler answered it.
 //
@@ -51,7 +49,6 @@ func HandleError(
 	if status >= http.StatusInternalServerError {
 		logger.Err(ctx, otel.ReportError(span, err).Error())
 		serverSpan(ctx).SetAttributes(otel.ErrorType(err))
-		sentryf.Capture(ctx, route(ctx), err)
 	} else {
 		logger.Warn(ctx, err.Error())
 	}

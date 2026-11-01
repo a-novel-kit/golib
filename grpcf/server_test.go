@@ -2,7 +2,6 @@ package grpcf_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -16,14 +15,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -32,7 +29,6 @@ import (
 	"github.com/a-novel-kit/golib/grpcf"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
-	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
 const grpcServerTestTimeout = 5 * time.Second
@@ -171,41 +167,6 @@ func TestListenAndServe(t *testing.T) {
 
 		_, err = watch.Recv()
 		require.Error(t, err)
-	})
-}
-
-//nolint:paralleltest // Records through the process-wide Sentry reporter.
-func TestListenAndServeSentry(t *testing.T) {
-	t.Run("Error/BindFailure", func(t *testing.T) {
-		transport := sentryftest.Record(t)
-
-		listenerConfig := &net.ListenConfig{}
-		listener, err := listenerConfig.Listen(t.Context(), "tcp", ":0")
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, listener.Close()) })
-
-		config := grpcf.ServerConfig{Port: listener.Addr().(*net.TCPAddr).Port, Shutdown: time.Second}
-		require.Error(t, grpcf.ListenAndServe(t.Context(), config, grpc.NewServer()))
-
-		events := transport.Events()
-		require.Len(t, events, 1)
-		require.Equal(t, "serve gRPC", events[0].Exception[0].Value)
-	})
-
-	t.Run("Success/ProcessCancellation", func(t *testing.T) {
-		transport := sentryftest.Record(t)
-
-		address, config := freeGRPCServer(t, time.Second)
-		ctx, cancel := context.WithCancel(t.Context())
-
-		serveErrors := make(chan error, 1)
-		go func() { serveErrors <- grpcf.ListenAndServe(ctx, config, grpc.NewServer()) }()
-
-		waitForGRPCServer(t, address)
-		cancel()
-
-		require.NoError(t, <-serveErrors)
-		require.Empty(t, transport.Events())
 	})
 }
 
@@ -455,8 +416,7 @@ func panicCall(context.Context) error {
 	panic("secret")
 }
 
-// tracedConfig is a telemetry backend that exports nothing but traces each call on provider,
-// continuing the W3C trace context the call carries.
+// tracedConfig is a telemetry backend that exports nothing but traces each call on provider.
 type tracedConfig struct {
 	otelpresets.Disabled
 
@@ -464,9 +424,7 @@ type tracedConfig struct {
 }
 
 func (config *tracedConfig) RPCInterceptor() grpc.ServerOption {
-	return grpc.StatsHandler(otelgrpc.NewServerHandler(
-		otelgrpc.WithTracerProvider(config.provider), otelgrpc.WithPropagators(propagation.TraceContext{}),
-	))
+	return grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithTracerProvider(config.provider)))
 }
 
 // driverError stands for an error type of a dependency, whose message holds caller input.
@@ -476,9 +434,8 @@ func (*driverError) Error() string {
 	return "password authentication failed for user=secret"
 }
 
-//nolint:paralleltest // Records through the process-wide Sentry reporter.
 func TestNewServerFaults(t *testing.T) {
-	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+	t.Parallel()
 
 	started := time.Now().Add(-time.Hour)
 
@@ -492,11 +449,9 @@ func TestNewServerFaults(t *testing.T) {
 
 		behavior      faultBehavior
 		downtimeStart *time.Time
-		// panics marks a behavior that panics, which Sentry groups by its stack.
-		panics bool
 
 		expectCode codes.Code
-		// The innermost type of a reported fault. Empty expects no event and no error.type.
+		// The innermost type of a reported fault. Empty expects no error.type.
 		expectType string
 	}{
 		{
@@ -524,7 +479,6 @@ func TestNewServerFaults(t *testing.T) {
 			name: "Error/Panic",
 
 			behavior: panicCall,
-			panics:   true,
 
 			expectCode: codes.Internal,
 			expectType: "string",
@@ -562,7 +516,7 @@ func TestNewServerFaults(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			transport := sentryftest.Record(t)
+			t.Parallel()
 
 			recorder := tracetest.NewSpanRecorder()
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
@@ -586,11 +540,6 @@ func TestNewServerFaults(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
 			t.Cleanup(cancel)
 
-			// Nothing a caller sends reaches Sentry.
-			ctx = metadata.AppendToOutgoingContext(ctx,
-				"traceparent", "00-"+traceID+"-00f067aa0ba902b7-01", "authorization", "Bearer secret",
-			)
-
 			err = connection.Invoke(ctx, "/test.Fault/Call", &emptypb.Empty{}, &emptypb.Empty{})
 			require.Equal(t, testCase.expectCode, status.Code(err))
 			require.NotContains(t, err.Error(), "secret")
@@ -607,38 +556,6 @@ func TestNewServerFaults(t *testing.T) {
 				attributes := attribute.NewSet(span.Attributes()...)
 				errorType, _ := attributes.Value("error.type")
 				require.Equal(t, testCase.expectType, errorType.AsString(), span.Name())
-			}
-
-			events := transport.Events()
-			if testCase.expectType == "" {
-				require.Empty(t, events)
-
-				return
-			}
-
-			// One event for the unary call, then one for the stream.
-			require.Len(t, events, 2)
-
-			for i, method := range []string{"/test.Fault/Call", "/test.Fault/Stream"} {
-				event := events[i]
-				require.Equal(t, sentryftest.Release, event.Release)
-				require.Equal(t, traceID, event.Contexts["trace"]["trace_id"])
-				require.Nil(t, event.Request)
-
-				payload, err := json.Marshal(event)
-				require.NoError(t, err)
-				require.NotContains(t, string(payload), "secret")
-
-				if testCase.panics {
-					// Sentry groups a panic by its stack, which ends where the panic began.
-					frames := event.Exception[0].Stacktrace.Frames
-					require.Equal(t, "panicCall", frames[len(frames)-1].Function)
-					require.Empty(t, event.Fingerprint)
-
-					continue
-				}
-
-				require.Equal(t, []string{method, testCase.expectType}, event.Fingerprint)
 			}
 		})
 	}

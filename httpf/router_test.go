@@ -2,8 +2,6 @@ package httpf_test
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -13,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/stretchr/testify/require"
@@ -22,7 +19,6 @@ import (
 	gootel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -33,8 +29,6 @@ import (
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	"github.com/a-novel-kit/golib/otel"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
-	"github.com/a-novel-kit/golib/sentryf"
-	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
 func TestNewRouter(t *testing.T) {
@@ -417,8 +411,7 @@ func TestEndOnShutdown(t *testing.T) {
 	}
 }
 
-// tracedConfig is a telemetry backend that exports nothing but traces each request on provider,
-// continuing the W3C trace context the request carries.
+// tracedConfig is a telemetry backend that exports nothing but traces each request on provider.
 type tracedConfig struct {
 	otelpresets.Disabled
 
@@ -426,9 +419,7 @@ type tracedConfig struct {
 }
 
 func (config *tracedConfig) HTTPHandler() func(http.Handler) http.Handler {
-	return otelhttp.NewMiddleware(
-		"", otelhttp.WithTracerProvider(config.provider), otelhttp.WithPropagators(propagation.TraceContext{}),
-	)
+	return otelhttp.NewMiddleware("", otelhttp.WithTracerProvider(config.provider))
 }
 
 // panicHandler panics with a value that holds caller input.
@@ -441,9 +432,10 @@ func abortHandler(http.ResponseWriter, *http.Request) {
 	panic(http.ErrAbortHandler)
 }
 
-//nolint:paralleltest // Records through the process-wide Sentry reporter.
-func TestNewRouterFaults(t *testing.T) {
-	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+// newFaultRouter returns a router from [httpf.NewRouter] serving panicHandler on /panic and
+// abortHandler on /abort, with the recorder its spans end in.
+func newFaultRouter(t *testing.T) (*chi.Mux, *tracetest.SpanRecorder) {
+	t.Helper()
 
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
@@ -459,24 +451,20 @@ func TestNewRouterFaults(t *testing.T) {
 	router.Get("/panic", panicHandler)
 	router.Get("/abort", abortHandler)
 
-	// newRequest returns a request on path that holds data a visitor sends, under the trace traceID.
-	newRequest := func(t *testing.T, path string) *http.Request {
-		t.Helper()
+	return router, recorder
+}
 
-		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path+"?token=secret", nil)
-		request.RemoteAddr = "203.0.113.7:41234"
-		request.Header.Set("Traceparent", "00-"+traceID+"-00f067aa0ba902b7-01")
-		request.Header.Set("Authorization", "Bearer secret")
-		request.Header.Set("Cookie", "session=secret")
-
-		return request
-	}
+func TestNewRouterFaults(t *testing.T) {
+	t.Parallel()
 
 	t.Run("Error/Panic", func(t *testing.T) {
-		transport := sentryftest.Record(t)
+		t.Parallel()
+
+		router, recorder := newFaultRouter(t)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/panic", nil)
 		response := httptest.NewRecorder()
 
-		router.ServeHTTP(response, newRequest(t, "/panic"))
+		router.ServeHTTP(response, request)
 
 		require.Equal(t, http.StatusInternalServerError, response.Code)
 
@@ -486,53 +474,26 @@ func TestNewRouterFaults(t *testing.T) {
 		require.Equal(t, "GET /panic", spans[len(spans)-1].Name())
 		require.Equal(t, codes.Error, spans[len(spans)-1].Status().Code)
 		require.Contains(t, spans[len(spans)-1].Attributes(), attribute.String("error.type", "string"))
-
-		events := transport.Events()
-		require.Len(t, events, 1)
-
-		event := events[0]
-		require.Equal(t, "string", event.Exception[0].Type)
-		require.Equal(t, sentryftest.Release, event.Release)
-		require.Equal(t, traceID, event.Contexts["trace"]["trace_id"])
-		require.Nil(t, event.Request)
-
-		// The stack ends where the panic began.
-		frames := event.Exception[0].Stacktrace.Frames
-		require.Equal(t, "panicHandler", frames[len(frames)-1].Function)
-
-		payload, err := json.Marshal(event)
-		require.NoError(t, err)
-		require.NotContains(t, string(payload), "secret")
-		require.NotContains(t, string(payload), "203.0.113.7")
 	})
 
 	t.Run("Success/Abort", func(t *testing.T) {
-		transport := sentryftest.Record(t)
+		t.Parallel()
+
+		router, recorder := newFaultRouter(t)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/abort", nil)
 
 		// The recoverer passes an abort on to the server, which closes the connection.
 		require.PanicsWithValue(t, http.ErrAbortHandler, func() {
-			router.ServeHTTP(httptest.NewRecorder(), newRequest(t, "/abort"))
+			router.ServeHTTP(httptest.NewRecorder(), request)
 		})
 
 		spans := recorder.Ended()
 		require.Equal(t, codes.Unset, spans[len(spans)-1].Status().Code)
-		require.Empty(t, transport.Events())
 	})
 }
 
-//nolint:paralleltest // Swaps the process-wide Sentry reporter and tracer provider.
+//nolint:paralleltest // Swaps the process-wide tracer provider.
 func TestSendTelemetry(t *testing.T) {
-	transport := &heldTransport{}
-
-	err := sentryf.Init(sentryf.Config{
-		DSN:         "https://public@sentry.invalid/1",
-		Release:     sentryftest.Release,
-		Environment: sentryftest.Environment,
-		Transport:   transport,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, sentryf.Init(sentryf.Config{})) })
-
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
 
@@ -541,41 +502,12 @@ func TestSendTelemetry(t *testing.T) {
 	gootel.SetTracerProvider(provider)
 	t.Cleanup(func() { gootel.SetTracerProvider(noop.NewTracerProvider()) })
 
-	handler := httpf.SendTelemetry(time.Second)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := httpf.SendTelemetry(time.Second)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		_, span := otel.Tracer().Start(r.Context(), "sweep")
 		span.End()
-
-		sentryf.Capture(r.Context(), "POST /sweep", errors.New("sweep"))
-		w.WriteHeader(http.StatusInternalServerError)
 	}))
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/sweep", nil))
 
-	require.Len(t, transport.sent, 1)
 	require.Len(t, exporter.GetSpans(), 1)
 }
-
-// heldTransport keeps each event until a flush sends it, as a sender left without CPU would.
-type heldTransport struct {
-	held []*sentry.Event
-	sent []*sentry.Event
-}
-
-func (transport *heldTransport) Configure(sentry.ClientOptions) {}
-
-func (transport *heldTransport) SendEvent(event *sentry.Event) {
-	transport.held = append(transport.held, event)
-}
-
-func (transport *heldTransport) Flush(time.Duration) bool {
-	transport.sent = append(transport.sent, transport.held...)
-	transport.held = nil
-
-	return true
-}
-
-func (transport *heldTransport) FlushWithContext(context.Context) bool {
-	return transport.Flush(0)
-}
-
-func (transport *heldTransport) Close() {}

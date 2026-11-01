@@ -12,7 +12,6 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 
 	"github.com/a-novel-kit/golib/postgres"
-	"github.com/a-novel-kit/golib/sentryf"
 )
 
 const (
@@ -73,7 +72,7 @@ func NewDefault(options ...pgdriver.Option) *Default {
 	}
 }
 
-// DB returns the main database connection. The first call hands its pool to [sentryf.SamplePool].
+// DB returns the main database connection.
 func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 	config.mu.Lock()
 	defer config.mu.Unlock()
@@ -85,8 +84,6 @@ func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 		}
 
 		config.db = db
-
-		sentryf.SamplePool(db.DB)
 	}
 
 	return config.db, nil

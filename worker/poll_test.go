@@ -17,7 +17,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
-	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 	"github.com/a-novel-kit/golib/worker"
 )
 
@@ -222,37 +221,28 @@ func (*driverError) Error() string {
 	return "connection refused"
 }
 
-//nolint:paralleltest // Records through the process-wide Sentry reporter and tracer provider.
+//nolint:paralleltest // Swaps the process-wide tracer provider.
 func TestPollFaults(t *testing.T) {
 	testCases := []struct {
 		name string
 
 		// fail ends the first run.
 		fail func() error
-
-		// expectEvent is the value of the one Sentry event the loop sends.
-		expectEvent string
 	}{
 		{
 			name: "Error/Fails",
 
 			fail: func() error { return fmt.Errorf("sweep: %w", &driverError{}) },
-
-			expectEvent: "test",
 		},
 		{
 			name: "Error/Panics",
 
 			fail: func() error { panic(fmt.Errorf("connect: %w", &driverError{})) },
-
-			expectEvent: "recovered panic",
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			transport := sentryftest.Record(t)
-
 			recorder := tracetest.NewSpanRecorder()
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 			previous := otelglobal.GetTracerProvider()
@@ -289,10 +279,6 @@ func TestPollFaults(t *testing.T) {
 			case <-time.After(pollTimeout):
 				require.FailNow(t, "Poll stopped after the failed run")
 			}
-
-			events := transport.Events()
-			require.Len(t, events, 1)
-			require.Equal(t, testCase.expectEvent, events[0].Exception[0].Value)
 
 			// Only the failed run's span names a fault, by the innermost error's type.
 			var errorTypes []string

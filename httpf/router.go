@@ -19,14 +19,13 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
-	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
 // visitor IP, the request timeout, the body limit, tracing, the report of faults on the request's
-// span and to Sentry, CORS, request logs, the planned downtime and the standard rate limit. The
-// liveness path answers during a downtime and is never rate-limited. A route under [Streaming]
-// answers past the request timeout.
+// span, CORS, request logs, the planned downtime and the standard rate limit. The liveness path
+// answers during a downtime and is never rate-limited. A route under [Streaming] answers past the
+// request timeout.
 //
 // The request's span takes the name of the route chi matched, such as "GET /v2/session/{id}", and
 // the route pattern as its http.route. A request that reaches no route keeps its method alone, such
@@ -71,13 +70,13 @@ func NewRouter(
 type serverSpanKey struct{}
 
 // recordFaults keeps the request's server span in its context, for [HandleError]. It records a panic
-// of a later handler on that span and sends it to Sentry, then passes it on to [middleware.Recoverer],
-// which answers it. It runs inside tracing, so the server span exists and the event links its trace.
-// It names that span after the request's route once the handlers return, even through a panic.
+// of a later handler on that span, then passes it on to [middleware.Recoverer], which answers it. It
+// runs inside tracing, so the server span exists. It names that span after the request's route once
+// the handlers return, even through a panic.
 func recordFaults(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
-		defer capturePanic(r.Context(), span)
+		defer capturePanic(span)
 		defer nameSpan(r.Context(), span)
 
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serverSpanKey{}, span)))
@@ -97,11 +96,10 @@ func nameSpan(ctx context.Context, span trace.Span) {
 	span.SetAttributes(semconv.HTTPRoute(pattern))
 }
 
-// capturePanic records a panic on the calling goroutine on span and sends it to Sentry, then panics
-// again with its value. Defer it directly, since recover only works from a deferred function. A
-// handler aborts its response with an [http.ErrAbortHandler] panic, which is no fault and stays out of
-// both.
-func capturePanic(ctx context.Context, span trace.Span) {
+// capturePanic records a panic on the calling goroutine on span, then panics again with its value.
+// Defer it directly, since recover only works from a deferred function. A handler aborts its response
+// with an [http.ErrAbortHandler] panic, which is no fault and stays off the span.
+func capturePanic(span trace.Span) {
 	rec := recover()
 	if rec == nil {
 		return
@@ -109,7 +107,6 @@ func capturePanic(ctx context.Context, span trace.Span) {
 
 	if rec != http.ErrAbortHandler { //nolint:errorlint // The abort is a panic value, never wrapped.
 		_ = otel.ReportPanic(span, rec)
-		sentryf.CapturePanic(ctx, rec)
 	}
 
 	panic(rec)
@@ -205,10 +202,10 @@ func EndOnShutdown(ctx context.Context) func(http.Handler) http.Handler {
 	}
 }
 
-// SendTelemetry sends the Sentry events, spans and logs of a request before its answer completes,
-// within timeout. Wrap the whole router with it, outside its tracing, so the request's own span
-// leaves too. It suits a server no consumer waits on, billed per request: its platform withdraws the
-// CPU once it answers, so telemetry left to the background would wait for the next request.
+// SendTelemetry sends the spans and logs of a request before its answer completes, within timeout.
+// Wrap the whole router with it, outside its tracing, so the request's own span leaves too. It suits
+// a server no consumer waits on, billed per request: its platform withdraws the CPU once it answers,
+// so telemetry left to the background would wait for the next request.
 func SendTelemetry(timeout time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -216,9 +213,6 @@ func SendTelemetry(timeout time.Duration) func(http.Handler) http.Handler {
 
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
 			defer cancel()
-
-			deadline, _ := ctx.Deadline()
-			sentryf.Flush(time.Until(deadline))
 
 			err := otel.ForceFlush(ctx)
 			if err != nil {

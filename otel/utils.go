@@ -13,9 +13,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/a-novel-kit/golib/internal/errtype"
-	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // errRecoveredPanic wraps the panic values [ReportPanic] records.
@@ -95,21 +92,20 @@ func ReportError(span trace.Span, err error) error {
 // the wrappers around it are the same for every fault. Through an error joining several, it follows
 // the first.
 func ErrorType(err error) attribute.KeyValue {
-	return semconv.ErrorTypeKey.String(errtype.Innermost(err))
+	return semconv.ErrorTypeKey.String(innermostType(err))
 }
 
 // ReportPanic marks span failed by rec, a value recover returned, as [ReportError] does. The span's
 // error.type names the type of rec, as [ErrorType] names the type of an error. ReportPanic returns the
 // error the span records, whose message holds rec.
 func ReportPanic(span trace.Span, rec any) error {
-	span.SetAttributes(semconv.ErrorTypeKey.String(errtype.Innermost(rec)))
+	span.SetAttributes(semconv.ErrorTypeKey.String(innermostType(rec)))
 
 	return ReportError(span, fmt.Errorf("%w: %v", errRecoveredPanic, rec))
 }
 
 // RecoverPanic absorbs a panic on the calling goroutine. It records the panic on span through
-// [ReportPanic] and sends it to Sentry through [sentryf.CapturePanic]. Defer it directly, since
-// recover only works from a deferred function.
+// [ReportPanic]. Defer it directly, since recover only works from a deferred function.
 //
 // It also emits one log record at severity ERROR, linked to span. The record's exception.type and
 // exception.stacktrace attributes hold the type of the panic and the stack it began on.
@@ -124,8 +120,32 @@ func RecoverPanic(ctx context.Context, span trace.Span) {
 	ctx = trace.ContextWithSpan(ctx, span)
 
 	Logger().ErrorContext(ctx, ReportPanic(span, rec).Error(),
-		slog.String(string(semconv.ExceptionTypeKey), errtype.Innermost(rec)),
+		slog.String(string(semconv.ExceptionTypeKey), innermostType(rec)),
 		slog.String(string(semconv.ExceptionStacktraceKey), string(debug.Stack())),
 	)
-	sentryf.CapturePanic(ctx, rec)
+}
+
+// innermostType names the type of the innermost error value wraps, such as "*pgconn.PgError". A
+// wrapped error carries no stack trace, so its innermost cause tells faults apart. Through an error
+// joining several, it follows the first. A value that wraps nothing, such as a string a panic
+// recovered, names its own type.
+func innermostType(value any) string {
+	for {
+		var next error
+
+		switch wrapper := value.(type) {
+		case interface{ Unwrap() error }:
+			next = wrapper.Unwrap()
+		case interface{ Unwrap() []error }:
+			if causes := wrapper.Unwrap(); len(causes) > 0 {
+				next = causes[0]
+			}
+		}
+
+		if next == nil {
+			return fmt.Sprintf("%T", value)
+		}
+
+		value = next
+	}
 }

@@ -4,6 +4,7 @@ A golib release that asks something of its consumers ships a guide here, named a
 
 | Version                 | What changes                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| [v0.61.0](./v0.61.0.md) | `sentryf` and `grpcf.GcloudCredentialsProvider` are removed.                                         |
 | [v0.59.0](./v0.59.0.md) | `httpf.ServiceTokenCaller` returns a request's verified caller, which `Verifier.Verify` now returns. |
 | [v0.57.0](./v0.57.0.md) | In-cluster gRPC calls balance and retry, and `NewCallLimit` replaces `MaxConcurrentCalls`.           |
 | [v0.56.0](./v0.56.0.md) | The Google Cloud telemetry presets are removed.                                                      |
