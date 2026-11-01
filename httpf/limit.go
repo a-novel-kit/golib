@@ -14,6 +14,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
+	httprateredis "github.com/go-chi/httprate-redis"
+	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/maintnotifications"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // maxBodyKeyLength caps the value [BodyKeyRate] counts, read before the handler validates it.
@@ -23,18 +28,48 @@ const maxBodyKeyLength = 1024
 var ErrInvalidBodyKey = errors.New("invalid rate limit key")
 
 // Limits builds the rate limits a service adds to [NewRouter]'s standard one, refusing excess
-// requests with 429 and Retry-After. Counters live in the process, so each instance counts on its
-// own.
+// requests with 429 and Retry-After. Their counters live in the process, so each instance counts on
+// its own, unless the config names a [RateLimitStore].
+//
+// With a store, the instances share each limit's budget. A store that fails a command, or takes
+// over 100 ms to answer it, sends the limit back to counting in the instance until the store
+// answers again. The span of each request counted that way carries rate_limit.local, set to true.
 //
 // Mount a limit on a route, with chi's With: it counts per route pattern, so path parameters share
 // one budget.
 type Limits struct {
 	enabled bool
+	// store holds the counters every instance shares, nil to keep them in the process.
+	store *redis.Client
 }
 
-// NewLimits returns the limits, which let every request through when the config disables them.
+// NewLimits returns the limits, which let every request through when the config disables them. It
+// opens no connection, so a store that does not answer yet only starts the limits counting in the
+// instance.
 func NewLimits(config ServerConfig) Limits {
-	return Limits{enabled: config.RateLimitsEnabled}
+	limits := Limits{enabled: config.RateLimitsEnabled}
+	if config.RateLimitStore.Addr == "" {
+		return limits
+	}
+
+	limits.store = redis.NewClient(&redis.Options{
+		Addr:     config.RateLimitStore.Addr,
+		Username: config.RateLimitStore.Username,
+		Password: config.RateLimitStore.Password,
+		// A limit counts in the instance once a command fails. A slow store fails fast: one dial and no
+		// retry, within the timeouts httprate-redis gives its own client.
+		DialTimeout:   200 * time.Millisecond,
+		DialerRetries: 1,
+		ReadTimeout:   100 * time.Millisecond,
+		WriteTimeout:  100 * time.Millisecond,
+		MaxRetries:    -1,
+		// A connection logs in with HELLO alone, so the store's ACL can deny every other connection
+		// command.
+		DisableIdentity:          true,
+		MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled},
+	})
+
+	return limits
 }
 
 // By caps the requests sharing key at rate on each route.
@@ -43,9 +78,47 @@ func (limits Limits) By(rate Rate, key httprate.KeyFunc) func(http.Handler) http
 		return func(next http.Handler) http.Handler { return next }
 	}
 
-	return httprate.LimitBy(
-		rate.Requests, rate.Window, httprate.JoinKeys(key, routeKey), httprate.WithErrorHandler(refuseKey),
+	perRoute := httprate.JoinKeys(key, routeKey)
+	if limits.store != nil {
+		return limits.byStore(rate, perRoute)
+	}
+
+	return httprate.LimitBy(rate.Requests, rate.Window, perRoute, httprate.WithErrorHandler(refuseKey))
+}
+
+// byStore builds a limit of [Limits.By] that counts through the store. Each limit takes a counter of
+// its own, which carries its window and its fallback to the instance's counters.
+func (limits Limits) byStore(rate Rate, key httprate.KeyFunc) func(http.Handler) http.Handler {
+	counter := httprateredis.NewCounter(&httprateredis.Config{Client: limits.store})
+
+	refuseRate := func(w http.ResponseWriter, r *http.Request) {
+		recordLocal(r, counter.IsFallbackActivated())
+		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+	}
+
+	// Every limit counts in one store, so the key names the rate too. Two limits of one route and
+	// key, such as 10 per minute and 30 per 10 minutes, then stay apart when their windows start
+	// together.
+	limit := httprate.LimitBy(
+		rate.Requests, rate.Window, httprate.JoinKeys(key, httprate.Key(rate.String())),
+		httprate.WithLimitCounter(counter),
+		httprate.WithLimitHandler(refuseRate),
+		httprate.WithErrorHandler(refuseKey),
 	)
+
+	return func(next http.Handler) http.Handler {
+		return limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			recordLocal(r, counter.IsFallbackActivated())
+			next.ServeHTTP(w, r)
+		}))
+	}
+}
+
+// recordLocal marks the span of r as counted in the instance, when local holds.
+func recordLocal(r *http.Request, local bool) {
+	if local {
+		serverSpan(r.Context()).SetAttributes(attribute.Bool("rate_limit.local", true))
+	}
 }
 
 // LimitConcurrency caps the requests a route handles at once, per instance, answering any beyond
