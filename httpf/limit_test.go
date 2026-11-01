@@ -1,6 +1,7 @@
 package httpf_test
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -184,6 +185,70 @@ func TestLimitConcurrency(t *testing.T) {
 	close(release)
 	require.Equal(t, http.StatusOK, (<-held).Code)
 	require.Equal(t, http.StatusOK, (<-held).Code)
+}
+
+func TestLimitConcurrencyBy(t *testing.T) {
+	t.Parallel()
+
+	errKey := errors.New("no key")
+
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+
+	// Both routes share the cap of one request per caller, named by the Caller header.
+	limit := httpf.LimitConcurrencyBy(1, func(r *http.Request) (string, error) {
+		caller := r.Header.Get("Caller")
+		if caller == "" {
+			return "", errKey
+		}
+
+		return caller, nil
+	})
+
+	slow := func(w http.ResponseWriter, _ *http.Request) {
+		started <- struct{}{}
+
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}
+
+	router := chi.NewRouter()
+	router.With(limit).Get("/first", slow)
+	router.With(limit).Get("/second", slow)
+
+	send := func(path, caller string) *httptest.ResponseRecorder {
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		if caller != "" {
+			request.Header.Set("Caller", caller)
+		}
+
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+
+		return response
+	}
+
+	held := make(chan *httptest.ResponseRecorder, 2)
+
+	go func() { held <- send("/first", "marie") }()
+	go func() { held <- send("/first", "paul") }()
+
+	<-started
+	<-started
+
+	// Marie holds her one slot, on either route; Paul's request does not count against her.
+	refused := send("/second", "marie")
+	require.Equal(t, http.StatusTooManyRequests, refused.Code)
+	require.Equal(t, "1", refused.Header().Get("Retry-After"))
+
+	require.Equal(t, http.StatusBadRequest, send("/first", "").Code)
+
+	close(release)
+	require.Equal(t, http.StatusOK, (<-held).Code)
+	require.Equal(t, http.StatusOK, (<-held).Code)
+
+	// Her slot freed up once her request returned.
+	require.Equal(t, http.StatusOK, send("/second", "marie").Code)
 }
 
 func TestBodyKeyRate(t *testing.T) {
