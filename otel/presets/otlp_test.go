@@ -50,7 +50,7 @@ func (receiver *otlpReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	receiver.mu.Lock()
 	receiver.exports[r.URL.Path] = append(receiver.exports[r.URL.Path], otlpExport{
-		auth:     r.Header.Get("X-Sentry-Auth"),
+		auth:     r.Header.Get("Authorization"),
 		encoding: r.Header.Get("Content-Encoding"),
 		body:     body,
 	})
@@ -67,7 +67,7 @@ func decodeExports[M proto.Message](t *testing.T, exports []otlpExport, newMessa
 	messages := make([]M, 0, len(exports))
 
 	for _, export := range exports {
-		require.Equal(t, "sentry sentry_key=public", export.auth)
+		require.Equal(t, "Basic b3RscDp0ZXN0", export.auth)
 		require.Equal(t, "gzip", export.encoding)
 
 		reader, err := gzip.NewReader(bytes.NewReader(export.body))
@@ -112,7 +112,7 @@ func TestOTLP(t *testing.T) {
 		t.Cleanup(server.Close)
 
 		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", server.URL)
-		t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "x-sentry-auth=sentry sentry_key=public")
+		t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Basic b3RscDp0ZXN0")
 		t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
 
 		config := &otelpresets.OTLP{UntracedPaths: []string{"/ping"}}

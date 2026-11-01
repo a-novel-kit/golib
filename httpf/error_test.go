@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +24,6 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/httpf"
 	"github.com/a-novel-kit/golib/otel"
-	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
 // logEntry is one call recorded by recordingLog.
@@ -320,8 +318,9 @@ func (*driverError) Error() string {
 	return "password authentication failed for user=secret"
 }
 
-//nolint:paralleltest // Records through the process-wide Sentry reporter.
 func TestHandleErrorFaults(t *testing.T) {
+	t.Parallel()
+
 	errMapped := errors.New("mapped")
 	errValidation := validator.New().Var("jane.doe", "email")
 
@@ -337,7 +336,7 @@ func TestHandleErrorFaults(t *testing.T) {
 		errMap httpf.ErrMap
 		err    error
 
-		// The innermost type of a server fault. Empty expects no event and no error.type.
+		// The innermost type of a server fault. Empty expects no error.type.
 		expectType string
 	}{
 		{
@@ -376,33 +375,22 @@ func TestHandleErrorFaults(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			transport := sentryftest.Record(t)
+			t.Parallel()
 
 			recorder := tracetest.NewSpanRecorder()
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 
 			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
 
-			var spanContext trace.SpanContext
-
 			router := httpf.NewRouter(httpf.ServerConfigDefault, &tracedConfig{provider: provider}, nil, nil)
 			router.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
 				ctx, span := provider.Tracer("httpf-test").Start(r.Context(), "handler")
 				defer span.End()
 
-				spanContext = span.SpanContext()
-
 				httpf.HandleError(ctx, &recordingLog{}, w, span, testCase.errMap, testCase.err)
 			})
 
-			// Nothing a visitor sends reaches Sentry.
-			request := httptest.NewRequestWithContext(
-				t.Context(), http.MethodGet, "/items/secret?token=secret", strings.NewReader("secret"),
-			)
-			request.RemoteAddr = "203.0.113.7:41234"
-			request.Header.Set("Authorization", "Bearer secret")
-			request.Header.Set("Cookie", "session=secret")
-
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/items/1", nil)
 			router.ServeHTTP(httptest.NewRecorder(), request)
 
 			// The handler's span ends first. The server span then names the fault.
@@ -413,27 +401,6 @@ func TestHandleErrorFaults(t *testing.T) {
 			attributes := attribute.NewSet(spans[1].Attributes()...)
 			errorType, _ := attributes.Value("error.type")
 			require.Equal(t, testCase.expectType, errorType.AsString())
-
-			events := transport.Events()
-			if testCase.expectType == "" {
-				require.Empty(t, events)
-
-				return
-			}
-
-			require.Len(t, events, 1)
-
-			event := events[0]
-			require.Equal(t, []string{"GET /items/{id}", testCase.expectType}, event.Fingerprint)
-			require.Equal(t, sentryftest.Release, event.Release)
-			require.Equal(t, spanContext.TraceID().String(), event.Contexts["trace"]["trace_id"])
-			require.Equal(t, spanContext.SpanID().String(), event.Contexts["trace"]["span_id"])
-			require.Nil(t, event.Request)
-
-			payload, err := json.Marshal(event)
-			require.NoError(t, err)
-			require.NotContains(t, string(payload), "secret")
-			require.NotContains(t, string(payload), "203.0.113.7")
 		})
 	}
 }

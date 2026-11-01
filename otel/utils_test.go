@@ -2,13 +2,11 @@ package otel_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/require"
 
 	gootel "go.opentelemetry.io/otel"
@@ -23,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/a-novel-kit/golib/otel"
-	"github.com/a-novel-kit/golib/sentryf/sentryftest"
 )
 
 // driverError stands for an error type of a dependency, whose message holds caller input.
@@ -238,10 +235,8 @@ func panicDetached(ctx context.Context, span trace.Span) {
 	panic("secret")
 }
 
-//nolint:paralleltest // Records through the process-wide Sentry reporter and logger provider.
+//nolint:paralleltest // Records through the process-wide logger provider.
 func TestRecoverPanicFaults(t *testing.T) {
-	transport := sentryftest.Record(t)
-
 	exporter := &recordingExporter{}
 	gootel.SetLoggerProvider(sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter))))
 	t.Cleanup(func() { gootel.SetLoggerProvider(lognoop.NewLoggerProvider()) })
@@ -278,26 +273,6 @@ func TestRecoverPanicFaults(t *testing.T) {
 
 	require.Equal(t, "string", exceptionType.AsString())
 	require.Contains(t, stacktrace.AsString(), "otel_test.panicDetached")
-
-	events := transport.Events()
-	require.Len(t, events, 1)
-
-	event := events[0]
-	require.Equal(t, "string", event.Exception[0].Type)
-	require.Equal(t, sentryftest.Release, event.Release)
-	require.Equal(t, sentry.Context{
-		"trace_id": span.SpanContext().TraceID().String(),
-		"span_id":  span.SpanContext().SpanID().String(),
-	}, event.Contexts["trace"])
-	require.Nil(t, event.Request)
-
-	// The stack ends where the panic began.
-	frames := event.Exception[0].Stacktrace.Frames
-	require.Equal(t, "panicDetached", frames[len(frames)-1].Function)
-
-	payload, err := json.Marshal(event)
-	require.NoError(t, err)
-	require.NotContains(t, string(payload), "secret")
 }
 
 //nolint:paralleltest // Swaps the process-wide tracer provider.

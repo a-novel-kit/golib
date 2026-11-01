@@ -11,15 +11,14 @@ import (
 
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/otel"
-	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // Fault returns the error a handler answers a server fault with, such as
 // Fault(codes.Internal, "internal error", err). The caller receives code and msg alone.
 //
 // A server from [NewServer] reports a call that ends with Internal or Unavailable as a fault. The
-// call's server span and its Sentry event both name the type of the innermost error the call
-// returned. A bare status error wraps nothing, so Fault keeps cause for that type.
+// call's server span names the type of the innermost error the call returned. A bare status error
+// wraps nothing, so Fault keeps cause for that type.
 func Fault(code codes.Code, msg string, cause error) error {
 	return &faultError{status: status.New(code, msg), cause: cause}
 }
@@ -45,31 +44,29 @@ func (err *faultError) Unwrap() error {
 
 // captureUnaryInterceptor reports the server fault a unary call ends with.
 func captureUnaryInterceptor(
-	ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 ) (any, error) {
 	response, err := handler(ctx, req)
-	captureFault(ctx, info.FullMethod, err)
+	captureFault(ctx, err)
 
 	return response, err
 }
 
 // captureStreamInterceptor reports the server fault a streaming call ends with.
 func captureStreamInterceptor(
-	srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler,
+	srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler,
 ) error {
 	err := handler(srv, ss)
-	captureFault(ss.Context(), info.FullMethod, err)
+	captureFault(ss.Context(), err)
 
 	return err
 }
 
-// captureFault reports err when it ends the call to method with Internal or Unavailable: the call's
-// server span names its type, and Sentry receives it. A dependency's planned downtime refusal is not
-// a fault.
-func captureFault(ctx context.Context, method string, err error) {
+// captureFault reports err when it ends the call with Internal or Unavailable: the call's server
+// span names its type. A dependency's planned downtime refusal is not a fault.
+func captureFault(ctx context.Context, err error) {
 	code := status.Code(err)
 	if (code == codes.Internal || code == codes.Unavailable) && !downtime.Refused(err) {
 		trace.SpanFromContext(ctx).SetAttributes(otel.ErrorType(err))
-		sentryf.Capture(ctx, method, err)
 	}
 }

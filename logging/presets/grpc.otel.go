@@ -14,7 +14,7 @@ var _ logging.RPCConfig = (*GRPCOTel)(nil)
 
 // GRPCOTel implements [logging.RPCConfig] for a server whose RPC spans record each call, so it logs
 // no call. Its recovery turns a handler panic into an internal error, reports the panic on the RPC
-// span, logs it through the global OpenTelemetry logger provider and sends it to Sentry.
+// span and logs it through the global OpenTelemetry logger provider.
 type GRPCOTel struct{}
 
 // UnaryInterceptor passes each unary call through: its RPC span is its record.

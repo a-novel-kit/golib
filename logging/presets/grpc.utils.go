@@ -13,7 +13,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	libotel "github.com/a-novel-kit/golib/otel"
-	"github.com/a-novel-kit/golib/sentryf"
 )
 
 // logFinishedCalls logs each call once, when it finishes, with its start time and duration.
@@ -38,12 +37,11 @@ func logTraceID(ctx context.Context) grpclog.Fields {
 
 // panicInterceptor answers a recovered panic with a fixed Internal status. The panic value can hold
 // anything the failing code held, such as a connection string, so it goes only to the RPC span and
-// the log. The span's error.type and Sentry receive the panic's type, and Sentry its stack.
+// the log. The span's error.type names the panic's type, and the log holds its stack.
 func panicInterceptor(l *slog.Logger) recovery.RecoveryHandlerFuncContext {
 	return func(ctx context.Context, p any) error {
 		_ = libotel.ReportPanic(trace.SpanFromContext(ctx), p)
 		l.ErrorContext(ctx, "recovered from panic", "panic", p, "stack", string(debug.Stack()))
-		sentryf.CapturePanic(ctx, p)
 
 		return status.Error(codes.Internal, "internal error")
 	}
