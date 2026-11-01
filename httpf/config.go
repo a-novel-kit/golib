@@ -5,13 +5,19 @@ import (
 	"time"
 
 	"github.com/a-novel-kit/golib/config"
+	"github.com/a-novel-kit/golib/servertls"
 )
 
-// ServerConfig configures a REST server: its port, request lifecycle, body and rate limits, and
-// CORS. [LoadServerConfig] reads it from the REST_* environment variables.
+// ServerConfig configures a REST server: its ports and TLS, request lifecycle, body and rate limits,
+// and CORS. [LoadServerConfig] reads it from the REST_* environment variables.
 type ServerConfig struct {
 	// Port is the port the server listens on.
 	Port int `json:"port" yaml:"port"`
+	// TLS names the key pair the server presents. Once it does, [ListenAndServe] serves TLS on Port.
+	TLS servertls.Files `json:"tls" yaml:"tls"`
+	// PlaintextPort, when not zero, also serves plaintext there, so callers move to a TLS Port
+	// without a failed call.
+	PlaintextPort int `json:"plaintextPort" yaml:"plaintextPort"`
 	// Liveness is the ping path, which answers during a planned downtime and is never rate-limited.
 	Liveness string `json:"liveness" yaml:"liveness"`
 	// Timeouts bound each phase of a request.
@@ -99,8 +105,13 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 	stringSlice := config.SliceParser(config.StringParser)
 
 	return ServerConfig{
-		Port:     config.LoadEnv(getenv("REST_PORT"), defaults.Port, config.IntParser),
-		Liveness: config.LoadEnv(getenv("REST_LIVENESS_PATH"), defaults.Liveness, config.StringParser),
+		Port: config.LoadEnv(getenv("REST_PORT"), defaults.Port, config.IntParser),
+		TLS: servertls.Files{
+			CertFile: config.LoadEnv(getenv("REST_TLS_CERT_FILE"), defaults.TLS.CertFile, config.StringParser),
+			KeyFile:  config.LoadEnv(getenv("REST_TLS_KEY_FILE"), defaults.TLS.KeyFile, config.StringParser),
+		},
+		PlaintextPort: config.LoadEnv(getenv("REST_PLAINTEXT_PORT"), defaults.PlaintextPort, config.IntParser),
+		Liveness:      config.LoadEnv(getenv("REST_LIVENESS_PATH"), defaults.Liveness, config.StringParser),
 		Timeouts: ServerTimeouts{
 			Read:       config.LoadEnv(getenv("REST_TIMEOUT_READ"), defaults.Timeouts.Read, config.DurationParser),
 			ReadHeader: config.LoadEnv(getenv("REST_TIMEOUT_READ_HEADER"), defaults.Timeouts.ReadHeader, config.DurationParser),

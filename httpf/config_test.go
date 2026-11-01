@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/servertls"
 )
 
 func TestLoadServerConfig(t *testing.T) {
@@ -37,6 +38,9 @@ func TestLoadServerConfig(t *testing.T) {
 
 			env: map[string]string{
 				"REST_PORT":                      "9090",
+				"REST_TLS_CERT_FILE":             "/etc/tls/tls.crt",
+				"REST_TLS_KEY_FILE":              "/etc/tls/tls.key",
+				"REST_PLAINTEXT_PORT":            "8080",
 				"REST_LIVENESS_PATH":             "/v2/ping",
 				"REST_CORS_ALLOWED_METHODS":      "GET,HEAD",
 				"REST_TIMEOUT_READ":              "1s",
@@ -60,8 +64,10 @@ func TestLoadServerConfig(t *testing.T) {
 			defaults: httpf.ServerConfigDefault,
 
 			expect: httpf.ServerConfig{
-				Port:     9090,
-				Liveness: "/v2/ping",
+				Port:          9090,
+				TLS:           servertls.Files{CertFile: "/etc/tls/tls.crt", KeyFile: "/etc/tls/tls.key"},
+				PlaintextPort: 8080,
+				Liveness:      "/v2/ping",
 				Timeouts: httpf.ServerTimeouts{
 					Read:       time.Second,
 					ReadHeader: 2 * time.Second,
