@@ -69,18 +69,19 @@ func NewVerifier(config Config, client *http.Client) *Verifier {
 	})}
 }
 
-// Verify checks a service token. An error matching [jwt.ErrTokenRejected] refuses the token, which
+// Verify checks a service token and returns its caller, the subject the token names, such as
+// system:serviceaccount:studio:web. An error matching [jwt.ErrTokenRejected] refuses the token, which
 // the caller resolves by sending a valid one. Any other error is the server's fault, such as an
 // issuer it cannot reach.
-func (verifier *Verifier) Verify(ctx context.Context, token string) error {
+func (verifier *Verifier) Verify(ctx context.Context, token string) (string, error) {
 	var claims jwa.Claims
 
 	err := verifier.recipient.Consume(ctx, token, &claims)
 	if err != nil {
-		return fmt.Errorf("verify service token: %w", err)
+		return "", fmt.Errorf("verify service token: %w", err)
 	}
 
-	return nil
+	return claims.Sub, nil
 }
 
 // callerCheck rejects a token from another issuer, for another audience, or from a subject outside

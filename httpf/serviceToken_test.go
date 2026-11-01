@@ -125,3 +125,87 @@ func TestServiceTokenMiddleware(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceTokenCaller(t *testing.T) {
+	t.Parallel()
+
+	const (
+		audience = "authentication"
+		caller   = "system:serviceaccount:studio:web"
+		liveness = "/v2/ping"
+	)
+
+	issuer := servicetokentest.NewIssuer(t)
+	config := servicetoken.Config{Issuer: issuer.URL, Audience: audience, Callers: []string{caller}}
+
+	withServiceToken := httpf.ServiceTokenMiddleware(
+		servicetoken.NewVerifier(config, http.DefaultClient), &recordingLog{}, liveness,
+	)
+	withoutServiceToken := func(next http.Handler) http.Handler { return next }
+
+	valid := issuer.Sign(t, issuer.Claims(caller, audience))
+
+	testCases := []struct {
+		name string
+
+		middleware func(http.Handler) http.Handler
+		path       string
+		token      string
+
+		expectCaller string
+		expectOK     bool
+	}{
+		{
+			name: "Success",
+
+			middleware: withServiceToken,
+			path:       "/v2/session",
+			token:      valid,
+
+			expectCaller: caller,
+			expectOK:     true,
+		},
+		{
+			// The open path admits a request without a service token, which names no caller.
+			name: "Success/NoServiceToken",
+
+			middleware: withServiceToken,
+			path:       liveness,
+		},
+		{
+			// Without the middleware, nothing verifies the token, so it names no caller.
+			name: "Success/MiddlewareDisabled",
+
+			middleware: withoutServiceToken,
+			path:       "/v2/session",
+			token:      valid,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				gotCaller string
+				gotOK     bool
+			)
+
+			next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				gotCaller, gotOK = httpf.ServiceTokenCaller(r.Context())
+			})
+
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, testCase.path, nil)
+			if testCase.token != "" {
+				request.Header.Set(servicetoken.Header, testCase.token)
+			}
+
+			recorder := httptest.NewRecorder()
+			testCase.middleware(next).ServeHTTP(recorder, request)
+
+			require.Equal(t, http.StatusOK, recorder.Code)
+			require.Equal(t, testCase.expectCaller, gotCaller)
+			require.Equal(t, testCase.expectOK, gotOK)
+		})
+	}
+}

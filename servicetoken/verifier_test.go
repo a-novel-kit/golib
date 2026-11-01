@@ -103,9 +103,10 @@ func TestVerifier(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := verifier.Verify(t.Context(), testCase.token)
+			caller, err := verifier.Verify(t.Context(), testCase.token)
 			if !testCase.expectRejected {
 				require.NoError(t, err)
+				require.Equal(t, testCaller, caller)
 
 				return
 			}
@@ -127,7 +128,7 @@ func TestVerifier(t *testing.T) {
 			Callers:  []string{testCaller},
 		}, http.DefaultClient)
 
-		err := faulty.Verify(t.Context(), issuer.Sign(t, issuer.Claims(testCaller, testAudience)))
+		_, err := faulty.Verify(t.Context(), issuer.Sign(t, issuer.Claims(testCaller, testAudience)))
 		require.Error(t, err)
 		require.NotErrorIs(t, err, jwt.ErrTokenRejected)
 	})

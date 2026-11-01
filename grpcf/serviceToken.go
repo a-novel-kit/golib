@@ -65,7 +65,7 @@ func checkServiceToken(ctx context.Context, verifier *servicetoken.Verifier, met
 		return status.Errorf(codes.Unauthenticated, "expected one %s header", servicetoken.Header)
 	}
 
-	err := verifier.Verify(ctx, tokens[0])
+	_, err := verifier.Verify(ctx, tokens[0])
 
 	switch {
 	case errors.Is(err, jwt.ErrTokenRejected):
