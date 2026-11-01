@@ -27,6 +27,9 @@ type ServerConfig struct {
 	// RateLimit caps each visitor's requests on each route, through the standard limit [NewRouter]
 	// installs.
 	RateLimit Rate `json:"rateLimit" yaml:"rateLimit"`
+	// RateLimitStore holds the counters of the limits [Limits] builds, so every instance shares their
+	// budgets. Its zero value keeps them in each instance, as the standard limit always does.
+	RateLimitStore RateLimitStore `json:"rateLimitStore" yaml:"rateLimitStore"`
 	// Cors configures cross-origin requests.
 	Cors CorsConfig `json:"cors" yaml:"cors"`
 }
@@ -41,6 +44,17 @@ type ServerTimeouts struct {
 	Request time.Duration `json:"request" yaml:"request"`
 	// Shutdown bounds the drain of active requests before remaining connections close.
 	Shutdown time.Duration `json:"shutdown" yaml:"shutdown"`
+}
+
+// RateLimitStore locates the Valkey or Redis server that holds the counters of [Limits]. The counters
+// key by route and caller, so each service needs a store of its own.
+type RateLimitStore struct {
+	// Addr is the server's host:port. Empty keeps the counters in the process.
+	Addr string `json:"addr" yaml:"addr"`
+	// Username names the server's ACL user. Empty logs in as the default user.
+	Username string `json:"username" yaml:"username"`
+	// Password is the user's credential. It is never serialized.
+	Password string `json:"-" yaml:"-"`
 }
 
 // CorsConfig configures cross-origin requests.
@@ -99,6 +113,15 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 		ClientIPHeader:    config.LoadEnv(getenv("REST_CLIENT_IP_HEADER"), defaults.ClientIPHeader, config.StringParser),
 		RateLimitsEnabled: config.LoadEnv(getenv("REST_RATE_LIMITS_ENABLED"), defaults.RateLimitsEnabled, config.BoolParser),
 		RateLimit:         config.LoadEnv(getenv("REST_RATE_LIMIT"), defaults.RateLimit, ParseRate),
+		RateLimitStore: RateLimitStore{
+			Addr: config.LoadEnv(getenv("REST_RATE_LIMIT_STORE_ADDR"), defaults.RateLimitStore.Addr, config.StringParser),
+			Username: config.LoadEnv(
+				getenv("REST_RATE_LIMIT_STORE_USERNAME"), defaults.RateLimitStore.Username, config.StringParser,
+			),
+			Password: config.LoadEnv(
+				getenv("REST_RATE_LIMIT_STORE_PASSWORD"), defaults.RateLimitStore.Password, config.StringParser,
+			),
+		},
 		Cors: CorsConfig{
 			AllowedOrigins: config.LoadEnv(getenv("REST_CORS_ALLOWED_ORIGINS"), defaults.Cors.AllowedOrigins, stringSlice),
 			AllowedHeaders: config.LoadEnv(getenv("REST_CORS_ALLOWED_HEADERS"), defaults.Cors.AllowedHeaders, stringSlice),
