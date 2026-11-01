@@ -25,7 +25,8 @@ import (
 // NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
 // visitor IP, the request timeout, the body limit, tracing, the report of faults on the request's
 // span and to Sentry, CORS, request logs, the planned downtime and the standard rate limit. The
-// liveness path answers during a downtime and is never rate-limited.
+// liveness path answers during a downtime and is never rate-limited. A route under [Streaming]
+// answers past the request timeout.
 //
 // The request's span takes the name of the route chi matched, such as "GET /v2/session/{id}", and
 // the route pattern as its http.route. A request that reaches no route keeps its method alone, such
@@ -46,7 +47,7 @@ func NewRouter(
 		router.Use(middleware.ClientIPFromHeader(config.ClientIPHeader))
 	}
 
-	router.Use(middleware.Timeout(config.Timeouts.Request))
+	router.Use(requestTimeout(config.Timeouts.Request))
 	router.Use(middleware.RequestSize(config.MaxRequestSize))
 	router.Use(tracing.HTTPHandler())
 	router.Use(recordFaults)

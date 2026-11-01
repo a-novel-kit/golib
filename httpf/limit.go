@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -55,6 +56,63 @@ func LimitConcurrency(maxConcurrent int) func(http.Handler) http.Handler {
 		Limit:        maxConcurrent,
 		RetryAfterFn: func(bool) time.Duration { return time.Second },
 	})
+}
+
+// LimitConcurrencyBy caps the requests sharing a key that its routes handle at once, per instance,
+// answering any beyond it with 429 and a one-second Retry-After. Use it on routes whose requests
+// last, such as streams, so one caller cannot hold every connection. Mount one value on several
+// routes and they share the cap. A request whose key cannot be computed answers 400.
+func LimitConcurrencyBy(maxConcurrent int, key httprate.KeyFunc) func(http.Handler) http.Handler {
+	var (
+		mu sync.Mutex
+		// open counts the requests in flight per key. A key leaves it with its last request.
+		open = map[string]int{}
+	)
+
+	acquire := func(name string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if open[name] >= maxConcurrent {
+			return false
+		}
+
+		open[name]++
+
+		return true
+	}
+
+	release := func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		open[name]--
+		if open[name] == 0 {
+			delete(open, name)
+		}
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			name, err := key(r)
+			if err != nil {
+				refuseKey(w, r, err)
+
+				return
+			}
+
+			if !acquire(name) {
+				w.Header().Set("Retry-After", "1")
+				http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+
+				return
+			}
+
+			defer release(name)
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // VisitorKey keys a limit by the visitor IP. An IPv6 visitor counts per /64, the block one client
