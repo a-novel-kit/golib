@@ -1,6 +1,7 @@
 package smtp_test
 
 import (
+	"net/mail"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,7 +62,17 @@ func TestMailUser(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, testCase.expect, testCase.user.String())
+			got := testCase.user.String()
+			require.Equal(t, testCase.expect, got)
+
+			// RFC 5322 §3.4 allows only printable ASCII in a header without SMTPUTF8, and the
+			// mailbox reads back to the same participant.
+			requireHeaderASCII(t, got)
+
+			parsed, err := mail.ParseAddress(got)
+			require.NoError(t, err)
+			require.Equal(t, testCase.user.Name, parsed.Name)
+			require.Equal(t, testCase.user.Email, parsed.Address)
 		})
 	}
 }
@@ -72,6 +83,28 @@ func TestMailUsers(t *testing.T) {
 	users := smtp.MailUsers{{Name: "Jane", Email: "jane@example.com"}, {Email: "john@example.com"}}
 
 	require.Equal(t, `"Jane" <jane@example.com>, <john@example.com>`, users.String())
+
+	parsed, err := mail.ParseAddressList(users.String())
+	require.NoError(t, err)
+	require.Len(t, parsed, len(users))
+
+	for i, user := range users {
+		require.Equal(t, user.Name, parsed[i].Name)
+		require.Equal(t, user.Email, parsed[i].Address)
+	}
+
 	require.Equal(t, []string{"jane@example.com", "john@example.com"}, users.Emails())
 	require.Empty(t, smtp.MailUsers{}.String())
+}
+
+// requireHeaderASCII fails unless header holds printable ASCII and spaces only, as a header field
+// body without SMTPUTF8 does.
+func requireHeaderASCII(t *testing.T, header string) {
+	t.Helper()
+
+	for i := range len(header) {
+		if c := header[i]; c < ' ' || c > '~' {
+			require.Failf(t, "non-ASCII header", "byte %#x at offset %d in %q", c, i, header)
+		}
+	}
 }
