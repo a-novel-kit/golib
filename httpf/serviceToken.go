@@ -2,6 +2,7 @@ package httpf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -30,6 +31,9 @@ type serviceTokenCallerKey struct{}
 // [ServiceTokenCaller]. A request to a path listed in open passes unchecked, such as the liveness
 // route the kubelet probes without a token. [HandleError] answers each refusal and logs it through
 // logger.
+//
+// A refused token answers 401 with the WWW-Authenticate challenge RFC 9110 §15.5.2 requires, which
+// [serviceTokenChallenge] describes.
 func ServiceTokenMiddleware(
 	verifier *servicetoken.Verifier, logger logging.Log, open ...string,
 ) func(http.Handler) http.Handler {
@@ -41,8 +45,14 @@ func ServiceTokenMiddleware(
 				return
 			}
 
-			caller, err := verifyServiceToken(r.Context(), verifier, r.Header.Values(servicetoken.Header))
+			tokens := r.Header.Values(servicetoken.Header)
+
+			caller, err := verifyServiceToken(r.Context(), verifier, tokens)
 			if err != nil {
+				if errors.Is(err, jwt.ErrTokenRejected) {
+					w.Header().Set("WWW-Authenticate", serviceTokenChallenge(len(tokens)))
+				}
+
 				HandleError(r.Context(), logger, w, trace.SpanFromContext(r.Context()), serviceTokenErrors, err)
 
 				return
@@ -61,6 +71,24 @@ func ServiceTokenCaller(ctx context.Context) (string, bool) {
 	caller, ok := ctx.Value(serviceTokenCallerKey{}).(string)
 
 	return caller, ok
+}
+
+// serviceTokenChallenge returns the challenge that refuses a request carrying count service tokens.
+// A service token is a bearer token, so the challenge follows RFC 6750 §3: no error code when the
+// request sent none, invalid_request for several, and invalid_token for one the verifier refused.
+//
+// Two deviations from RFC 6750 are deliberate. The token travels in [servicetoken.Header], not in
+// Authorization (§2.1), which stays for the credentials of an end user. Several tokens answer 401,
+// not the 400 §3.1 suggests, so a caller handles every refusal on one status.
+func serviceTokenChallenge(count int) string {
+	switch count {
+	case 0:
+		return "Bearer"
+	case 1:
+		return `Bearer error="invalid_token"`
+	default:
+		return `Bearer error="invalid_request"`
+	}
 }
 
 // verifyServiceToken verifies the one token a request's service token header must hold, and returns

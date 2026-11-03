@@ -159,4 +159,26 @@ func TestDefault(t *testing.T) {
 
 		require.Equal(t, 2, db.Stats().MaxOpenConnections)
 	})
+
+	t.Run("Success/SchemaNameAsWritten", func(t *testing.T) {
+		t.Parallel()
+
+		config := testConfig(t)
+
+		// Case, a space and a quote only survive as a quoted identifier, in the statement and in
+		// search_path alike.
+		schema := `Literal "Schema" ` + rand.Text()
+
+		t.Cleanup(func() {
+			require.NoError(t, config.DropSchema(context.Background(), schema))
+		})
+
+		db, err := config.DBSchema(t.Context(), schema, true)
+		require.NoError(t, err)
+
+		var current string
+
+		require.NoError(t, db.NewRaw("SELECT current_schema()").Scan(t.Context(), &current))
+		require.Equal(t, schema, current)
+	})
 }

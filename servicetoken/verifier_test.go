@@ -115,6 +115,35 @@ func TestVerifier(t *testing.T) {
 		})
 	}
 
+	t.Run("Success/IssuerTrailingSlash", func(t *testing.T) {
+		t.Parallel()
+
+		// OpenID Connect Discovery drops the issuer's terminating slash before the well-known path.
+		// A client that follows no redirect proves the verifier asks for that exact path.
+		server := httptest.NewUnstartedServer(nil)
+
+		slashed, err := servicetokentest.NewIssuerAt("http://" + server.Listener.Addr().String() + "/")
+		require.NoError(t, err)
+
+		server.Config.Handler = slashed
+		server.Start()
+		t.Cleanup(server.Close)
+
+		client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
+
+		slashedVerifier := servicetoken.NewVerifier(servicetoken.Config{
+			Issuer:   slashed.URL,
+			Audience: testAudience,
+			Callers:  []string{testCaller},
+		}, client)
+
+		caller, err := slashedVerifier.Verify(t.Context(), slashed.Sign(t, slashed.Claims(testCaller, testAudience)))
+		require.NoError(t, err)
+		require.Equal(t, testCaller, caller)
+	})
+
 	t.Run("Error/IssuerUnreachable", func(t *testing.T) {
 		t.Parallel()
 

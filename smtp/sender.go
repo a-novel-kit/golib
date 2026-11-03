@@ -1,7 +1,7 @@
 package smtp
 
 import (
-	"fmt"
+	"net/mail"
 	"strings"
 	"text/template"
 
@@ -15,9 +15,11 @@ type MailUser struct {
 	Email string
 }
 
-// String renders the participant as an RFC 5322 address, "Name <email>".
+// String renders the participant as an RFC 5322 §3.4 mailbox, such as `"Name" <email>`, or
+// `<email>` without a name. The display name is quoted, or encoded as RFC 2047 prescribes when it
+// holds a character outside printable ASCII, so no name can split or end the header it sits in.
 func (mailUser MailUser) String() string {
-	return fmt.Sprintf("%s <%s>", mailUser.Name, mailUser.Email)
+	return (&mail.Address{Name: mailUser.Name, Address: mailUser.Email}).String()
 }
 
 // MailUsers is a list of recipients.
@@ -26,9 +28,17 @@ type MailUsers []MailUser
 // String renders every recipient as a comma-separated address list, suitable
 // for a message header.
 func (mailUsers MailUsers) String() string {
-	return strings.Join(lo.Map(mailUsers, func(item MailUser, _ int) string {
-		return item.String()
-	}), ", ")
+	var list strings.Builder
+
+	for i, mailUser := range mailUsers {
+		if i > 0 {
+			list.WriteString(", ")
+		}
+
+		list.WriteString(mailUser.String())
+	}
+
+	return list.String()
 }
 
 // Emails returns just the email addresses, dropping the display names.
