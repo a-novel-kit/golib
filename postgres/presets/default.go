@@ -15,15 +15,14 @@ import (
 )
 
 const (
-	// createSchemaStmt is the format string for the statement that creates a schema.
-	// Schema names cannot be bound as query parameters, so the name is
-	// interpolated into the statement.
-	createSchemaStmt = "CREATE SCHEMA IF NOT EXISTS %s;"
+	// createSchemaStmt creates the schema its argument names. A schema name cannot be bound as a
+	// query parameter, so bun quotes it into the statement as an identifier.
+	createSchemaStmt = "CREATE SCHEMA IF NOT EXISTS ?;"
 
 	// dropSchemaStmt is the counterpart for DropSchema. CASCADE takes the objects
 	// created inside the schema with it, so a migrated test schema drops in one
 	// statement.
-	dropSchemaStmt = "DROP SCHEMA IF EXISTS %s CASCADE;"
+	dropSchemaStmt = "DROP SCHEMA IF EXISTS ? CASCADE;"
 
 	// MaxIdleConnsDefault is the number of idle connections a pool keeps when the
 	// caller expresses no preference.
@@ -92,6 +91,9 @@ func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 // DBSchema returns a database connection scoped to the named schema, caching one
 // connection per schema name. When create is true and the schema has no cached
 // connection yet, the schema is created before the connection is returned.
+//
+// The name is a quoted identifier, taken as written: case included, and no character of it can
+// end the statement.
 func (config *Default) DBSchema(ctx context.Context, schema string, create bool) (*bun.DB, error) {
 	db, err := config.DB(ctx)
 	if err != nil {
@@ -110,12 +112,13 @@ func (config *Default) DBSchema(ctx context.Context, schema string, create bool)
 	}
 
 	if create {
-		_, err = db.NewRaw(fmt.Sprintf(createSchemaStmt, schema)).Exec(ctx)
+		_, err = db.NewRaw(createSchemaStmt, bun.Ident(schema)).Exec(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("create schema %s: %w", schema, err)
 		}
 	}
 
+	// pgdriver sets search_path from a string literal, which PostgreSQL quotes as one identifier.
 	options := append(slices.Clone(config.options), pgdriver.WithConnParams(map[string]any{"search_path": schema}))
 
 	db, err = config.openDB(ctx, options)
@@ -149,7 +152,7 @@ func (config *Default) DropSchema(ctx context.Context, schema string) error {
 		return fmt.Errorf("get main db: %w", err)
 	}
 
-	_, err = db.NewRaw(fmt.Sprintf(dropSchemaStmt, schema)).Exec(ctx)
+	_, err = db.NewRaw(dropSchemaStmt, bun.Ident(schema)).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("drop schema %s: %w", schema, err)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,7 +72,7 @@ func NewIssuerAt(url string) (*Issuer, error) {
 
 	issuer.mux.Handle("GET /.well-known/openid-configuration", serveJSON(map[string]string{
 		"issuer":   url,
-		"jwks_uri": url + "/jwks",
+		"jwks_uri": strings.TrimSuffix(url, "/") + "/jwks",
 	}))
 	issuer.mux.Handle("GET /jwks", serveJSON(map[string][]jwa.JWK{"keys": {published}}))
 	issuer.mux.HandleFunc("GET /token", issuer.serveToken)

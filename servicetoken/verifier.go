@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/a-novel-kit/jwt/v2"
@@ -107,19 +108,21 @@ type issuerKeys struct {
 	issuer string
 }
 
-// fetch reads the key set the issuer's OpenID discovery document names.
+// fetch reads the key set the issuer's OpenID discovery document names. The document sits at the
+// issuer, its terminating slash removed, followed by /.well-known/openid-configuration, as OpenID
+// Connect Discovery 1.0 §4 requires.
 func (keys issuerKeys) fetch(ctx context.Context) ([]*jwa.JWK, error) {
 	var discovery struct {
 		Issuer  string `json:"issuer"`
 		JWKSURI string `json:"jwks_uri"` //nolint:tagliatelle // OpenID Connect Discovery names the member.
 	}
 
-	err := keys.get(ctx, keys.issuer+"/.well-known/openid-configuration", &discovery)
+	err := keys.get(ctx, strings.TrimSuffix(keys.issuer, "/")+"/.well-known/openid-configuration", &discovery)
 	if err != nil {
 		return nil, fmt.Errorf("discover issuer: %w", err)
 	}
 
-	// OpenID Connect Discovery requires the document to name the issuer it was fetched from.
+	// OpenID Connect Discovery 1.0 §4.3 requires the document to name the issuer it was fetched from.
 	if discovery.Issuer != keys.issuer {
 		return nil, fmt.Errorf("discovery document names issuer %q", discovery.Issuer)
 	}

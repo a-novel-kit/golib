@@ -40,7 +40,8 @@ func TestServiceTokenMiddleware(t *testing.T) {
 		path     string
 		tokens   []string
 
-		expectStatus int
+		expectStatus    int
+		expectChallenge string
 	}{
 		{
 			name: "Success",
@@ -67,7 +68,8 @@ func TestServiceTokenMiddleware(t *testing.T) {
 			verifier: verifier,
 			path:     liveness + "/more",
 
-			expectStatus: http.StatusUnauthorized,
+			expectStatus:    http.StatusUnauthorized,
+			expectChallenge: "Bearer",
 		},
 		{
 			name: "Error/Missing",
@@ -75,7 +77,8 @@ func TestServiceTokenMiddleware(t *testing.T) {
 			verifier: verifier,
 			path:     "/v2/session",
 
-			expectStatus: http.StatusUnauthorized,
+			expectStatus:    http.StatusUnauthorized,
+			expectChallenge: "Bearer",
 		},
 		{
 			name: "Error/Several",
@@ -84,7 +87,8 @@ func TestServiceTokenMiddleware(t *testing.T) {
 			path:     "/v2/session",
 			tokens:   []string{valid, valid},
 
-			expectStatus: http.StatusUnauthorized,
+			expectStatus:    http.StatusUnauthorized,
+			expectChallenge: `Bearer error="invalid_request"`,
 		},
 		{
 			name: "Error/Rejected",
@@ -93,7 +97,8 @@ func TestServiceTokenMiddleware(t *testing.T) {
 			path:     "/v2/session",
 			tokens:   []string{issuer.Sign(t, issuer.Claims(caller, "json-keys"))},
 
-			expectStatus: http.StatusUnauthorized,
+			expectStatus:    http.StatusUnauthorized,
+			expectChallenge: `Bearer error="invalid_token"`,
 		},
 		{
 			name: "Error/VerifierFault",
@@ -122,6 +127,7 @@ func TestServiceTokenMiddleware(t *testing.T) {
 			handler.ServeHTTP(recorder, request)
 
 			require.Equal(t, testCase.expectStatus, recorder.Code)
+			require.Equal(t, testCase.expectChallenge, recorder.Header().Get("WWW-Authenticate"))
 		})
 	}
 }

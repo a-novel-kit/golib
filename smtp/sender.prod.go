@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/smtp"
 	"strings"
@@ -60,19 +59,25 @@ type ProdSender struct {
 
 // SendMail renders tName from t with data and delivers it, driving the SMTP exchange directly.
 //
+// The message opens with the fields RFC 5322 §3.6 requires, the originator (From) and the
+// origination date (Date), and with the To field. The template writes the other header fields, such
+// as Subject, then the blank line and the body. The submission server adds the Message-ID that
+// §3.6.4 recommends, as RFC 6409 §8.3 lets it.
+//
 // This transcribes [smtp.SendMail], which dials internally with no deadline. Driving the exchange
 // here puts the delivery deadline on the connection.
 func (sender *ProdSender) SendMail(to MailUsers, t *template.Template, tName string, data any) error {
-	body := bytes.NewBuffer(nil)
+	var msg bytes.Buffer
 
-	err := t.ExecuteTemplate(body, tName, data)
+	from := MailUser{Name: sender.Name, Email: sender.Email}
+	_, _ = fmt.Fprintf(&msg, "From: %s\r\nTo: %s\r\nDate: %s\r\n", from, to, time.Now().Format(time.RFC1123Z))
+
+	err := t.ExecuteTemplate(&msg, tName, data)
 	if err != nil {
-		return fmt.Errorf("execute template err: %w", err)
+		return fmt.Errorf("execute template: %w", err)
 	}
 
-	msg := fmt.Sprintf("From: %s <%s>\r\nTo: %s\r\n%s", sender.Name, sender.Email, to.String(), body.String())
-
-	err = sender.deliver(to.Emails(), msg)
+	err = sender.deliver(to.Emails(), msg.Bytes())
 	if err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
@@ -104,7 +109,7 @@ func (sender *ProdSender) Ping() error {
 }
 
 // deliver runs one SMTP exchange that sends msg to recipients.
-func (sender *ProdSender) deliver(recipients []string, msg string) error {
+func (sender *ProdSender) deliver(recipients []string, msg []byte) error {
 	client, host, err := sender.dial()
 	if err != nil {
 		return err
@@ -119,31 +124,31 @@ func (sender *ProdSender) deliver(recipients []string, msg string) error {
 
 	err = client.Mail(sender.Email)
 	if err != nil {
-		return err
+		return fmt.Errorf("name sender: %w", err)
 	}
 
 	for _, addr := range recipients {
 		err = client.Rcpt(addr)
 		if err != nil {
-			return err
+			return fmt.Errorf("name recipient: %w", err)
 		}
 	}
 
 	data, err := client.Data()
 	if err != nil {
-		return err
+		return fmt.Errorf("open message: %w", err)
 	}
 
-	_, err = io.WriteString(data, msg)
+	_, err = data.Write(msg)
 	if err != nil {
-		return err
+		return fmt.Errorf("write message: %w", err)
 	}
 
 	// Closing the data writer commits the message, so its error is the server's verdict on the
 	// delivery.
 	err = data.Close()
 	if err != nil {
-		return err
+		return fmt.Errorf("commit message: %w", err)
 	}
 
 	// The server has accepted the message, so a failed QUIT changes nothing.

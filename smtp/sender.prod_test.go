@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/mail"
 	"net/textproto"
 	"strings"
 	"testing"
@@ -43,6 +44,8 @@ type fakeServer struct {
 	extensions []string
 	// transcript records the commands the client sent, in order.
 	transcript []string
+	// message records the lines of the message the client sent after DATA.
+	message []string
 	// stop releases a stalled handler at cleanup; done reports that serve has returned. They are
 	// separate channels: the handler waits on stop and the cleanup waits on done.
 	stop chan struct{}
@@ -124,6 +127,8 @@ func (s *fakeServer) serve() {
 				inData = false
 
 				write("250 2.0.0 Ok")
+			} else {
+				s.message = append(s.message, line)
 			}
 
 			continue
@@ -361,6 +366,18 @@ func TestProdSender(t *testing.T) {
 			authAt := strings.Index(joined, "AUTH")
 			mailAt := strings.Index(joined, "MAIL FROM")
 			require.Less(t, authAt, mailAt, "AUTH must precede MAIL FROM")
+
+			// RFC 5322 §3.6 requires From and Date. The rendered template follows the fields.
+			require.Len(t, server.message, 4)
+			require.Equal(t, `From: "A-Novel" <noreply@example.com>`, server.message[0])
+			require.Equal(t, `To: "Recipient" <to@example.com>`, server.message[1])
+
+			date, found := strings.CutPrefix(server.message[2], "Date: ")
+			require.True(t, found, server.message[2])
+
+			_, err = mail.ParseDate(date)
+			require.NoError(t, err)
+			require.Equal(t, "hello world", server.message[3])
 		})
 	}
 
