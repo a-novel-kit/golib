@@ -18,6 +18,10 @@ import (
 // several sentinels takes the highest of their statuses, so a server fault never hides behind a
 // client error. A nil key sets the status of unmatched errors, which is 500 Internal Server Error
 // without one.
+//
+// An [http.MaxBytesError] anywhere in an error, the router refusing an oversized body, counts as a
+// sentinel mapped to 413 Content Too Large (RFC 9110 §15.5.14), so a handler's 400 fallback never
+// answers it.
 type ErrMap map[error]int
 
 // HandleError writes a response for a failed handler. It matches err against errMap (with
@@ -30,6 +34,9 @@ type ErrMap map[error]int
 // A server error logs at error level and marks the span failed. Under a router from [NewRouter], the
 // request's server span names its type through [otel.ErrorType]. A client error logs at warning level
 // and leaves the span status unset, since the handler answered it.
+//
+// A 429 or 503 answers with the Retry-After header (RFC 9110 §10.2.3) when err names a delay, which
+// [WithRetryAfter] describes.
 //
 // A gRPC dependency's planned downtime refusal anywhere in err wins over errMap: the response is
 // the one [downtime.Middleware] gives, logged as a warning, since the server did nothing wrong.
@@ -44,6 +51,7 @@ func HandleError(
 	}
 
 	status := errMap.status(err)
+	setRetryAfter(w, err, status)
 
 	if status >= http.StatusInternalServerError {
 		logger.Err(ctx, otel.ReportError(span, err).Error())
@@ -73,6 +81,11 @@ func HandleError(
 // status of the nil key, or 500 Internal Server Error without one.
 func (errMap ErrMap) status(err error) int {
 	matched := 0
+
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		matched = http.StatusRequestEntityTooLarge
+	}
 
 	for ref, refStatus := range errMap {
 		if ref != nil && refStatus > matched && errors.Is(err, ref) {

@@ -207,10 +207,18 @@ func BodyKeyRate(field string) httprate.KeyFunc {
 	}
 }
 
-// bodyKey reads the key [BodyKeyRate] counts r under, then puts the body back.
+// bodyKey reads the key [BodyKeyRate] counts r under, then puts the body back. The handler reads it
+// up to the error that ended this read, such as the [http.MaxBytesError] of an oversized body, which
+// [HandleError] answers with 413.
 func bodyKey(r *http.Request, field string) (string, error) {
 	body, err := io.ReadAll(r.Body)
-	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	var rest io.Reader = bytes.NewReader(body)
+	if err != nil {
+		rest = io.MultiReader(rest, errorReader{err: err})
+	}
+
+	r.Body = io.NopCloser(rest)
 
 	var fields map[string]json.RawMessage
 	if err == nil {
@@ -230,6 +238,15 @@ func bodyKey(r *http.Request, field string) (string, error) {
 	}
 
 	return field + ":" + strings.ToLower(strings.TrimSpace(value)), nil
+}
+
+// errorReader fails every read with err.
+type errorReader struct {
+	err error
+}
+
+func (reader errorReader) Read([]byte) (int, error) {
+	return 0, reader.err
 }
 
 // refuseKey answers 400 to a request whose key cannot be computed, such as an oversized body key.

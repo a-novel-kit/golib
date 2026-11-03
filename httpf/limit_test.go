@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/a-novel-kit/golib/httpf"
 )
@@ -448,6 +449,32 @@ func TestBodyKeyRate(t *testing.T) {
 			require.Equal(t, testCase.body, string(body))
 		})
 	}
+
+	t.Run("Error/BodyTooLarge", func(t *testing.T) {
+		t.Parallel()
+
+		// The handler meets the error that ended the key's read, so an oversized body answers 413.
+		router := chi.NewRouter()
+		router.Use(middleware.RequestSize(16))
+		router.Group(func(api chi.Router) {
+			rate := httpf.Rate{Requests: 1, Window: time.Minute}
+			api.Use(httpf.NewLimits(httpf.ServerConfigDefault).By(rate, httpf.BodyKeyRate("email")))
+			api.Put("/", func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Email string `json:"email"`
+				}
+
+				err := httpf.DecodeJSON(r.Body, &request)
+				httpf.HandleError(r.Context(), &recordingLog{}, w, noop.Span{}, httpf.ErrMap{nil: http.StatusBadRequest}, err)
+			})
+		})
+
+		body := strings.NewReader(`{"email":"` + strings.Repeat("a", 32) + `"}`)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/", body))
+
+		require.Equal(t, http.StatusRequestEntityTooLarge, response.Code)
+	})
 
 	t.Run("Error/TooLong/Refused", func(t *testing.T) {
 		t.Parallel()

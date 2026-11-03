@@ -183,6 +183,36 @@ func TestNewRouter(t *testing.T) {
 			expectStatus: http.StatusTooManyRequests,
 		},
 		{
+			// RFC 9110 §9.1: a GET route answers HEAD, and the span keeps the request's method.
+			name: "Success/HeadOnGetRoute",
+
+			method: http.MethodHead,
+			paths:  []string{"/items/42"},
+
+			expectStatus:   http.StatusOK,
+			expectSpanName: "HEAD /items/{id}",
+			expectRoute:    "/items/{id}",
+		},
+		{
+			name: "Error/MethodNotAllowed",
+
+			method: http.MethodDelete,
+			paths:  []string{"/visitor"},
+
+			expectStatus:  http.StatusMethodNotAllowed,
+			expectHeaders: map[string]string{"Allow": http.MethodGet},
+		},
+		{
+			// HEAD reaches GET routes alone.
+			name: "Error/MethodNotAllowed/HeadWithoutGet",
+
+			method: http.MethodHead,
+			paths:  []string{"/body"},
+
+			expectStatus:  http.StatusMethodNotAllowed,
+			expectHeaders: map[string]string{"Allow": http.MethodPost},
+		},
+		{
 			// The raw path of an unknown route must not reach the span name.
 			name: "Error/NotFound",
 
@@ -550,6 +580,35 @@ func newFaultRouter(t *testing.T) (*chi.Mux, *tracetest.SpanRecorder) {
 	router.Get("/abort", abortHandler)
 
 	return router, recorder
+}
+
+func TestNewRouterHead(t *testing.T) {
+	t.Parallel()
+
+	router := httpf.NewRouter(httpf.ServerConfigDefault, &otelpresets.Disabled{}, nil, nil)
+	router.Get("/greeting", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = io.WriteString(w, "hello")
+	})
+
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodHead, server.URL+"/greeting", nil)
+	require.NoError(t, err)
+
+	response, err := server.Client().Do(request)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = response.Body.Close() })
+
+	// The GET handler ran: its status and headers arrive, and net/http dropped its body.
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, "text/plain", response.Header.Get("Content-Type"))
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Empty(t, body)
 }
 
 func TestNewRouterFaults(t *testing.T) {

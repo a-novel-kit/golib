@@ -181,6 +181,17 @@ func TestEventStream(t *testing.T) {
 
 			expectErr: httpf.ErrInvalidEvent,
 		},
+		{
+			// The reconnection time goes in whole milliseconds; zero sends none.
+			name: "Success/Retry",
+
+			events: []httpf.Event{
+				{Retry: 1500*time.Millisecond + time.Microsecond, Data: []byte("first")},
+				{Data: []byte("second")},
+			},
+
+			expectBody: "retry: 1500\ndata: first\n\ndata: second\n\n",
+		},
 	}
 
 	for _, testCase := range testCases {
