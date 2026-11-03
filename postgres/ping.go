@@ -2,11 +2,13 @@ package postgres
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/driver/pgdriver"
 )
 
 const (
@@ -55,4 +57,27 @@ func ping(
 		case <-time.After(retryInterval):
 		}
 	}
+}
+
+// transient reports whether err leaves the database out of reach for a moment only. A discarded
+// connection returns [driver.ErrBadConn]. PostgreSQL ends or refuses a session for a moment with one
+// of these codes, listed in Appendix A, PostgreSQL Error Codes
+// (https://www.postgresql.org/docs/current/errcodes-appendix.html):
+//
+//   - 57P01 admin_shutdown: the server shuts down, as in a restart or a failover, or an operator
+//     terminated the session.
+//   - 57P02 crash_shutdown: another session crashed, and the server restarts.
+//   - 57P03 cannot_connect_now: the server is starting up or shutting down.
+//
+// A refused connection, or any other error, is not transient.
+func transient(err error) bool {
+	var serverErr pgdriver.Error
+	if errors.As(err, &serverErr) {
+		switch serverErr.Field('C') {
+		case "57P01", "57P02", "57P03":
+			return true
+		}
+	}
+
+	return errors.Is(err, driver.ErrBadConn)
 }

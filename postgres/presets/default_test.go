@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +76,56 @@ func TestDefault(t *testing.T) {
 
 		require.Equal(t, concurrentQueries, db.Stats().Idle,
 			"every released connection should have been kept, not closed and reopened later")
+	})
+
+	// A restart or a failover ends every session, idle ones included. The pool replaces each
+	// connection the server closed, so every statement after it succeeds.
+	t.Run("Success/ReplacesConnectionsTheServerClosed", func(t *testing.T) {
+		t.Parallel()
+
+		// The application name tells the sessions of this pool apart from those of parallel tests.
+		name := "golib-test-" + rand.Text()
+		config := postgrespresets.NewDefault(append(testConfig(t).Options(), pgdriver.WithApplicationName(name))...)
+
+		ctx := t.Context()
+		holdOpen(ctx, t, config)
+
+		admin, err := testConfig(t).DB(ctx)
+		require.NoError(t, err)
+
+		// The timeout waits for each session to end, so its error is on the wire before the next
+		// statements run.
+		var terminated []bool
+
+		err = admin.NewRaw(
+			"SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE application_name = ?", name,
+		).Scan(ctx, &terminated)
+		require.NoError(t, err)
+		require.Equal(t, slices.Repeat([]bool{true}, concurrentQueries), terminated)
+
+		holdOpen(ctx, t, config)
+	})
+
+	// The pool keeps a live connection, however long it sat idle.
+	t.Run("Success/ReusesLiveIdleConnections", func(t *testing.T) {
+		t.Parallel()
+
+		// The driver leaves a read deadline behind, which passes while the connection sits idle.
+		readTimeout := pgdriver.WithReadTimeout(100 * time.Millisecond)
+		config := postgrespresets.NewDefault(append(testConfig(t).Options(), readTimeout)...)
+
+		ctx := t.Context()
+
+		db, err := config.DB(ctx)
+		require.NoError(t, err)
+
+		var before, after int
+
+		require.NoError(t, db.NewRaw("SELECT pg_backend_pid()").Scan(ctx, &before))
+		time.Sleep(200 * time.Millisecond)
+		require.NoError(t, db.NewRaw("SELECT pg_backend_pid()").Scan(ctx, &after))
+
+		require.Equal(t, before, after)
 	})
 
 	// A deployment that sets its own number gets it. The default applies only when none is set.
