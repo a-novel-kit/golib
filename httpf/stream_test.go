@@ -151,6 +151,16 @@ func TestEventStream(t *testing.T) {
 				"data: first\ndata: second\ndata: third\n\n",
 		},
 		{
+			// Each line break ends a line, a final one included, so the client reads the data back
+			// as it was sent.
+			name: "Success/EdgeLineBreaks",
+
+			events: []httpf.Event{{Data: []byte("\r\n\n\rend\n")}},
+
+			// The repeated field is built, since dupword's fix would fold a literal that repeats it.
+			expectBody: strings.Repeat("data: \n", 3) + "data: end\ndata: \n\n",
+		},
+		{
 			name: "Error/NoData",
 
 			events: []httpf.Event{{ID: "1"}},
