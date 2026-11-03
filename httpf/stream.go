@@ -1,10 +1,12 @@
 package httpf
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"strings"
 	"sync"
@@ -14,10 +16,6 @@ import (
 // ErrInvalidEvent is returned by [EventStream.Send] for an event a client cannot read: one without
 // data, or whose ID or type holds a line break or a NUL.
 var ErrInvalidEvent = errors.New("invalid server-sent event")
-
-// eventLineBreaks turns each line break the event stream format accepts into a line feed, so
-// [EventStream.Send] splits the data of an event on line feeds alone.
-var eventLineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
 
 // eventFieldBreaks holds the characters an event's ID or type cannot carry.
 const eventFieldBreaks = "\r\n\x00"
@@ -138,37 +136,50 @@ func NewEventStream(ctx context.Context, w http.ResponseWriter, heartbeat time.D
 	return stream, nil
 }
 
-// Send writes event and flushes it.
+// Send writes event and flushes it. Its fields go straight to the response, under the lock the
+// heartbeat shares.
 func (stream *EventStream) Send(event Event) error {
 	if len(event.Data) == 0 ||
 		strings.ContainsAny(event.ID, eventFieldBreaks) || strings.ContainsAny(event.Type, eventFieldBreaks) {
 		return ErrInvalidEvent
 	}
 
-	var frame strings.Builder
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+
+	frame := eventFrame{writer: stream.writer}
 
 	if event.ID != "" {
 		frame.WriteString("id: ")
 		frame.WriteString(event.ID)
-		frame.WriteByte('\n')
+		frame.WriteString("\n")
 	}
 
 	if event.Type != "" {
 		frame.WriteString("event: ")
 		frame.WriteString(event.Type)
-		frame.WriteByte('\n')
+		frame.WriteString("\n")
 	}
 
 	// Each line of the data takes a field of its own, and the client joins them back.
-	for line := range strings.SplitSeq(eventLineBreaks.Replace(string(event.Data)), "\n") {
+	for line := range eventLines(event.Data) {
 		frame.WriteString("data: ")
-		frame.WriteString(line)
-		frame.WriteByte('\n')
+		frame.Write(line)
+		frame.WriteString("\n")
 	}
 
-	frame.WriteByte('\n')
+	frame.WriteString("\n")
 
-	return stream.write(frame.String())
+	if frame.err != nil {
+		return fmt.Errorf("write event: %w", frame.err)
+	}
+
+	err := stream.controller.Flush()
+	if err != nil {
+		return fmt.Errorf("flush event: %w", err)
+	}
+
+	return nil
 }
 
 // Close stops the heartbeat, and returns once it no longer writes. The response ends once the
@@ -212,4 +223,53 @@ func (stream *EventStream) write(text string) error {
 	}
 
 	return nil
+}
+
+// eventFrame writes the fields of one event straight to writer, with the writes of a
+// strings.Builder. It keeps the first error a write returns and skips every write after it, so
+// [EventStream.Send] checks for an error once.
+type eventFrame struct {
+	writer io.Writer
+	err    error
+}
+
+// WriteString writes text, unless a write failed before.
+func (frame *eventFrame) WriteString(text string) {
+	if frame.err == nil {
+		_, frame.err = io.WriteString(frame.writer, text)
+	}
+}
+
+// Write writes data, unless a write failed before.
+func (frame *eventFrame) Write(data []byte) {
+	if frame.err == nil {
+		_, frame.err = frame.writer.Write(data)
+	}
+}
+
+// eventLines yields the lines of data, split on each line break the event stream format accepts:
+// CRLF, LF and CR. Data that ends with a line break yields an empty last line, which the client
+// reads back as that final line break.
+func eventLines(data []byte) iter.Seq[[]byte] {
+	return func(yield func([]byte) bool) {
+		for {
+			end := bytes.IndexAny(data, "\r\n")
+			if end < 0 {
+				yield(data)
+
+				return
+			}
+
+			next := end + 1
+			if data[end] == '\r' && next < len(data) && data[next] == '\n' {
+				next++
+			}
+
+			if !yield(data[:end]) {
+				return
+			}
+
+			data = data[next:]
+		}
+	}
 }
