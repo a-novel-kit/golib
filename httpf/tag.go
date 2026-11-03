@@ -69,9 +69,9 @@ type problem struct {
 	Tags   map[string]json.RawMessage `json:"tags"`
 }
 
-// problemBody returns the RFC 9457 body for err under status, or nil when err carries no tags. A
-// tag that json cannot encode is left out and reported on the span.
-func problemBody(span trace.Span, err error, status int) []byte {
+// problemDocument returns the RFC 9457 body for err under status, or nil when err carries no tags.
+// A tag that json cannot encode is left out and reported on the span.
+func problemDocument(span trace.Span, err error, status int) *problem {
 	tags := map[string]any{}
 
 	var tagged *taggedError
@@ -91,21 +91,12 @@ func problemBody(span trace.Span, err error, status int) []byte {
 		return nil
 	}
 
-	document := problem{
+	return &problem{
 		Type:   "about:blank",
 		Title:  http.StatusText(status),
 		Status: status,
 		Tags:   encoded,
 	}
-
-	body, err := json.Marshal(document)
-	if err != nil {
-		_ = otel.ReportError(span, fmt.Errorf("encode problem body: %w", err))
-
-		return nil
-	}
-
-	return body
 }
 
 // encodeTags encodes each tag as JSON. It reports a tag json cannot encode on the span and leaves
@@ -133,14 +124,21 @@ func invalidFields(fields validator.ValidationErrors) map[string]string {
 
 	for _, field := range fields {
 		// The namespace starts with the request type, which is not a field of the request.
-		_, path, _ := strings.Cut(field.Namespace(), ".")
-		segments := strings.Split(path, ".")
+		_, namespace, _ := strings.Cut(field.Namespace(), ".")
 
-		for i, segment := range segments {
-			segments[i] = lowerCamel(segment)
+		var path strings.Builder
+
+		path.Grow(len(namespace))
+
+		separator := ""
+		for segment := range strings.SplitSeq(namespace, ".") {
+			path.WriteString(separator)
+			path.WriteString(lowerCamel(segment))
+
+			separator = "."
 		}
 
-		paths[strings.Join(segments, ".")] = field.Tag()
+		paths[path.String()] = field.Tag()
 	}
 
 	return paths

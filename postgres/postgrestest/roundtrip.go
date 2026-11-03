@@ -457,7 +457,7 @@ func newRoundtripDatabase(t *testing.T, options []pgdriver.Option) (*bun.DB, err
 
 // createRoundtripDatabase creates the empty database called instance on a maintenance connection.
 func createRoundtripDatabase(ctx context.Context, maintenance *bun.DB, instance string) error {
-	_, err := maintenance.NewRaw("CREATE DATABASE " + dbTestQuoteIdent(instance)).Exec(ctx)
+	_, err := maintenance.NewRaw("CREATE DATABASE ?", bun.Ident(instance)).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("create the roundtrip database: %w", err)
 	}

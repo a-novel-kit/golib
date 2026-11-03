@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -60,7 +59,7 @@ func runOnce(
 	if err != nil {
 		err = otel.ReportError(span, err)
 		span.SetAttributes(otel.ErrorType(err))
-		logger.Err(ctx, fmt.Sprintf("poll %s: %v", name, err))
+		logger.Err(ctx, "poll "+name+": "+err.Error())
 
 		return false
 	}
@@ -68,7 +67,7 @@ func runOnce(
 	span.SetAttributes(attribute.Bool("poll.worked", worked))
 
 	if worked {
-		logger.Info(ctx, fmt.Sprintf("poll %s: ran a unit of work", name))
+		logger.Info(ctx, "poll "+name+": ran a unit of work")
 	}
 
 	return worked

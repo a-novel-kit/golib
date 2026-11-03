@@ -2,11 +2,10 @@ package httpf
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-
-	"github.com/go-chi/chi/v5"
 
 	"go.opentelemetry.io/otel/trace"
 
@@ -53,8 +52,8 @@ func HandleError(
 		logger.Warn(ctx, err.Error())
 	}
 
-	body := problemBody(span, err, status)
-	if body == nil {
+	document := problemDocument(span, err, status)
+	if document == nil {
 		http.Error(w, http.StatusText(status), status)
 
 		return
@@ -64,7 +63,7 @@ func HandleError(
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 
-	_, err = w.Write(body)
+	err = json.NewEncoder(w).Encode(document)
 	if err != nil {
 		_ = otel.ReportError(span, fmt.Errorf("write problem body: %w", err))
 	}
@@ -90,15 +89,4 @@ func (errMap ErrMap) status(err error) int {
 	}
 
 	return http.StatusInternalServerError
-}
-
-// route names the route chi matched for the request of ctx, such as "GET /v2/session/". It is empty
-// outside a chi router.
-func route(ctx context.Context) string {
-	routeCtx := chi.RouteContext(ctx)
-	if routeCtx == nil {
-		return ""
-	}
-
-	return routeCtx.RouteMethod + " " + routeCtx.RoutePattern()
 }

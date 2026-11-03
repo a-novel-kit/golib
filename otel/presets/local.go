@@ -59,7 +59,7 @@ func (config *Local) GetTraceProvider() (trace.TracerProvider, error) {
 		stdouttrace.WithWriter(os.Stdout),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create stdout trace exporter: %w", err)
 	}
 
 	config.tp = sdktrace.NewTracerProvider(
@@ -80,7 +80,7 @@ func (config *Local) GetLogger() (log.LoggerProvider, error) {
 		stdoutlog.WithWriter(os.Stdout),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create stdout log exporter: %w", err)
 	}
 
 	config.lp = sdklog.NewLoggerProvider(

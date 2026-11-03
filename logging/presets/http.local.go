@@ -2,6 +2,7 @@ package loggingpresets
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -58,7 +59,7 @@ func (logger *HTTPLocal) serve(next http.Handler, w http.ResponseWriter, r *http
 	}
 
 	// This preset only ever runs in local development, where dumping the raw response body is safe.
-	_, _ = fmt.Fprint(logger.BaseLogger.Out, strings.TrimSpace(message)+"\n")
+	_, _ = io.WriteString(logger.BaseLogger.Out, strings.TrimSpace(message)+"\n")
 }
 
 // serveKeepingBody serves r through next. It returns the metrics httpsnoop captures, and the first
