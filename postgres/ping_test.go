@@ -6,10 +6,13 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"net"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun/driver/pgdriver"
 )
 
 // pingerFunc scripts the answers of a database handle to ping.
@@ -200,4 +203,75 @@ func TestPing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTransient(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		err error
+
+		expect bool
+	}{
+		{
+			name:   "Transient/DiscardedConnection",
+			err:    driver.ErrBadConn,
+			expect: true,
+		},
+		{
+			name:   "Transient/AdminShutdown",
+			err:    serverError("57P01"),
+			expect: true,
+		},
+		{
+			name:   "Transient/CrashShutdown",
+			err:    serverError("57P02"),
+			expect: true,
+		},
+		{
+			name:   "Transient/CannotConnectNow",
+			err:    serverError("57P03"),
+			expect: true,
+		},
+		{
+			name:   "Transient/Wrapped",
+			err:    fmt.Errorf("select: %w", serverError("57P01")),
+			expect: true,
+		},
+		{
+			name: "Lasting/ConnectionRefused",
+			err:  &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED},
+		},
+		{
+			name: "Lasting/DatabaseDropped",
+			err:  serverError("57P04"),
+		},
+		{
+			name: "Lasting/QueryCanceled",
+			err:  serverError("57014"),
+		},
+		{
+			name: "Lasting/UniqueViolation",
+			err:  serverError("23505"),
+		},
+		{
+			name: "Lasting/Other",
+			err:  errPingFailed,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, testCase.expect, transient(testCase.err))
+		})
+	}
+}
+
+// serverError builds the error PostgreSQL returns with code, as the driver decodes it.
+func serverError(code string) error {
+	return pgdriver.NewError(map[byte]string{'S': "FATAL", 'C': code, 'M': "test error"})
 }

@@ -38,6 +38,9 @@ const (
 // Default is the standard postgres.Config implementation, backed by pgdriver.
 // It opens pools lazily and caches them, one for the primary database and one
 // per requested schema. It is safe for concurrent use.
+//
+// PostgreSQL ends every session when it restarts or fails over. The pools drop each connection the
+// server closed while it sat idle, so the next query runs on a live one.
 type Default struct {
 	options []pgdriver.Option
 
@@ -180,8 +183,11 @@ func (config *Default) maxIdleConns() int {
 	return config.MaxIdleConns
 }
 
-// openDB opens a pool from options, sized by the config, and pings it.
+// openDB opens a pool from options, sized by the config, and pings it. A
+// [pgdriver.WithResetSessionFunc] among options replaces checkIdleConn.
 func (config *Default) openDB(ctx context.Context, options []pgdriver.Option) (*bun.DB, error) {
+	options = append([]pgdriver.Option{pgdriver.WithResetSessionFunc(checkIdleConn)}, options...)
+
 	sqldb := sql.OpenDB(pgdriver.NewConnector(options...))
 	db := bun.NewDB(sqldb, pgdialect.New(), bun.WithDiscardUnknownColumns())
 	db.SetMaxIdleConns(config.maxIdleConns())
