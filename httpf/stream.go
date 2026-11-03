@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -99,6 +100,10 @@ type Event struct {
 	Type string
 	// Data is the event's content, usually JSON. A client drops an event without data.
 	Data []byte
+	// Retry, when positive, sets how long the client waits before it reconnects, sent as the retry
+	// field in whole milliseconds, rounded down (HTML Living Standard §9.2.6). Zero or less sends none
+	// and keeps the client's current wait.
+	Retry time.Duration
 }
 
 // An EventStream writes a response as server-sent events, the text/event-stream format of the HTML
@@ -157,6 +162,12 @@ func (stream *EventStream) Send(event Event) error {
 		frame.WriteString("event: ")
 		frame.WriteString(event.Type)
 		frame.WriteByte('\n')
+	}
+
+	if event.Retry > 0 {
+		frame.WriteString("retry: ")
+		frame.WriteString(strconv.FormatInt(event.Retry.Milliseconds(), 10))
+		frame.WriteString("\n")
 	}
 
 	// Each line of the data takes a field of its own, and the client joins them back.

@@ -25,14 +25,19 @@ import (
 
 // NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
 // visitor IP, the request timeout, the body limit, tracing, the report of faults on the request's
-// span, CORS, request logs, the planned downtime and the standard rate limit. The liveness path
-// answers during a downtime and is never rate-limited. A route under [Streaming] answers past the
-// request timeout.
+// span, CORS, request logs, the planned downtime, the standard rate limit and HEAD routing. The
+// liveness path answers during a downtime and is never rate-limited. A route under [Streaming]
+// answers past the request timeout.
 //
-// The request's span takes the name of the route chi matched, such as "GET /v2/session/{id}", and
-// the route pattern as its http.route. A request that reaches no route keeps its method alone, such
-// as one the rate limit refuses. Under a subrouter, an unknown path takes the subrouter's pattern,
-// such as "GET /v2/*". A path never names a span.
+// Every GET route answers HEAD too, as RFC 9110 §9.1 requires: the GET handler runs, and net/http
+// drops the body it writes. One deviation is deliberate: the Allow header of a 405 lists the methods
+// routes register, so a GET route's leaves out HEAD (§15.5.6). Listing it would wrap every response,
+// or match the tree again, which mounted subrouters defeat.
+//
+// The request's span takes the method of the request and the route chi matched, such as
+// "GET /v2/session/{id}", and the route pattern as its http.route. A request that reaches no route
+// keeps its method alone, such as one the rate limit refuses. Under a subrouter, an unknown path
+// takes the subrouter's pattern, such as "GET /v2/*". A path never names a span.
 //
 // A nil logger writes no request log, for a server whose spans record each request.
 func NewRouter(
@@ -64,6 +69,8 @@ func NewRouter(
 		router.Use(standardLimit(router, config))
 	}
 
+	router.Use(middleware.GetHead)
+
 	return router
 }
 
@@ -79,24 +86,23 @@ func recordFaults(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
 		defer capturePanic(span)
-		defer nameSpan(r.Context(), span)
+		defer nameSpan(r, span)
 
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serverSpanKey{}, span)))
 	})
 }
 
-// nameSpan names span after the route chi matched for the request of ctx, and sets the route pattern
-// as its http.route, as the OpenTelemetry HTTP server conventions do. A request chi routed nowhere
-// keeps the name tracing gave it.
-func nameSpan(ctx context.Context, span trace.Span) {
-	routeCtx := chi.RouteContext(ctx)
-
-	pattern := routeCtx.RoutePattern()
+// nameSpan names span after the method of r and the route chi matched for it, and sets the route
+// pattern as its http.route, as the OpenTelemetry HTTP server conventions do. The method is the
+// request's, so a HEAD that a GET route answers keeps its own. A request chi routed nowhere keeps
+// the name tracing gave it.
+func nameSpan(r *http.Request, span trace.Span) {
+	pattern := chi.RouteContext(r.Context()).RoutePattern()
 	if pattern == "" {
 		return
 	}
 
-	span.SetName(routeCtx.RouteMethod + " " + pattern)
+	span.SetName(r.Method + " " + pattern)
 	span.SetAttributes(semconv.HTTPRoute(pattern))
 }
 

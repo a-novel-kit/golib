@@ -88,6 +88,7 @@ func TestHandleError(t *testing.T) {
 
 		expectStatus          int
 		expectBody            string
+		expectRetryAfter      string
 		expectLevel           string
 		expectSpanStatus      codes.Code
 		expectSpanDescription string
@@ -218,6 +219,50 @@ func TestHandleError(t *testing.T) {
 			expectSpanDescription: errValidation.Error(),
 		},
 		{
+			// The router's body limit answers 413, whatever fallback the handler maps decode errors to.
+			name:         "Error/BodyTooLarge",
+			errMap:       httpf.ErrMap{nil: http.StatusBadRequest},
+			err:          fmt.Errorf("decode JSON request body: %w", &http.MaxBytesError{Limit: 16}),
+			expectStatus: http.StatusRequestEntityTooLarge,
+			expectLevel:  "warn",
+		},
+		{
+			// A partial second rounds up, so the client never retries too early.
+			name:             "RetryAfter/TooManyRequests",
+			errMap:           httpf.ErrMap{errMapped: http.StatusTooManyRequests},
+			err:              httpf.WithRetryAfter(fmt.Errorf("%w: %w", errMapped, errSecret), 1500*time.Millisecond),
+			expectStatus:     http.StatusTooManyRequests,
+			expectRetryAfter: "2",
+			expectLevel:      "warn",
+		},
+		{
+			name:                  "RetryAfter/ServiceUnavailable",
+			errMap:                httpf.ErrMap{errMapped: http.StatusServiceUnavailable},
+			err:                   httpf.WithRetryAfter(errMapped, time.Minute),
+			expectStatus:          http.StatusServiceUnavailable,
+			expectRetryAfter:      "60",
+			expectLevel:           "error",
+			expectSpanStatus:      codes.Error,
+			expectSpanDescription: errMapped.Error(),
+		},
+		{
+			// An error that knows its own delay needs no wrapping.
+			name:             "RetryAfter/OwnDelay",
+			errMap:           httpf.ErrMap{errQuota: http.StatusTooManyRequests},
+			err:              fmt.Errorf("submit generation: %w", &quotaError{delay: 30 * time.Second}),
+			expectStatus:     http.StatusTooManyRequests,
+			expectRetryAfter: "30",
+			expectLevel:      "warn",
+		},
+		{
+			// Retry-After means nothing to a status other than 429 or 503.
+			name:         "RetryAfter/OtherStatus",
+			errMap:       httpf.ErrMap{errMapped: http.StatusConflict},
+			err:          httpf.WithRetryAfter(errMapped, time.Minute),
+			expectStatus: http.StatusConflict,
+			expectLevel:  "warn",
+		},
+		{
 			name:   "Validator/TagSetByHandler",
 			errMap: httpf.ErrMap{errMapped: http.StatusUnprocessableEntity},
 			err: httpf.WithTag(
@@ -247,6 +292,7 @@ func TestHandleError(t *testing.T) {
 			span.End()
 
 			require.Equal(t, testCase.expectStatus, w.Code)
+			require.Equal(t, testCase.expectRetryAfter, w.Header().Get("Retry-After"))
 			require.NotContains(t, w.Body.String(), "password")
 			require.NotContains(t, w.Body.String(), "jane.doe")
 
@@ -265,6 +311,36 @@ func TestHandleError(t *testing.T) {
 			require.Equal(t, testCase.expectSpanDescription, spans[0].Status().Description)
 		})
 	}
+}
+
+// errQuota is the sentinel a [quotaError] reports as.
+var errQuota = errors.New("quota reached")
+
+// quotaError is a refusal that knows when the quota frees up, as a service's core error can.
+type quotaError struct {
+	delay time.Duration
+}
+
+func (err *quotaError) Error() string { return errQuota.Error() }
+
+func (err *quotaError) Is(target error) bool { return target == errQuota }
+
+func (err *quotaError) RetryAfter() time.Duration { return err.delay }
+
+func TestWithRetryAfter(t *testing.T) {
+	t.Parallel()
+
+	errFoo := errors.New("foo")
+
+	require.NoError(t, httpf.WithRetryAfter(nil, time.Minute))
+
+	err := httpf.WithRetryAfter(errFoo, time.Minute)
+	require.ErrorIs(t, err, errFoo)
+	require.Equal(t, errFoo.Error(), err.Error())
+
+	var delayed interface{ RetryAfter() time.Duration }
+	require.ErrorAs(t, err, &delayed)
+	require.Equal(t, time.Minute, delayed.RetryAfter())
 }
 
 func TestWithTag(t *testing.T) {
