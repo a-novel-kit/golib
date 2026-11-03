@@ -2,8 +2,8 @@ package grpcf
 
 import (
 	"encoding/json"
+	"fmt"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -14,12 +14,15 @@ import (
 func MarshalJSONAsAny(v any) (*anypb.Any, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal JSON: %w", err)
 	}
 
-	out := &anypb.Any{}
+	out, err := anypb.New(wrapperspb.Bytes(data))
+	if err != nil {
+		return nil, fmt.Errorf("pack JSON into Any: %w", err)
+	}
 
-	return out, anypb.MarshalFrom(out, &wrapperspb.BytesValue{Value: data}, proto.MarshalOptions{})
+	return out, nil
 }
 
 // UnmarshalJSONFromAny reverses [MarshalJSONAsAny]. It expects anyValue to hold a
@@ -27,16 +30,16 @@ func MarshalJSONAsAny(v any) (*anypb.Any, error) {
 func UnmarshalJSONFromAny(anyValue *anypb.Any) (any, error) {
 	bytesValue := &wrapperspb.BytesValue{}
 
-	err := anypb.UnmarshalTo(anyValue, bytesValue, proto.UnmarshalOptions{})
+	err := anyValue.UnmarshalTo(bytesValue)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unpack JSON from Any: %w", err)
 	}
 
 	var value any
 
-	err = json.Unmarshal(bytesValue.Value, &value)
+	err = json.Unmarshal(bytesValue.GetValue(), &value)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal JSON: %w", err)
 	}
 
 	return value, nil

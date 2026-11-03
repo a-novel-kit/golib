@@ -2,6 +2,7 @@ package httpf
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/a-novel-kit/golib/config"
@@ -105,24 +106,24 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 	stringSlice := config.SliceParser(config.StringParser)
 
 	return ServerConfig{
-		Port: config.LoadEnv(getenv("REST_PORT"), defaults.Port, config.IntParser),
+		Port: config.LoadEnv(getenv("REST_PORT"), defaults.Port, strconv.Atoi),
 		TLS: servertls.Files{
 			CertFile: config.LoadEnv(getenv("REST_TLS_CERT_FILE"), defaults.TLS.CertFile, config.StringParser),
 			KeyFile:  config.LoadEnv(getenv("REST_TLS_KEY_FILE"), defaults.TLS.KeyFile, config.StringParser),
 		},
-		PlaintextPort: config.LoadEnv(getenv("REST_PLAINTEXT_PORT"), defaults.PlaintextPort, config.IntParser),
+		PlaintextPort: config.LoadEnv(getenv("REST_PLAINTEXT_PORT"), defaults.PlaintextPort, strconv.Atoi),
 		Liveness:      config.LoadEnv(getenv("REST_LIVENESS_PATH"), defaults.Liveness, config.StringParser),
 		Timeouts: ServerTimeouts{
-			Read:       config.LoadEnv(getenv("REST_TIMEOUT_READ"), defaults.Timeouts.Read, config.DurationParser),
-			ReadHeader: config.LoadEnv(getenv("REST_TIMEOUT_READ_HEADER"), defaults.Timeouts.ReadHeader, config.DurationParser),
-			Write:      config.LoadEnv(getenv("REST_TIMEOUT_WRITE"), defaults.Timeouts.Write, config.DurationParser),
-			Idle:       config.LoadEnv(getenv("REST_TIMEOUT_IDLE"), defaults.Timeouts.Idle, config.DurationParser),
-			Request:    config.LoadEnv(getenv("REST_TIMEOUT_REQUEST"), defaults.Timeouts.Request, config.DurationParser),
-			Shutdown:   config.LoadEnv(getenv("REST_TIMEOUT_SHUTDOWN"), defaults.Timeouts.Shutdown, config.DurationParser),
+			Read:       config.LoadEnv(getenv("REST_TIMEOUT_READ"), defaults.Timeouts.Read, time.ParseDuration),
+			ReadHeader: config.LoadEnv(getenv("REST_TIMEOUT_READ_HEADER"), defaults.Timeouts.ReadHeader, time.ParseDuration),
+			Write:      config.LoadEnv(getenv("REST_TIMEOUT_WRITE"), defaults.Timeouts.Write, time.ParseDuration),
+			Idle:       config.LoadEnv(getenv("REST_TIMEOUT_IDLE"), defaults.Timeouts.Idle, time.ParseDuration),
+			Request:    config.LoadEnv(getenv("REST_TIMEOUT_REQUEST"), defaults.Timeouts.Request, time.ParseDuration),
+			Shutdown:   config.LoadEnv(getenv("REST_TIMEOUT_SHUTDOWN"), defaults.Timeouts.Shutdown, time.ParseDuration),
 		},
 		MaxRequestSize:    config.LoadEnv(getenv("REST_MAX_REQUEST_SIZE"), defaults.MaxRequestSize, config.Int64Parser),
 		ClientIPHeader:    config.LoadEnv(getenv("REST_CLIENT_IP_HEADER"), defaults.ClientIPHeader, config.StringParser),
-		RateLimitsEnabled: config.LoadEnv(getenv("REST_RATE_LIMITS_ENABLED"), defaults.RateLimitsEnabled, config.BoolParser),
+		RateLimitsEnabled: config.LoadEnv(getenv("REST_RATE_LIMITS_ENABLED"), defaults.RateLimitsEnabled, strconv.ParseBool),
 		RateLimit:         config.LoadEnv(getenv("REST_RATE_LIMIT"), defaults.RateLimit, ParseRate),
 		RateLimitStore: RateLimitStore{
 			Addr: config.LoadEnv(getenv("REST_RATE_LIMIT_STORE_ADDR"), defaults.RateLimitStore.Addr, config.StringParser),
@@ -138,9 +139,9 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 			AllowedHeaders: config.LoadEnv(getenv("REST_CORS_ALLOWED_HEADERS"), defaults.Cors.AllowedHeaders, stringSlice),
 			AllowedMethods: config.LoadEnv(getenv("REST_CORS_ALLOWED_METHODS"), defaults.Cors.AllowedMethods, stringSlice),
 			AllowCredentials: config.LoadEnv(
-				getenv("REST_CORS_ALLOW_CREDENTIALS"), defaults.Cors.AllowCredentials, config.BoolParser,
+				getenv("REST_CORS_ALLOW_CREDENTIALS"), defaults.Cors.AllowCredentials, strconv.ParseBool,
 			),
-			MaxAge: config.LoadEnv(getenv("REST_CORS_MAX_AGE"), defaults.Cors.MaxAge, config.IntParser),
+			MaxAge: config.LoadEnv(getenv("REST_CORS_MAX_AGE"), defaults.Cors.MaxAge, strconv.Atoi),
 		},
 	}
 }

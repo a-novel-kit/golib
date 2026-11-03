@@ -42,9 +42,10 @@ func Logger(options ...otelslog.Option) *slog.Logger {
 // ForceFlush exports the spans and logs the global providers hold, within ctx, and keeps them
 // running. A provider that buffers nothing, such as the default no-op one, has nothing to flush.
 func ForceFlush(ctx context.Context) error {
-	var errs []error
+	providers := []any{otel.GetTracerProvider(), otel.GetLoggerProvider()}
+	errs := make([]error, 0, len(providers))
 
-	for _, provider := range []any{otel.GetTracerProvider(), otel.GetLoggerProvider()} {
+	for _, provider := range providers {
 		flusher, ok := provider.(interface {
 			ForceFlush(ctx context.Context) error
 		})

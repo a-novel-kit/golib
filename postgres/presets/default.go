@@ -164,7 +164,7 @@ func (config *Default) Options() []pgdriver.Option {
 	config.mu.RLock()
 	defer config.mu.RUnlock()
 
-	return append([]pgdriver.Option{}, config.options...)
+	return slices.Clone(config.options)
 }
 
 // maxIdleConns resolves the configured override against the default. Callers hold

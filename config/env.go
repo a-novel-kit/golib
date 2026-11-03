@@ -109,6 +109,8 @@ func Int8Parser(value string) (int8, error) {
 }
 
 // IntParser parses an int for [LoadEnv], accepting the formats of strconv.Atoi.
+//
+// Deprecated: Pass [strconv.Atoi] to [LoadEnv], which it fits as is.
 func IntParser(value string) (int, error) {
 	return strconv.Atoi(value)
 }
@@ -147,6 +149,8 @@ func UintParser(value string) (uint, error) {
 }
 
 // BoolParser parses a bool for [LoadEnv], accepting the formats of strconv.ParseBool.
+//
+// Deprecated: Pass [strconv.ParseBool] to [LoadEnv], which it fits as is.
 func BoolParser(value string) (bool, error) {
 	return strconv.ParseBool(value)
 }
@@ -164,6 +168,8 @@ func Float32Parser(value string) (float32, error) {
 }
 
 // DurationParser parses a time.Duration for [LoadEnv], accepting the formats of time.ParseDuration.
+//
+// Deprecated: Pass [time.ParseDuration] to [LoadEnv], which it fits as is.
 func DurationParser(value string) (time.Duration, error) {
 	return time.ParseDuration(value)
 }

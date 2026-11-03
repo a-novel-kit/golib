@@ -89,12 +89,14 @@ func recordFaults(next http.Handler) http.Handler {
 // as its http.route, as the OpenTelemetry HTTP server conventions do. A request chi routed nowhere
 // keeps the name tracing gave it.
 func nameSpan(ctx context.Context, span trace.Span) {
-	pattern := chi.RouteContext(ctx).RoutePattern()
+	routeCtx := chi.RouteContext(ctx)
+
+	pattern := routeCtx.RoutePattern()
 	if pattern == "" {
 		return
 	}
 
-	span.SetName(route(ctx))
+	span.SetName(routeCtx.RouteMethod + " " + pattern)
 	span.SetAttributes(semconv.HTTPRoute(pattern))
 }
 

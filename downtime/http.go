@@ -1,6 +1,7 @@
 package downtime
 
 import (
+	"io"
 	"net/http"
 	"time"
 )
@@ -41,5 +42,5 @@ func Respond(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusServiceUnavailable)
 
 	// A failed write means the client is gone.
-	_, _ = w.Write([]byte(problem))
+	_, _ = io.WriteString(w, problem)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -115,7 +116,9 @@ func (issuer *Issuer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // text. That text is what a projected token file holds, so a caller can write it to the file it
 // reads its token from.
 func (issuer *Issuer) serveToken(w http.ResponseWriter, r *http.Request) {
-	subject, audience := r.URL.Query().Get("subject"), r.URL.Query().Get("audience")
+	query := r.URL.Query()
+
+	subject, audience := query.Get("subject"), query.Get("audience")
 	if subject == "" || audience == "" {
 		http.Error(w, "subject and audience are required", http.StatusBadRequest)
 
@@ -130,7 +133,7 @@ func (issuer *Issuer) serveToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write([]byte(token)) //nolint:gosec // A token is base64url text, which no browser renders as markup.
+	_, _ = io.WriteString(w, token) //nolint:gosec // A token is base64url text, which no browser renders as markup.
 }
 
 // keyID stamps the ID of the signing key on each token, as a Kubernetes issuer does.

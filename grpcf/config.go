@@ -1,6 +1,7 @@
 package grpcf
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/a-novel-kit/golib/config"
@@ -35,15 +36,15 @@ var ServerConfigDefault = ServerConfig{
 // and keeps defaults for unset ones. It panics on a value it cannot parse.
 func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) ServerConfig {
 	return ServerConfig{
-		Port: config.LoadEnv(getenv("GRPC_PORT"), defaults.Port, config.IntParser),
+		Port: config.LoadEnv(getenv("GRPC_PORT"), defaults.Port, strconv.Atoi),
 		TLS: servertls.Files{
 			CertFile: config.LoadEnv(getenv("GRPC_TLS_CERT_FILE"), defaults.TLS.CertFile, config.StringParser),
 			KeyFile:  config.LoadEnv(getenv("GRPC_TLS_KEY_FILE"), defaults.TLS.KeyFile, config.StringParser),
 		},
-		PlaintextPort: config.LoadEnv(getenv("GRPC_PLAINTEXT_PORT"), defaults.PlaintextPort, config.IntParser),
-		Shutdown:      config.LoadEnv(getenv("GRPC_TIMEOUT_SHUTDOWN"), defaults.Shutdown, config.DurationParser),
+		PlaintextPort: config.LoadEnv(getenv("GRPC_PLAINTEXT_PORT"), defaults.PlaintextPort, strconv.Atoi),
+		Shutdown:      config.LoadEnv(getenv("GRPC_TIMEOUT_SHUTDOWN"), defaults.Shutdown, time.ParseDuration),
 		MaxConcurrentCalls: config.LoadEnv(
-			getenv("GRPC_MAX_CONCURRENT_CALLS"), defaults.MaxConcurrentCalls, config.IntParser,
+			getenv("GRPC_MAX_CONCURRENT_CALLS"), defaults.MaxConcurrentCalls, strconv.Atoi,
 		),
 	}
 }

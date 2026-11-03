@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -13,6 +14,13 @@ import (
 // ErrInvalidEvent is returned by [EventStream.Send] for an event a client cannot read: one without
 // data, or whose ID or type holds a line break or a NUL.
 var ErrInvalidEvent = errors.New("invalid server-sent event")
+
+// eventLineBreaks turns each line break the event stream format accepts into a line feed, so
+// [EventStream.Send] splits the data of an event on line feeds alone.
+var eventLineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
+// eventFieldBreaks holds the characters an event's ID or type cannot carry.
+const eventFieldBreaks = "\r\n\x00"
 
 // requestTimeoutKey holds the [requestTimeoutState] of a request, which [Streaming] lifts.
 type requestTimeoutKey struct{}
@@ -132,27 +140,33 @@ func NewEventStream(ctx context.Context, w http.ResponseWriter, heartbeat time.D
 
 // Send writes event and flushes it.
 func (stream *EventStream) Send(event Event) error {
-	if len(event.Data) == 0 || strings.ContainsAny(event.ID+event.Type, "\r\n\x00") {
+	if len(event.Data) == 0 ||
+		strings.ContainsAny(event.ID, eventFieldBreaks) || strings.ContainsAny(event.Type, eventFieldBreaks) {
 		return ErrInvalidEvent
 	}
 
 	var frame strings.Builder
 
 	if event.ID != "" {
-		frame.WriteString("id: " + event.ID + "\n")
+		frame.WriteString("id: ")
+		frame.WriteString(event.ID)
+		frame.WriteByte('\n')
 	}
 
 	if event.Type != "" {
-		frame.WriteString("event: " + event.Type + "\n")
+		frame.WriteString("event: ")
+		frame.WriteString(event.Type)
+		frame.WriteByte('\n')
 	}
 
 	// Each line of the data takes a field of its own, and the client joins them back.
-	data := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(string(event.Data))
-	for line := range strings.SplitSeq(data, "\n") {
-		frame.WriteString("data: " + line + "\n")
+	for line := range strings.SplitSeq(eventLineBreaks.Replace(string(event.Data)), "\n") {
+		frame.WriteString("data: ")
+		frame.WriteString(line)
+		frame.WriteByte('\n')
 	}
 
-	frame.WriteString("\n")
+	frame.WriteByte('\n')
 
 	return stream.write(frame.String())
 }
@@ -187,7 +201,7 @@ func (stream *EventStream) write(text string) error {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
 
-	_, err := stream.writer.Write([]byte(text))
+	_, err := io.WriteString(stream.writer, text)
 	if err != nil {
 		return fmt.Errorf("write event: %w", err)
 	}

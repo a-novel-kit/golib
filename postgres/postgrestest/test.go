@@ -331,7 +331,7 @@ func dbTestCreateTemplate(
 		return nil
 	}
 
-	_, err = maintenance.NewRaw("CREATE DATABASE " + dbTestQuoteIdent(name)).Exec(ctx)
+	_, err = maintenance.NewRaw("CREATE DATABASE ?", bun.Ident(name)).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("create template database: %w", err)
 	}
@@ -376,9 +376,7 @@ func dbTestMigrateTemplate(ctx context.Context, options []pgdriver.Option, name 
 // connection. WITH (FORCE) (PostgreSQL 13+) terminates any backend still
 // attached so a leaked connection cannot block the drop.
 func dbTestDropDatabase(ctx context.Context, maintenance *bun.DB, name string) error {
-	_, err := maintenance.NewRaw(
-		"DROP DATABASE IF EXISTS " + dbTestQuoteIdent(name) + " WITH (FORCE)",
-	).Exec(ctx)
+	_, err := maintenance.NewRaw("DROP DATABASE IF EXISTS ? WITH (FORCE)", bun.Ident(name)).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("drop database %q: %w", name, err)
 	}
@@ -390,18 +388,13 @@ func dbTestDropDatabase(ctx context.Context, maintenance *bun.DB, name string) e
 // retrying briefly on the transient object_in_use failure that a still-draining
 // previous clone can cause.
 func dbTestCreateInstance(ctx context.Context, maintenance *bun.DB, instance, template string) error {
-	query := fmt.Sprintf(
-		"CREATE DATABASE %s TEMPLATE %s",
-		dbTestQuoteIdent(instance), dbTestQuoteIdent(template),
-	)
-
 	dbTestCloneMu.Lock()
 	defer dbTestCloneMu.Unlock()
 
 	var err error
 
 	for attempt := range dbTestCreateAttempts {
-		_, err = maintenance.NewRaw(query).Exec(ctx)
+		_, err = maintenance.NewRaw("CREATE DATABASE ? TEMPLATE ?", bun.Ident(instance), bun.Ident(template)).Exec(ctx)
 		if err == nil {
 			return nil
 		}
@@ -498,11 +491,4 @@ func dbTestAdvisoryKey(name string) int64 {
 	sum := sha256.Sum256([]byte(name))
 
 	return int64(binary.BigEndian.Uint64(sum[:8])) //nolint:gosec // wrap-around is fine for a lock key.
-}
-
-// dbTestQuoteIdent double-quotes a SQL identifier. A database name cannot be bound as a query
-// parameter, so it is interpolated. The generated names use a restricted character set, and
-// quoting them adds defense in depth.
-func dbTestQuoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
