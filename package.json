@@ -1,6 +1,6 @@
 {
   "name": "golib",
-  "version": "0.62.2",
+  "version": "0.62.3",
   "license": "MIT",
   "type": "module",
   "scripts": {
