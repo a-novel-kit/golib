@@ -89,11 +89,24 @@ func ReportError(span trace.Span, err error) error {
 // server span, or the root span of a job. The span metrics derived from those spans then count faults
 // by type.
 //
-// The attribute names the type of the innermost error err wraps, such as "*pgconn.PgError", since
-// the wrappers around it are the same for every fault. Through an error joining several, it follows
-// the first.
+// The attribute names the type of the innermost error err wraps, such as "*net.OpError", since the
+// wrappers around it are the same for every fault. A PostgreSQL error names its SQLSTATE instead,
+// such as "23505", as OpenTelemetry's database conventions ask. Through an error joining several, it
+// follows the first.
 func ErrorType(err error) attribute.KeyValue {
-	return semconv.ErrorTypeKey.String(innermostType(err))
+	cause := innermost(err)
+
+	if serverErr, ok := cause.(databaseError); ok && serverErr.Field('C') != "" {
+		return semconv.ErrorTypeKey.String(serverErr.Field('C'))
+	}
+
+	return semconv.ErrorTypeKey.String(fmt.Sprintf("%T", cause))
+}
+
+// databaseError is a PostgreSQL server error, such as bun's pgdriver.Error, whose 'C' field holds its
+// SQLSTATE.
+type databaseError interface {
+	Field(k byte) string
 }
 
 // ReportPanic marks span failed by rec, a value recover returned, as [ReportError] does. The span's
@@ -126,11 +139,15 @@ func RecoverPanic(ctx context.Context, span trace.Span) {
 	)
 }
 
-// innermostType names the type of the innermost error value wraps, such as "*pgconn.PgError". A
-// wrapped error carries no stack trace, so its innermost cause tells faults apart. Through an error
-// joining several, it follows the first. A value that wraps nothing, such as a string a panic
-// recovered, names its own type.
+// innermostType names the type of the innermost error value wraps, such as "*net.OpError".
 func innermostType(value any) string {
+	return fmt.Sprintf("%T", innermost(value))
+}
+
+// innermost returns the innermost error value wraps. A wrapped error carries no stack trace, so its
+// innermost cause tells faults apart. Through an error joining several, it follows the first. A value
+// that wraps nothing, such as a string a panic recovered, is its own innermost value.
+func innermost(value any) any {
 	for {
 		var next error
 
@@ -144,7 +161,7 @@ func innermostType(value any) string {
 		}
 
 		if next == nil {
-			return fmt.Sprintf("%T", value)
+			return value
 		}
 
 		value = next

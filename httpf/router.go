@@ -74,8 +74,8 @@ func NewRouter(
 	return router
 }
 
-// serverSpanKey holds the span tracing opened for a request, on which [HandleError] names the type of
-// a server fault.
+// serverSpanKey holds the span tracing opened for a request, on which [HandleError] sets a server
+// fault's error.type.
 type serverSpanKey struct{}
 
 // recordFaults keeps the request's server span in its context, for [HandleError]. It records a panic

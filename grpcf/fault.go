@@ -17,8 +17,8 @@ import (
 // Fault(codes.Internal, "internal error", err). The caller receives code and msg alone.
 //
 // A server from [NewServer] reports a call that ends with Internal or Unavailable as a fault. The
-// call's server span names the type of the innermost error the call returned. A bare status error
-// wraps nothing, so Fault keeps cause for that type.
+// call's server span names the innermost error the call returned, through [otel.ErrorType]. A bare
+// status error wraps nothing, so Fault keeps cause for that name.
 func Fault(code codes.Code, msg string, cause error) error {
 	return &faultError{status: status.New(code, msg), cause: cause}
 }
