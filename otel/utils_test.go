@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun/driver/pgdriver"
 
 	gootel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -29,6 +30,20 @@ type driverError struct{}
 func (*driverError) Error() string {
 	return "password authentication failed for user=secret"
 }
+
+// serverError stands for a PostgreSQL error, holding its fields by code as bun's pgdriver.Error does.
+type serverError map[byte]string
+
+func (err serverError) Field(k byte) string {
+	return err[k]
+}
+
+func (err serverError) Error() string {
+	return err['M']
+}
+
+// ErrorType reads bun's PostgreSQL errors through their Field method.
+var _ interface{ Field(k byte) string } = pgdriver.Error{}
 
 // recordingExporter keeps a copy of every log record it exports.
 type recordingExporter struct {
@@ -134,6 +149,21 @@ func TestErrorType(t *testing.T) {
 			name:       "Success/Sentinel",
 			err:        fmt.Errorf("rotate keys: %w", errFoo),
 			expectType: "*errors.errorString",
+		},
+		{
+			name:       "Success/DatabaseNamesSQLSTATE",
+			err:        fmt.Errorf("select session: %w", serverError{'C': "57P01", 'M': "terminating connection"}),
+			expectType: "57P01",
+		},
+		{
+			name:       "Success/DatabaseJoinedFirst",
+			err:        errors.Join(serverError{'C': "23505", 'M': "duplicate key"}, errFoo),
+			expectType: "23505",
+		},
+		{
+			name:       "Success/DatabaseWithoutSQLSTATE",
+			err:        fmt.Errorf("select session: %w", serverError{'M': "no code"}),
+			expectType: "otel_test.serverError",
 		},
 	}
 
