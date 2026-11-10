@@ -31,17 +31,24 @@ var mediaTypes = map[string]string{
 	"webp": "image/webp",
 }
 
-// Rule is what a picture contract accepts: a still WebP or a JPEG, or a still PNG when AllowPNG is set,
-// 1 to MaxWidth pixels wide, of an exact aspect ratio when the rule sets one.
+// maxPixels caps width times height whatever the rule says: 16 megapixels, or 4096 by 4096. A decode holds
+// about four bytes per pixel, so the ceiling keeps it near 64 MiB, however small the file that declares
+// the image.
+const maxPixels = 1 << 24
+
+// Rule is what a picture contract accepts: a still WebP or a JPEG, or a still PNG when AllowPNG is set.
+// Every other field is optional, and they combine freely. [Check] applies its pixel ceiling to every
+// rule, the zero Rule included.
 type Rule struct {
 	// RatioWidth and RatioHeight set the exact aspect ratio, such as 1:1 or 16:9. Both zero accept any
-	// ratio.
+	// ratio. A rule that sets only one refuses every picture, so a half-set ratio fails closed.
 	RatioWidth, RatioHeight int
-	// MaxWidth caps the width, in pixels.
+	// MaxWidth caps the width, in pixels. Zero leaves the width uncapped.
 	MaxWidth int
-	// MaxHeight caps the height, in pixels. Zero leaves the height uncapped, so a rule that accepts any
-	// ratio sets it to bound the memory [Check] spends decoding.
+	// MaxHeight caps the height, in pixels. Zero leaves the height uncapped.
 	MaxHeight int
+	// MaxBytes caps the encoded picture. Zero leaves it uncapped.
+	MaxBytes int
 	// AllowPNG accepts a still PNG beside a WebP or a JPEG. A rule refuses every PNG without it.
 	AllowPNG bool
 }
@@ -51,13 +58,16 @@ type Rule struct {
 type RefusedError string
 
 const (
+	// ErrSize refuses a picture of more encoded bytes than a set [Rule.MaxBytes].
+	ErrSize RefusedError = "size"
 	// ErrFormat refuses bytes that are neither a still WebP, a JPEG nor a still PNG the rule allows, or
 	// do not decode whole.
 	ErrFormat RefusedError = "format"
-	// ErrRatio refuses a picture whose aspect ratio differs from the rule's.
+	// ErrRatio refuses a picture whose aspect ratio differs from the rule's, and every picture under a rule
+	// that sets only one ratio field.
 	ErrRatio RefusedError = "ratio"
-	// ErrDimensions refuses a picture under 1 pixel on a side, wider than [Rule.MaxWidth], or taller than a
-	// set [Rule.MaxHeight].
+	// ErrDimensions refuses a picture under 1 pixel on a side, past a set [Rule.MaxWidth] or
+	// [Rule.MaxHeight], or past 16 megapixels, the ceiling of every rule.
 	ErrDimensions RefusedError = "dimensions"
 )
 
@@ -73,12 +83,17 @@ func (refusal RefusedError) Is(target error) bool {
 // Check returns the media type, "image/webp", "image/jpeg" or "image/png", of a picture rule accepts.
 // It returns a [RefusedError] otherwise, joined with the decoder's error when one caused it.
 //
-// Check reads the dimensions from the header before it decodes the image, so a small file that
-// declares dimensions past the rule costs no memory. Its span takes the refusal as its error.type, so
-// traces count refusals by reason.
+// Check refuses a picture past [Rule.MaxBytes] before any decoding. It then reads the dimensions from
+// the header before it decodes the image, so a small file that declares dimensions past the rule or the
+// pixel ceiling costs no memory. Its span takes the refusal as its error.type, so traces count refusals
+// by reason.
 func Check(ctx context.Context, data []byte, rule Rule) (string, error) {
 	_, span := otel.Tracer().Start(ctx, "picture.Check")
 	defer span.End()
+
+	if rule.MaxBytes != 0 && len(data) > rule.MaxBytes {
+		return "", refuse(span, ErrSize, nil)
+	}
 
 	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	mediaType, accepted := mediaTypes[format]
@@ -88,11 +103,14 @@ func Check(ctx context.Context, data []byte, rule Rule) (string, error) {
 		format == "webp" && webpAnimated(data),
 		format == "png" && (!rule.AllowPNG || pngAnimated(data)):
 		return "", refuse(span, ErrFormat, err)
-	// A rule without a ratio multiplies both sides by zero, so every picture passes.
+	// A rule without a ratio multiplies both sides by zero, so every picture passes. A rule with one ratio
+	// field leaves the sides unequal, so every picture fails.
 	case config.Width*rule.RatioHeight != config.Height*rule.RatioWidth:
 		return "", refuse(span, ErrRatio, nil)
-	case config.Width < 1, config.Width > rule.MaxWidth,
-		config.Height < 1, rule.MaxHeight > 0 && config.Height > rule.MaxHeight:
+	case config.Width < 1, config.Height < 1,
+		rule.MaxWidth != 0 && config.Width > rule.MaxWidth,
+		rule.MaxHeight != 0 && config.Height > rule.MaxHeight,
+		int64(config.Width)*int64(config.Height) > maxPixels:
 		return "", refuse(span, ErrDimensions, nil)
 	}
 

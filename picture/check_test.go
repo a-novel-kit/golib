@@ -62,6 +62,14 @@ func TestCheck(t *testing.T) {
 
 	actl := animationControlChunk()
 
+	// cappedJPEG is the picture the byte cap cases measure.
+	cappedJPEG := newJPEG(t, 32, 32)
+
+	// combined sets every option at once, each at the size of cappedJPEG.
+	combined := picture.Rule{
+		RatioWidth: 1, RatioHeight: 1, MaxWidth: 32, MaxHeight: 32, MaxBytes: len(cappedJPEG),
+	}
+
 	testCases := []struct {
 		name string
 
@@ -160,10 +168,50 @@ func TestCheck(t *testing.T) {
 			expect: "image/jpeg",
 		},
 		{
-			name: "Success/HeightUncapped",
+			name: "Success/MaxWidthAlone",
 
 			data: newJPEG(t, 16, 2048),
 			rule: picture.Rule{MaxWidth: 16},
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/NoOption",
+
+			data: newJPEG(t, 2048, 16),
+			rule: picture.Rule{},
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/RatioAlone",
+
+			data: newJPEG(t, 2048, 1024),
+			rule: picture.Rule{RatioWidth: 2, RatioHeight: 1},
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/MaxHeightAlone",
+
+			data: newJPEG(t, 2048, 64),
+			rule: picture.Rule{MaxHeight: 64},
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/MaxBytesAtCap",
+
+			data: cappedJPEG,
+			rule: picture.Rule{MaxBytes: len(cappedJPEG)},
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/Combination",
+
+			data: cappedJPEG,
+			rule: combined,
 
 			expect: "image/jpeg",
 		},
@@ -346,6 +394,106 @@ func TestCheck(t *testing.T) {
 			expectErr: picture.ErrDimensions,
 		},
 		{
+			name: "Error/RatioAlone",
+
+			data: newJPEG(t, 64, 33),
+			rule: picture.Rule{RatioWidth: 2, RatioHeight: 1},
+
+			expectErr: picture.ErrRatio,
+		},
+		{
+			name: "Error/RatioWidthOnly",
+
+			data: squareJPEG,
+			rule: picture.Rule{RatioWidth: 16},
+
+			expectErr: picture.ErrRatio,
+		},
+		{
+			name: "Error/RatioHeightOnly",
+
+			data: squareJPEG,
+			rule: picture.Rule{RatioHeight: 9},
+
+			expectErr: picture.ErrRatio,
+		},
+		{
+			name: "Error/DimensionsMaxWidthAlone",
+
+			data: newJPEG(t, 65, 16),
+			rule: picture.Rule{MaxWidth: 64},
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			name: "Error/DimensionsMaxHeightAlone",
+
+			data: newJPEG(t, 16, 65),
+			rule: picture.Rule{MaxHeight: 64},
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			// A negative cap fails closed.
+			name: "Error/DimensionsNegativeCap",
+
+			data: squareJPEG,
+			rule: picture.Rule{MaxWidth: -1},
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			name: "Error/DimensionsCombination",
+
+			data: squareJPEG,
+			rule: picture.Rule{RatioWidth: 1, RatioHeight: 1, MaxWidth: 32, MaxHeight: 32, MaxBytes: len(squareJPEG)},
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			name: "Error/SizePastCap",
+
+			data: cappedJPEG,
+			rule: picture.Rule{MaxBytes: len(cappedJPEG) - 1},
+
+			expectErr: picture.ErrSize,
+		},
+		{
+			// The size comes first, so bytes that do not decode name the size.
+			name: "Error/SizeBeforeFormat",
+
+			data: []byte("not an image"),
+			rule: picture.Rule{MaxBytes: 4},
+
+			expectErr: picture.ErrSize,
+		},
+		{
+			// The header carries no image data, so a refusal that names the dimensions never decoded it.
+			name: "Error/DimensionsPastCeiling",
+
+			data: newPNGHeader(65536, 65536),
+			rule: picture.Rule{AllowPNG: true},
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			name: "Error/DimensionsPastCeilingWithinCaps",
+
+			data: newPNGHeader(4097, 4096),
+			rule: picture.Rule{MaxWidth: 1 << 20, MaxHeight: 1 << 20, AllowPNG: true},
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			// At the ceiling the check reaches the decoder, which finds no image data.
+			name: "Error/FormatAtCeiling",
+
+			data: newPNGHeader(4096, 4096),
+			rule: picture.Rule{AllowPNG: true},
+
+			expectErr: picture.ErrFormat,
+		},
+		{
 			// Without a ratio to refuse it, only the height check stops a header that declares no rows.
 			name: "Error/DimensionsNoHeight",
 
@@ -445,6 +593,17 @@ func withChunkBefore(encoded []byte, chunkType string, chunk []byte) []byte {
 	offset := bytes.Index(encoded, []byte(chunkType)) - 4
 
 	return slices.Concat(encoded[:offset], chunk, encoded[offset:])
+}
+
+// newPNGHeader returns a PNG that ends after its IHDR chunk, which declares the given size in 8-bit RGBA.
+func newPNGHeader(width, height uint32) []byte {
+	header := []byte("\x00\x00\x00\x0dIHDR")
+	header = binary.BigEndian.AppendUint32(header, width)
+	header = binary.BigEndian.AppendUint32(header, height)
+	header = append(header, 8, 6, 0, 0, 0)
+	header = binary.BigEndian.AppendUint32(header, crc32.ChecksumIEEE(header[4:]))
+
+	return slices.Concat([]byte("\x89PNG\r\n\x1a\n"), header)
 }
 
 // newPNG encodes an image of the given size as a PNG.
