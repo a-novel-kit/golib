@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/binary"
 	"errors"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -39,10 +42,14 @@ var (
 )
 
 var (
-	// square is the rule of a logo or a profile picture.
+	// square is the rule of a profile picture.
 	square = picture.Rule{RatioWidth: 1, RatioHeight: 1, MaxWidth: 512}
 	// wide is the rule of a 16:9 background.
 	wide = picture.Rule{RatioWidth: 16, RatioHeight: 9, MaxWidth: 1280}
+	// free is the rule of a logo of any aspect ratio, capped on both sides.
+	free = picture.Rule{MaxWidth: 1024, MaxHeight: 128}
+	// freePNG is free, opened to PNG.
+	freePNG = picture.Rule{MaxWidth: 1024, MaxHeight: 128, AllowPNG: true}
 )
 
 //nolint:paralleltest // Swaps the process-wide tracer provider to read the span of each check.
@@ -52,6 +59,8 @@ func TestCheck(t *testing.T) {
 	var pngPicture bytes.Buffer
 
 	require.NoError(t, png.Encode(&pngPicture, newImage(64, 64)))
+
+	actl := animationControlChunk()
 
 	testCases := []struct {
 		name string
@@ -117,6 +126,104 @@ func TestCheck(t *testing.T) {
 			rule: square,
 
 			expect: "image/jpeg",
+		},
+		{
+			name: "Success/FreeRatioWidest",
+
+			data: newJPEG(t, 1024, 128),
+			rule: free,
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/FreeRatioTallest",
+
+			data: newJPEG(t, 32, 128),
+			rule: free,
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/FreeRatioWebP",
+
+			data: wideWebP,
+			rule: free,
+
+			expect: "image/webp",
+		},
+		{
+			name: "Success/FreeRatioOnePixel",
+
+			data: newJPEG(t, 1, 1),
+			rule: free,
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/HeightUncapped",
+
+			data: newJPEG(t, 16, 2048),
+			rule: picture.Rule{MaxWidth: 16},
+
+			expect: "image/jpeg",
+		},
+		{
+			name: "Success/PNG",
+
+			data: pngPicture.Bytes(),
+			rule: freePNG,
+
+			expect: "image/png",
+		},
+		{
+			// The APNG specification reads acTL only before the first IDAT, so this PNG stays still.
+			name: "Success/PNGAnimationControlAfterData",
+
+			data: withChunkBefore(pngPicture.Bytes(), "IEND", actl),
+			rule: freePNG,
+
+			expect: "image/png",
+		},
+		{
+			name: "Error/PNGNotAllowed",
+
+			data: pngPicture.Bytes(),
+			rule: free,
+
+			expectErr: picture.ErrFormat,
+		},
+		{
+			name: "Error/AnimatedPNG",
+
+			data: withChunkBefore(pngPicture.Bytes(), "IDAT", actl),
+			rule: freePNG,
+
+			expectErr: picture.ErrFormat,
+		},
+		{
+			name: "Error/TruncatedPNG",
+
+			data: pngPicture.Bytes()[:pngPicture.Len()/2],
+			rule: freePNG,
+
+			expectErr: picture.ErrFormat,
+		},
+		{
+			// The chunk walk stops at a length past the data, and the decoder refuses the bytes.
+			name: "Error/PNGChunkPastTheData",
+
+			data: withChunkBefore(pngPicture.Bytes(), "IDAT", []byte("\xff\xff\xff\xffjunk")),
+			rule: freePNG,
+
+			expectErr: picture.ErrFormat,
+		},
+		{
+			name: "Error/DimensionsPNGOverMaxHeight",
+
+			data: newPNG(t, 64, 129),
+			rule: freePNG,
+
+			expectErr: picture.ErrDimensions,
 		},
 		{
 			name: "Error/NotAnImage",
@@ -214,6 +321,39 @@ func TestCheck(t *testing.T) {
 
 			expectErr: picture.ErrDimensions,
 		},
+		{
+			name: "Error/DimensionsFreeOverMaxWidth",
+
+			data: newJPEG(t, 1025, 128),
+			rule: free,
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			name: "Error/DimensionsFreeOverMaxHeight",
+
+			data: newJPEG(t, 64, 129),
+			rule: free,
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			name: "Error/DimensionsRatioOverMaxHeight",
+
+			data: newJPEG(t, 65, 65),
+			rule: picture.Rule{RatioWidth: 1, RatioHeight: 1, MaxWidth: 512, MaxHeight: 64},
+
+			expectErr: picture.ErrDimensions,
+		},
+		{
+			// Without a ratio to refuse it, only the height check stops a header that declares no rows.
+			name: "Error/DimensionsNoHeight",
+
+			data: withJPEGHeight(squareJPEG, 0),
+			rule: free,
+
+			expectErr: picture.ErrDimensions,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -277,6 +417,48 @@ func withAnimationFlag(webp []byte) []byte {
 	flagged[20] |= 1 << 1
 
 	return flagged
+}
+
+// withJPEGHeight returns a copy of a JPEG whose frame header declares the given height.
+func withJPEGHeight(jpg []byte, height uint16) []byte {
+	const startOfFrame = "\xff\xc0"
+
+	patched := bytes.Clone(jpg)
+	offset := bytes.Index(patched, []byte(startOfFrame))
+
+	// The marker's length, then the sample precision, come before the height.
+	binary.BigEndian.PutUint16(patched[offset+5:], height)
+
+	return patched
+}
+
+// animationControlChunk returns an acTL chunk of a PNG, with its checksum: one frame, played once.
+func animationControlChunk() []byte {
+	chunk := []byte("\x00\x00\x00\x08acTL\x00\x00\x00\x01\x00\x00\x00\x01")
+
+	return binary.BigEndian.AppendUint32(chunk, crc32.ChecksumIEEE(chunk[4:]))
+}
+
+// withChunkBefore returns a copy of a PNG with chunk inserted before the first chunk of the given type.
+func withChunkBefore(encoded []byte, chunkType string, chunk []byte) []byte {
+	// A chunk's 4-byte length comes before its type.
+	offset := bytes.Index(encoded, []byte(chunkType)) - 4
+
+	return slices.Concat(encoded[:offset], chunk, encoded[offset:])
+}
+
+// newPNG encodes an image of the given size as a PNG.
+func newPNG(t *testing.T, width, height int) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	err := png.Encode(&buf, newImage(width, height))
+	if err != nil {
+		panic(err)
+	}
+
+	return buf.Bytes()
 }
 
 // newJPEG encodes an image of the given size as a JPEG.
