@@ -3,10 +3,13 @@ package picture
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"image"
 	// Registers the JPEG decoder with the image package.
 	_ "image/jpeg"
+	// Registers the PNG decoder with the image package.
+	_ "image/png"
 
 	// Registers the WebP decoder with the image package.
 	_ "golang.org/x/image/webp"
@@ -24,16 +27,23 @@ var ErrRefused = errors.New("picture refused")
 // bytes name the format; a request's Content-Type never does.
 var mediaTypes = map[string]string{
 	"jpeg": "image/jpeg",
+	"png":  "image/png",
 	"webp": "image/webp",
 }
 
-// Rule is what a picture contract accepts: a still WebP or a JPEG of an exact aspect ratio, 1 to
-// MaxWidth pixels wide.
+// Rule is what a picture contract accepts: a still WebP or a JPEG, or a still PNG when AllowPNG is set,
+// 1 to MaxWidth pixels wide, of an exact aspect ratio when the rule sets one.
 type Rule struct {
-	// RatioWidth and RatioHeight set the exact aspect ratio, such as 1:1 or 16:9.
+	// RatioWidth and RatioHeight set the exact aspect ratio, such as 1:1 or 16:9. Both zero accept any
+	// ratio.
 	RatioWidth, RatioHeight int
 	// MaxWidth caps the width, in pixels.
 	MaxWidth int
+	// MaxHeight caps the height, in pixels. Zero leaves the height uncapped, so a rule that accepts any
+	// ratio sets it to bound the memory [Check] spends decoding.
+	MaxHeight int
+	// AllowPNG accepts a still PNG beside a WebP or a JPEG. A rule refuses every PNG without it.
+	AllowPNG bool
 }
 
 // RefusedError names the rule a refused picture broke, and matches [ErrRefused]. Its value is the
@@ -41,11 +51,13 @@ type Rule struct {
 type RefusedError string
 
 const (
-	// ErrFormat refuses bytes that are neither a still WebP nor a JPEG, or do not decode whole.
+	// ErrFormat refuses bytes that are neither a still WebP, a JPEG nor a still PNG the rule allows, or
+	// do not decode whole.
 	ErrFormat RefusedError = "format"
 	// ErrRatio refuses a picture whose aspect ratio differs from the rule's.
 	ErrRatio RefusedError = "ratio"
-	// ErrDimensions refuses a picture whose width is not 1 to [Rule.MaxWidth] pixels.
+	// ErrDimensions refuses a picture under 1 pixel on a side, wider than [Rule.MaxWidth], or taller than a
+	// set [Rule.MaxHeight].
 	ErrDimensions RefusedError = "dimensions"
 )
 
@@ -58,12 +70,12 @@ func (refusal RefusedError) Is(target error) bool {
 	return target == ErrRefused
 }
 
-// Check returns the media type, "image/webp" or "image/jpeg", of a picture rule accepts. It returns a
-// [RefusedError] otherwise, joined with the decoder's error when one caused it.
+// Check returns the media type, "image/webp", "image/jpeg" or "image/png", of a picture rule accepts.
+// It returns a [RefusedError] otherwise, joined with the decoder's error when one caused it.
 //
 // Check reads the dimensions from the header before it decodes the image, so a small file that
-// declares a huge image costs no memory. Its span takes the refusal as its error.type, so traces count
-// refusals by reason.
+// declares dimensions past the rule costs no memory. Its span takes the refusal as its error.type, so
+// traces count refusals by reason.
 func Check(ctx context.Context, data []byte, rule Rule) (string, error) {
 	_, span := otel.Tracer().Start(ctx, "picture.Check")
 	defer span.End()
@@ -72,11 +84,15 @@ func Check(ctx context.Context, data []byte, rule Rule) (string, error) {
 	mediaType, accepted := mediaTypes[format]
 
 	switch {
-	case err != nil || !accepted || (format == "webp" && webpAnimated(data)):
+	case err != nil, !accepted,
+		format == "webp" && webpAnimated(data),
+		format == "png" && (!rule.AllowPNG || pngAnimated(data)):
 		return "", refuse(span, ErrFormat, err)
+	// A rule without a ratio multiplies both sides by zero, so every picture passes.
 	case config.Width*rule.RatioHeight != config.Height*rule.RatioWidth:
 		return "", refuse(span, ErrRatio, nil)
-	case config.Width < 1 || config.Width > rule.MaxWidth:
+	case config.Width < 1, config.Width > rule.MaxWidth,
+		config.Height < 1, rule.MaxHeight > 0 && config.Height > rule.MaxHeight:
 		return "", refuse(span, ErrDimensions, nil)
 	}
 
@@ -102,4 +118,37 @@ func webpAnimated(data []byte) bool {
 	const animationFlag = 1 << 1
 
 	return len(data) > 20 && string(data[12:16]) == "VP8X" && data[20]&animationFlag != 0
+}
+
+// pngAnimated reports whether a PNG declares an animation: an acTL chunk comes before its first IDAT
+// (APNG Specification, "Structure"). A chunk holds a 4-byte length, a 4-byte type, its data and a
+// 4-byte checksum. The walk stops at a chunk that runs past the data, which the decoder then refuses.
+func pngAnimated(data []byte) bool {
+	const (
+		signatureSize = 8
+		headerSize    = 8
+		checksumSize  = 4
+	)
+
+	if len(data) < signatureSize {
+		return false
+	}
+
+	for rest := data[signatureSize:]; len(rest) >= headerSize; {
+		switch string(rest[4:headerSize]) {
+		case "acTL":
+			return true
+		case "IDAT":
+			return false
+		}
+
+		size := uint64(binary.BigEndian.Uint32(rest)) + headerSize + checksumSize
+		if size > uint64(len(rest)) {
+			return false
+		}
+
+		rest = rest[size:]
+	}
+
+	return false
 }
