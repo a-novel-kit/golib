@@ -3,7 +3,7 @@ module github.com/a-novel-kit/golib
 go 1.27.4
 
 require (
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.1.0
 	github.com/a-novel-kit/jwt/v2 v2.6.1
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/felixge/httpsnoop v1.1.0
