@@ -60,48 +60,106 @@ func TestServiceTokenGate(t *testing.T) {
 		name string
 
 		config servicetoken.Config
-		// call is "unary", "stream" or "health".
-		call   string
+		call   func(ctx context.Context, connection *grpc.ClientConn) error
 		tokens []string
 
 		expectErr  error
 		expectCode codes.Code
 	}{
-		{name: "Success/Unary", config: configured, call: "unary", tokens: []string{valid}, expectCode: codes.OK},
-		{name: "Success/Stream", config: configured, call: "stream", tokens: []string{valid}, expectCode: codes.OK},
+		{
+			name: "Success/Unary",
+
+			config: configured,
+			call:   callUnary,
+			tokens: []string{valid},
+
+			expectCode: codes.OK,
+		},
+		{
+			name: "Success/Stream",
+
+			config: configured,
+			call:   callStream,
+			tokens: []string{valid},
+
+			expectCode: codes.OK,
+		},
 		{
 			// The kubelet probes the health service without a token.
-			name: "Success/Health", config: configured, call: "health", expectCode: codes.OK,
+			name: "Success/Health",
+
+			config: configured,
+			call:   callHealth,
+
+			expectCode: codes.OK,
 		},
-		{name: "Error/MissingUnary", config: configured, call: "unary", expectCode: codes.Unauthenticated},
-		{name: "Error/MissingStream", config: configured, call: "stream", expectCode: codes.Unauthenticated},
 		{
-			name: "Error/Several", config: configured, call: "unary", tokens: []string{valid, valid},
+			name: "Error/MissingUnary",
+
+			config: configured,
+			call:   callUnary,
+
 			expectCode: codes.Unauthenticated,
 		},
 		{
-			name: "Error/Rejected", config: configured, call: "unary",
-			tokens:     []string{signServiceToken(t, issuer, "system:serviceaccount:studio:platform")},
+			name: "Error/MissingStream",
+
+			config: configured,
+			call:   callStream,
+
 			expectCode: codes.Unauthenticated,
 		},
 		{
-			name: "Error/VerifierFault", config: faulty, call: "unary", tokens: []string{valid},
+			name: "Error/Several",
+
+			config: configured,
+			call:   callUnary,
+			tokens: []string{valid, valid},
+
+			expectCode: codes.Unauthenticated,
+		},
+		{
+			name: "Error/Rejected",
+
+			config: configured,
+			call:   callUnary,
+			tokens: []string{signServiceToken(t, issuer, "system:serviceaccount:studio:platform")},
+
+			expectCode: codes.Unauthenticated,
+		},
+		{
+			name: "Error/VerifierFault",
+
+			config: faulty,
+			call:   callUnary,
+			tokens: []string{valid},
+
 			expectCode: codes.Unavailable,
 		},
 		{
 			// A deployment that forgets the issuer stops at startup.
-			name:      "Error/IssuerRequired",
-			config:    servicetoken.Config{Audience: serviceTokenAudience},
+			name: "Error/IssuerRequired",
+
+			config: servicetoken.Config{Audience: serviceTokenAudience},
+
 			expectErr: servicetoken.ErrIssuerRequired,
 		},
 		{
 			// A local or test stack runs without an issuer, and admits every call.
-			name: "Success/IssuerOptional", config: servicetoken.Config{IssuerOptional: true}, call: "stream",
+			name: "Success/IssuerOptional",
+
+			config: servicetoken.Config{IssuerOptional: true},
+			call:   callStream,
+
 			expectCode: codes.OK,
 		},
 		{
 			// A configured gate ignores the opt-out.
-			name: "Error/IssuerOptionalWithIssuer", config: optionalWithIssuer, call: "unary",
+			name: "Error/IssuerOptionalWithIssuer",
+
+			config: optionalWithIssuer,
+			call:   callUnary,
+
 			expectCode: codes.Unauthenticated,
 		},
 	}
@@ -139,25 +197,28 @@ func TestServiceTokenGate(t *testing.T) {
 			}
 
 			ctx = metadata.NewOutgoingContext(ctx, tokens)
-			require.Equal(t, testCase.expectCode, status.Code(callGated(ctx, connection, testCase.call)))
+			require.Equal(t, testCase.expectCode, status.Code(testCase.call(ctx, connection)))
 		})
 	}
 }
 
-// callGated makes one call of kind, "unary", "stream" or "health", on connection.
-func callGated(ctx context.Context, connection *grpc.ClientConn, kind string) error {
-	switch kind {
-	case "stream":
-		_, err := callProbeStream(ctx, connection)
+// callUnary calls test.Probe/Call once on connection.
+func callUnary(ctx context.Context, connection *grpc.ClientConn) error {
+	return connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
+}
 
-		return err
-	case "health":
-		_, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
+// callStream opens test.Probe/Stream once on connection.
+func callStream(ctx context.Context, connection *grpc.ClientConn) error {
+	_, err := callProbeStream(ctx, connection)
 
-		return err
-	default:
-		return connection.Invoke(ctx, "/test.Probe/Call", &emptypb.Empty{}, &wrapperspb.StringValue{})
-	}
+	return err
+}
+
+// callHealth checks the health service once on connection.
+func callHealth(ctx context.Context, connection *grpc.ClientConn) error {
+	_, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
+
+	return err
 }
 
 func TestServiceTokenUnaryInterceptor(t *testing.T) {
