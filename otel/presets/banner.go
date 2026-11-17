@@ -2,6 +2,7 @@ package otelpresets
 
 import (
 	"fmt"
+	stdlog "log"
 	"os"
 )
 
@@ -15,4 +16,10 @@ const (
 // printBanner prints the startup banner text to standard output, in color.
 func printBanner(color, text string) {
 	_, _ = fmt.Fprintln(os.Stdout, color+text+"\x1b[0m")
+}
+
+// trimLogFlags drops the date and time from the standard logger's lines, for a process whose logs a
+// terminal shows.
+func trimLogFlags() {
+	stdlog.SetFlags(stdlog.Flags() &^ (stdlog.Ldate | stdlog.Ltime))
 }

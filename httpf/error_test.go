@@ -23,6 +23,7 @@ import (
 
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/internal/oteltest"
 	"github.com/a-novel-kit/golib/otel"
 )
 
@@ -394,9 +395,8 @@ func (*driverError) Error() string {
 	return "password authentication failed for user=secret"
 }
 
+//nolint:paralleltest // Swaps the process-wide tracer provider.
 func TestHandleErrorFaults(t *testing.T) {
-	t.Parallel()
-
 	errMapped := errors.New("mapped")
 	errValidation := validator.New().Var("jane.doe", "email")
 
@@ -451,16 +451,11 @@ func TestHandleErrorFaults(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
+			recorder := oteltest.RecordSpans(t)
 
-			recorder := tracetest.NewSpanRecorder()
-			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-
-			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
-
-			router := httpf.NewRouter(httpf.ServerConfigDefault, &tracedConfig{provider: provider}, nil, nil)
+			router := httpf.NewMux(httpf.ServerConfigDefault, nil, nil)
 			router.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
-				ctx, span := provider.Tracer("httpf-test").Start(r.Context(), "handler")
+				ctx, span := otel.Tracer().Start(r.Context(), "handler")
 				defer span.End()
 
 				httpf.HandleError(ctx, &recordingLog{}, w, span, testCase.errMap, testCase.err)

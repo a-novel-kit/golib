@@ -27,7 +27,7 @@ const maxBodyKeyLength = 1024
 // ErrInvalidBodyKey is returned by a [BodyKeyRate] key for a value too long to count.
 var ErrInvalidBodyKey = errors.New("invalid rate limit key")
 
-// Limits builds the rate limits a service adds to [NewRouter]'s standard one, refusing excess
+// Limits builds the rate limits a service adds to [NewMux]'s standard one, refusing excess
 // requests with 429 and Retry-After. Their counters live in the process, so each instance counts on
 // its own, unless the config names a [RateLimitStore].
 //

@@ -15,7 +15,6 @@ import (
 
 	"github.com/a-novel-kit/golib/httpf"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
-	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 )
 
 // newStreamRouter returns a router from [httpf.NewRouter] whose requests time out after timeout.
@@ -24,10 +23,7 @@ func newStreamRouter(timeout time.Duration) *chi.Mux {
 	config.RateLimitsEnabled = false
 	config.Timeouts.Request = timeout
 
-	return httpf.NewRouter(
-		config, &otelpresets.Disabled{},
-		&loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}}, nil,
-	)
+	return httpf.NewMux(config, &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}}, nil)
 }
 
 func TestStreaming(t *testing.T) {

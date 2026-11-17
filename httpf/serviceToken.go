@@ -22,9 +22,34 @@ var serviceTokenErrors = ErrMap{jwt.ErrTokenRejected: http.StatusUnauthorized}
 // errServiceTokenCount refuses a request that carries no service token, or several.
 var errServiceTokenCount = fmt.Errorf("%w: expected one %s header", jwt.ErrTokenRejected, servicetoken.Header)
 
-// serviceTokenCallerKey holds the caller of a request, once [ServiceTokenMiddleware] verified its
+// serviceTokenCallerKey holds the caller of a request, once [ServiceTokenGate] verified its
 // service token.
 type serviceTokenCallerKey struct{}
+
+// ServiceTokenGate returns the middleware that refuses a request unless its one service token
+// matches config, and logs each refusal through logger. A request to a path listed in open passes
+// unchecked, such as the liveness route the kubelet probes without a token, and client fetches the
+// issuer's keys, such as a client from [NewPoolClient]. The handlers read the token's caller with
+// [ServiceTokenCaller].
+//
+// The gate fails closed: without an issuer it returns [servicetoken.ErrIssuerRequired], unless
+// config.IssuerOptional lets every request through.
+//
+// Wrap the whole router with it. The router then reads the client IP header and counts its rate
+// limits for verified callers alone.
+func ServiceTokenGate(
+	config servicetoken.Config, client *http.Client, logger logging.Log, open ...string,
+) (func(http.Handler) http.Handler, error) {
+	if config.Issuer == "" {
+		if config.IssuerOptional {
+			return func(next http.Handler) http.Handler { return next }, nil
+		}
+
+		return nil, servicetoken.ErrIssuerRequired
+	}
+
+	return ServiceTokenMiddleware(servicetoken.NewVerifier(config, client), logger, open...), nil
+}
 
 // ServiceTokenMiddleware refuses a request unless verifier accepts its one service token, which a
 // client sends in the [servicetoken.Header] header. The handlers then read the token's caller with
@@ -34,6 +59,9 @@ type serviceTokenCallerKey struct{}
 //
 // A refused token answers 401 with the WWW-Authenticate challenge RFC 9110 §15.5.2 requires, which
 // [serviceTokenChallenge] describes.
+//
+// Prefer [ServiceTokenGate], which builds the verifier and fails closed without an issuer.
+// A later release removes it once no consumer uses it.
 func ServiceTokenMiddleware(
 	verifier *servicetoken.Verifier, logger logging.Log, open ...string,
 ) func(http.Handler) http.Handler {
@@ -64,7 +92,7 @@ func ServiceTokenMiddleware(
 }
 
 // ServiceTokenCaller returns the caller of the request of ctx, such as
-// system:serviceaccount:studio:web, once [ServiceTokenMiddleware] verified its service token. It
+// system:serviceaccount:studio:web, once [ServiceTokenGate] verified its service token. It
 // reports false for a request the middleware did not verify: one to an open path, or one to a server
 // that runs without the middleware.
 func ServiceTokenCaller(ctx context.Context) (string, bool) {

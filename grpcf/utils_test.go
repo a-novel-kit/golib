@@ -14,14 +14,15 @@ const (
 	serviceTokenCaller   = "system:serviceaccount:authentication:api"
 )
 
+// serviceTokenConfig admits serviceTokenCaller to serviceTokenAudience on the tokens of issuer.
+func serviceTokenConfig(issuer string) servicetoken.Config {
+	return servicetoken.Config{Issuer: issuer, Audience: serviceTokenAudience, Callers: []string{serviceTokenCaller}}
+}
+
 // newServiceTokenVerifier returns a verifier that admits serviceTokenCaller to serviceTokenAudience
 // on the tokens of issuer.
 func newServiceTokenVerifier(issuer string) *servicetoken.Verifier {
-	return servicetoken.NewVerifier(servicetoken.Config{
-		Issuer:   issuer,
-		Audience: serviceTokenAudience,
-		Callers:  []string{serviceTokenCaller},
-	}, http.DefaultClient)
+	return servicetoken.NewVerifier(serviceTokenConfig(issuer), http.DefaultClient)
 }
 
 // signServiceToken returns a token of issuer that subject holds for serviceTokenAudience.

@@ -1,76 +1,124 @@
 package grpcf
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
+	"net"
+	"strconv"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/a-novel-kit/golib/config"
 	"github.com/a-novel-kit/golib/servicetoken"
 )
 
-var (
-	_ CredentialsProvider = (*LocalCredentialsProvider)(nil)
-	_ CredentialsProvider = (*ServiceTokenCredentialsProvider)(nil)
-)
-
-// CredentialsProvider supplies the gRPC dial options of a connection. They set its transport
-// security and, when the target needs it, the authentication and balancing of each call. Pick the
-// implementation that matches the target: [LocalCredentialsProvider] for a plaintext local
-// connection, or [ServiceTokenCredentialsProvider] for a service in the same Kubernetes cluster.
-type CredentialsProvider interface {
-	// Options returns the dial options to pass when creating the client. The
-	// context bounds any token exchange the provider performs while building them.
-	Options(ctx context.Context) ([]grpc.DialOption, error)
+// ClientConfig locates a gRPC service a process calls, and says how to dial it.
+// [LoadClientConfig] reads it from the variables of a prefix.
+type ClientConfig struct {
+	// Host is the service's host name, without scheme or port.
+	Host string `json:"host" yaml:"host"`
+	// Port is the service's gRPC port.
+	Port int `json:"port" yaml:"port"`
+	// TLS dials TLS 1.3 once TokenPath is set, and verifies the server's certificate for Host against
+	// the system roots, which SSL_CERT_DIR extends.
+	TLS bool `json:"tls" yaml:"tls"`
+	// TokenPath is the file the kubelet projects the caller's service token into, for the callee's
+	// audience. Empty dials a local target, in plaintext and without a token.
+	TokenPath string `json:"tokenPath" yaml:"tokenPath"`
 }
 
-// LocalCredentialsProvider dials without transport security, for plaintext
-// connections to a service on a trusted local network.
-type LocalCredentialsProvider struct{}
-
-func (provider *LocalCredentialsProvider) Options(_ context.Context) ([]grpc.DialOption, error) {
-	return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, nil
+// LoadClientConfig reads the variables of prefix through getenv, which applies the service's
+// prefix, and keeps defaults for unset ones. For the prefix SERVICE_JSON_KEYS, it reads
+// SERVICE_JSON_KEYS_HOST, SERVICE_JSON_KEYS_PORT, SERVICE_JSON_KEYS_TLS and
+// SERVICE_JSON_KEYS_TOKEN_PATH. It panics on a value it cannot parse.
+func LoadClientConfig(getenv func(name string) string, prefix string, defaults ClientConfig) ClientConfig {
+	return ClientConfig{
+		Host:      cmp.Or(getenv(prefix+"_HOST"), defaults.Host),
+		Port:      config.LoadEnv(getenv(prefix+"_PORT"), defaults.Port, strconv.Atoi),
+		TLS:       config.LoadEnv(getenv(prefix+"_TLS"), defaults.TLS, strconv.ParseBool),
+		TokenPath: cmp.Or(getenv(prefix+"_TOKEN_PATH"), defaults.TokenPath),
+	}
 }
 
-// ServiceTokenCredentialsProvider dials a service in the same Kubernetes cluster, over TLS once
-// [ServiceTokenCredentialsProvider.TLS] is set. It sends the caller's service token with every call,
-// which the callee checks with [ServiceTokenUnaryInterceptor] and [ServiceTokenStreamInterceptor].
+// Address returns the host:port grpc.NewClient dials.
+func (client ClientConfig) Address() string {
+	return net.JoinHostPort(client.Host, strconv.Itoa(client.Port))
+}
+
+// DialOptions returns the options grpc.NewClient dials the service with. Without a TokenPath, they
+// dial a local target in plaintext. With one, they dial a service in the same Kubernetes cluster, over
+// TLS once TLS is set, and send the caller's service token with every call, which the callee's
+// [ServiceTokenGate] checks. Each call reads the file again, so a rotated token takes effect on the
+// next call.
 //
-// The connection sends each call to the next address the target resolves to, as a headless Service
-// resolves to its ready pods. A call refused with Unavailable is retried on the next address, up to
-// 4 attempts in all, and a throttle pauses retries while many calls fail.
+// The connection then sends each call to the next address the target resolves to, as a headless
+// Service resolves to its ready pods. A call refused with Unavailable is retried on the next address,
+// up to 4 attempts in all, and a throttle pauses retries while many calls fail.
 //
 // The retry rests on one rule for servers: Unavailable means the call did not run. [CallLimit] and a
 // planned downtime refuse that way, before the handler. A handler that has had an effect answers
 // another code.
-type ServiceTokenCredentialsProvider struct {
-	// ServiceTokenPath is the file the kubelet projects the caller's service token into. Each call
-	// reads it again, so a rotated token takes effect on the next call.
-	ServiceTokenPath string
-	// TLS dials TLS 1.3, and verifies the server's certificate for the target's host against the
-	// system roots, which SSL_CERT_DIR extends. False dials plaintext.
-	TLS bool
-}
+func (client ClientConfig) DialOptions() []grpc.DialOption {
+	if client.TokenPath == "" {
+		return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	}
 
-func (provider *ServiceTokenCredentialsProvider) Options(_ context.Context) ([]grpc.DialOption, error) {
 	transport := insecure.NewCredentials()
-	if provider.TLS {
+	if client.TLS {
 		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13})
 	}
 
 	return []grpc.DialOption{
 		grpc.WithTransportCredentials(transport),
-		grpc.WithPerRPCCredentials(serviceTokenCredentials(provider.ServiceTokenPath)),
+		grpc.WithPerRPCCredentials(serviceTokenCredentials(client.TokenPath)),
 		grpc.WithDefaultServiceConfig(inClusterServiceConfig),
-	}, nil
+	}
 }
 
-// inClusterServiceConfig balances the calls of a [ServiceTokenCredentialsProvider] connection
-// round robin, and retries every method on Unavailable. The retry throttle holds 10 tokens. Each
-// refused attempt spends one and each success earns a tenth back, and retries stop while 5 or fewer
-// remain.
+// CredentialsProvider supplies the gRPC dial options of a connection.
+//
+// Prefer [ClientConfig.DialOptions], which [LoadClientConfig] configures from the environment. A
+// later release removes the interface once no consumer uses it.
+type CredentialsProvider interface {
+	// Options returns the dial options to pass when creating the client.
+	Options(ctx context.Context) ([]grpc.DialOption, error)
+}
+
+// LocalCredentialsProvider dials without transport security, for plaintext connections to a service
+// on a trusted local network.
+//
+// Prefer the [ClientConfig.DialOptions] of a ClientConfig without a TokenPath.
+// A later release removes it once no consumer uses it.
+type LocalCredentialsProvider struct{}
+
+// Options returns the dial options of a ClientConfig without a TokenPath.
+func (provider *LocalCredentialsProvider) Options(_ context.Context) ([]grpc.DialOption, error) {
+	return ClientConfig{}.DialOptions(), nil
+}
+
+// ServiceTokenCredentialsProvider dials a service in the same Kubernetes cluster with the caller's
+// service token, as [ClientConfig.DialOptions] describes.
+//
+// Prefer the [ClientConfig.DialOptions] of a ClientConfig with a TokenPath.
+// A later release removes it once no consumer uses it.
+type ServiceTokenCredentialsProvider struct {
+	// ServiceTokenPath is the file the kubelet projects the caller's service token into.
+	ServiceTokenPath string
+	// TLS dials TLS 1.3. False dials plaintext.
+	TLS bool
+}
+
+// Options returns the dial options of a ClientConfig with this token path and TLS flag.
+func (provider *ServiceTokenCredentialsProvider) Options(_ context.Context) ([]grpc.DialOption, error) {
+	return ClientConfig{TokenPath: provider.ServiceTokenPath, TLS: provider.TLS}.DialOptions(), nil
+}
+
+// inClusterServiceConfig balances the calls of a connection with a service token round robin, and
+// retries every method on Unavailable. The retry throttle holds 10 tokens. Each refused attempt
+// spends one and each success earns a tenth back, and retries stop while 5 or fewer remain.
 const inClusterServiceConfig = `{
 	"loadBalancingConfig": [{"round_robin": {}}],
 	"methodConfig": [{

@@ -13,12 +13,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/httpf"
 	"github.com/a-novel-kit/golib/internal/oteltest"
@@ -28,9 +26,8 @@ import (
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 )
 
-func TestNewRouter(t *testing.T) {
-	t.Parallel()
-
+//nolint:paralleltest // Swaps the process-wide tracer provider.
+func TestNewMux(t *testing.T) {
 	started := time.Now().Add(-time.Hour)
 
 	testCases := []struct {
@@ -251,8 +248,6 @@ func TestNewRouter(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
 			config := httpf.ServerConfigDefault
 			config.ClientIPHeader = testCase.clientIPHeader
 			config.MaxRequestSize = 16
@@ -266,10 +261,9 @@ func TestNewRouter(t *testing.T) {
 				requestLog = nil
 			}
 
-			recorder := tracetest.NewSpanRecorder()
-			tracing := &tracedConfig{provider: sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))}
+			recorder := oteltest.RecordSpans(t)
 
-			router := httpf.NewRouter(config, tracing, requestLog, testCase.downtimeStart)
+			router := httpf.NewMux(config, requestLog, testCase.downtimeStart)
 			ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 			router.Get("/ping", ok)
 			router.Get("/items/{id}", ok)
@@ -321,6 +315,46 @@ func TestNewRouter(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The liveness probe leaves no span, from the router or from the handlers under it.
+//
+//nolint:paralleltest // Swaps the process-wide tracer provider.
+func TestNewMuxLiveness(t *testing.T) {
+	recorder := oteltest.RecordSpans(t)
+
+	router := httpf.NewMux(httpf.ServerConfigDefault, nil, nil)
+	router.Get(httpf.ServerConfigDefault.Liveness, func(w http.ResponseWriter, r *http.Request) {
+		_, span := otel.Tracer().Start(r.Context(), "rest.Ping")
+		defer span.End()
+
+		httpf.Ping(w, r)
+	})
+	router.Get("/items", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	for _, path := range []string{httpf.ServerConfigDefault.Liveness, "/items"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, response.Code)
+	}
+
+	spans := recorder.Ended()
+	require.Len(t, spans, 1)
+	require.Equal(t, "GET /items", spans[0].Name())
+}
+
+// NewRouter builds the router NewMux does, whatever tracing argument it gets.
+func TestNewRouter(t *testing.T) {
+	t.Parallel()
+
+	router := httpf.NewRouter(httpf.ServerConfigDefault, &otelpresets.Disabled{}, nil, nil)
+	router.Get(httpf.ServerConfigDefault.Liveness, httpf.Ping)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequestWithContext(
+		t.Context(), http.MethodGet, httpf.ServerConfigDefault.Liveness, nil,
+	))
+	require.Equal(t, "pong", response.Body.String())
 }
 
 func TestEndOnShutdown(t *testing.T) {
@@ -385,17 +419,6 @@ func TestEndOnShutdown(t *testing.T) {
 	}
 }
 
-// tracedConfig is a telemetry backend that exports nothing but traces each request on provider.
-type tracedConfig struct {
-	otelpresets.Disabled
-
-	provider trace.TracerProvider
-}
-
-func (config *tracedConfig) HTTPHandler() func(http.Handler) http.Handler {
-	return otelhttp.NewMiddleware("", otelhttp.WithTracerProvider(config.provider))
-}
-
 // panicHandler panics with a value that holds caller input.
 func panicHandler(http.ResponseWriter, *http.Request) {
 	panic("secret")
@@ -406,32 +429,25 @@ func abortHandler(http.ResponseWriter, *http.Request) {
 	panic(http.ErrAbortHandler)
 }
 
-// newFaultRouter returns a router from [httpf.NewRouter] serving panicHandler on /panic and
+// newFaultRouter returns a router from [httpf.NewMux] serving panicHandler on /panic and
 // abortHandler on /abort, with the recorder its spans end in.
 func newFaultRouter(t *testing.T) (*chi.Mux, *tracetest.SpanRecorder) {
 	t.Helper()
 
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	recorder := oteltest.RecordSpans(t)
 
-	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
-
-	router := httpf.NewRouter(
-		httpf.ServerConfigDefault,
-		&tracedConfig{provider: provider},
-		&loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}},
-		nil,
-	)
+	requestLog := &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}}
+	router := httpf.NewMux(httpf.ServerConfigDefault, requestLog, nil)
 	router.Get("/panic", panicHandler)
 	router.Get("/abort", abortHandler)
 
 	return router, recorder
 }
 
-func TestNewRouterHead(t *testing.T) {
+func TestNewMuxHead(t *testing.T) {
 	t.Parallel()
 
-	router := httpf.NewRouter(httpf.ServerConfigDefault, &otelpresets.Disabled{}, nil, nil)
+	router := httpf.NewMux(httpf.ServerConfigDefault, nil, nil)
 	router.Get("/greeting", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = io.WriteString(w, "hello")
@@ -457,12 +473,9 @@ func TestNewRouterHead(t *testing.T) {
 	require.Empty(t, body)
 }
 
-func TestNewRouterFaults(t *testing.T) {
-	t.Parallel()
-
+//nolint:paralleltest // Swaps the process-wide tracer provider.
+func TestNewMuxFaults(t *testing.T) {
 	t.Run("Error/Panic", func(t *testing.T) {
-		t.Parallel()
-
 		router, recorder := newFaultRouter(t)
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/panic", nil)
 		response := httptest.NewRecorder()
@@ -480,8 +493,6 @@ func TestNewRouterFaults(t *testing.T) {
 	})
 
 	t.Run("Success/Abort", func(t *testing.T) {
-		t.Parallel()
-
 		router, recorder := newFaultRouter(t)
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/abort", nil)
 

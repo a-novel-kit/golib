@@ -42,6 +42,10 @@ type Config struct {
 	Audience string `json:"audience" yaml:"audience"`
 	// Callers are the subjects allowed to call, each written system:serviceaccount:<namespace>:<name>.
 	Callers []string `json:"callers" yaml:"callers"`
+	// IssuerOptional lets a gate start without an Issuer, and then admit every call. Only a local or
+	// test stack sets it: a gate without an issuer otherwise fails with [ErrIssuerRequired], so a
+	// deployment that forgets the issuer stops at startup instead of admitting every caller.
+	IssuerOptional bool `json:"issuerOptional" yaml:"issuerOptional"`
 }
 
 // A Verifier checks the service token of an incoming call. It verifies the RS256 signature against
