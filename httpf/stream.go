@@ -21,39 +21,6 @@ var ErrInvalidEvent = errors.New("invalid server-sent event")
 // eventFieldBreaks holds the characters an event's ID or type cannot carry.
 const eventFieldBreaks = "\r\n\x00"
 
-// requestTimeoutKey holds the [requestTimeoutState] of a request, which [Streaming] lifts.
-type requestTimeoutKey struct{}
-
-// requestTimeoutState is the request timeout of one request.
-type requestTimeoutState struct {
-	// afterDisconnect calls f once the client disconnects, as [context.AfterFunc] does.
-	afterDisconnect func(f func()) (stop func() bool)
-	// lifted is set by [Streaming], whose own limit then bounds the request.
-	lifted bool
-}
-
-// requestTimeout ends a request's context once timeout passes, and answers 504 Gateway Timeout when
-// the handler returns past it. A route under [Streaming] lifts it.
-func requestTimeout(timeout time.Duration) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			untimed := r.Context()
-			state := &requestTimeoutState{
-				afterDisconnect: func(f func()) func() bool { return context.AfterFunc(untimed, f) },
-			}
-
-			ctx, cancel := context.WithTimeout(context.WithValue(r.Context(), requestTimeoutKey{}, state), timeout)
-			defer cancel()
-
-			next.ServeHTTP(w, r.WithContext(ctx))
-
-			if !state.lifted && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				w.WriteHeader(http.StatusGatewayTimeout)
-			}
-		})
-	}
-}
-
 // Streaming returns the middleware of a route that streams its response, such as an [EventStream].
 // The route answers for up to limit, past the router's request timeout and the server's write
 // timeout. The request still ends when the client disconnects.

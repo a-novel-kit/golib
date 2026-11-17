@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
+
+	"github.com/a-novel-kit/golib/servertls"
 )
 
 // Serve listens on server.Addr until ctx is canceled or the server stops. Cancellation drains
@@ -104,4 +108,50 @@ func wrapServerError(operation string, err error) error {
 	}
 
 	return fmt.Errorf("%s: %w", operation, err)
+}
+
+// NewServer returns a server for handler on the configured port, with the configured timeouts.
+//
+// Every request context carries the values of ctx, but not its cancellation. ctx is usually the
+// process context that [Serve] drains the server under. A request in flight when shutdown begins
+// then finishes within the drain. [EndOnShutdown] ends such a request at shutdown instead.
+func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *http.Server {
+	base := context.WithoutCancel(ctx)
+
+	return &http.Server{
+		Addr:              ":" + strconv.Itoa(config.Port),
+		Handler:           handler,
+		ReadTimeout:       config.Timeouts.Read,
+		ReadHeaderTimeout: config.Timeouts.ReadHeader,
+		WriteTimeout:      config.Timeouts.Write,
+		IdleTimeout:       config.Timeouts.Idle,
+		BaseContext:       func(net.Listener) context.Context { return base },
+	}
+}
+
+// ListenAndServe serves handler on the configured port until ctx is canceled, then drains active
+// requests within the configured shutdown timeout. See [Serve].
+//
+// The port serves TLS once config.TLS names a key pair, which [servertls.Config] loads and reloads
+// at renewal. A config.PlaintextPort also serves plaintext beside it. The listeners stop together:
+// one that fails stops the other.
+func ListenAndServe(ctx context.Context, config ServerConfig, handler http.Handler) error {
+	servers := []*http.Server{NewServer(ctx, config, handler)}
+
+	if config.TLS != (servertls.Files{}) {
+		tlsConfig, err := servertls.Config(config.TLS)
+		if err != nil {
+			return fmt.Errorf("serve HTTPS: %w", err)
+		}
+
+		servers[0].TLSConfig = tlsConfig
+	}
+
+	if config.PlaintextPort != 0 {
+		plaintext := config
+		plaintext.Port = config.PlaintextPort
+		servers = append(servers, NewServer(ctx, plaintext, handler))
+	}
+
+	return serveAll(ctx, servers, config.Timeouts.Shutdown)
 }

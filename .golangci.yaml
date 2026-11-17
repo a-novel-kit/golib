@@ -82,6 +82,7 @@ linters:
     - mirror
     - misspell
     #    - mnd
+    - modernize
     - musttag
     - nakedret
     - nestif

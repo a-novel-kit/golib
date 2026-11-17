@@ -28,7 +28,7 @@ func testConfig(t *testing.T) *postgrespresets.Default {
 
 	dsn := os.Getenv("POSTGRES_DSN")
 	require.NotEmpty(t, dsn,
-		"POSTGRES_DSN must point at a throwaway database — this package opens real connections")
+		"POSTGRES_DSN must point at a throwaway database: this package opens real connections")
 
 	return postgrespresets.NewDefault(pgdriver.WithDSN(dsn))
 }

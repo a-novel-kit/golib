@@ -32,6 +32,10 @@ const maxConnectionAge = 30 * time.Second
 // errShuttingDown ends the streams a server holds when its shutdown begins.
 var errShuttingDown = errors.New("server shutting down")
 
+// healthMethods prefixes the methods of the health service, which stay open to the kubelet's
+// probes: they need no service token, and still answer during a downtime.
+var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
+
 // NewServer returns a server with the standard interceptors, outermost first: tracing, the end of
 // streams at shutdown, the base context, call logs, panic recovery, the planned downtime and the
 // report of server faults on the call's span, which [Fault] describes.
@@ -60,10 +64,7 @@ func NewServer(
 		baseContext = func(ctx context.Context) context.Context { return ctx }
 	}
 
-	open := []string{
-		"/" + healthpb.Health_ServiceDesc.ServiceName + "/",
-		"/" + golibproto.EchoService_ServiceDesc.ServiceName + "/",
-	}
+	open := []string{healthMethods, "/" + golibproto.EchoService_ServiceDesc.ServiceName + "/"}
 
 	options := []grpc.ServerOption{
 		tracing.RPCInterceptor(),

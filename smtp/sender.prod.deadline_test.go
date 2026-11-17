@@ -155,9 +155,7 @@ func serveLoopbackDNS(server net.PacketConn) error {
 		}
 
 		reply := dnsmessage.Message{
-			Header: dnsmessage.Header{
-				ID: query.ID, Response: true, RecursionDesired: true, RecursionAvailable: true,
-			},
+			ID: query.ID, Response: true, RecursionDesired: true, RecursionAvailable: true,
 			Questions: query.Questions,
 		}
 		for _, question := range query.Questions {

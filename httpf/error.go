@@ -82,8 +82,7 @@ func HandleError(
 func (errMap ErrMap) status(err error) int {
 	matched := 0
 
-	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		matched = http.StatusRequestEntityTooLarge
 	}
 

@@ -18,6 +18,11 @@ type ContextKey struct{}
 // is not a full *bun.DB.
 var ErrNoIDBInContext = errors.New("context does not contain a bun.IDB")
 
+// ErrNoDBInContext is returned by an operation that needs the connection pool, such as
+// [RunMigrationsContext] or [Health], when the context carries a transaction instead.
+// [ErrNoIDBInContext] covers the case of no connection at all.
+var ErrNoDBInContext = errors.New("context does not contain a bun.DB")
+
 // NewContext derives a context carrying a connection to the primary database,
 // for later retrieval with GetContext.
 func NewContext(ctx context.Context, config Config) (context.Context, error) {

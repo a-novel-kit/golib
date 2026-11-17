@@ -39,14 +39,20 @@ func WithRetryAfter(err error, delay time.Duration) error {
 	return &retryAfterError{error: err, delay: delay}
 }
 
+// delayedError is an error that knows its own Retry-After delay, as [WithRetryAfter] builds one.
+type delayedError interface {
+	error
+	RetryAfter() time.Duration
+}
+
 // setRetryAfter sends the delay err names as Retry-After, when status is one the header goes with.
 func setRetryAfter(w http.ResponseWriter, err error, status int) {
 	if status != http.StatusTooManyRequests && status != http.StatusServiceUnavailable {
 		return
 	}
 
-	var delayed interface{ RetryAfter() time.Duration }
-	if !errors.As(err, &delayed) {
+	delayed, ok := errors.AsType[delayedError](err)
+	if !ok {
 		return
 	}
 

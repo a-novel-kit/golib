@@ -38,7 +38,7 @@ func probeDB(t *testing.T, statements ...string) *bun.DB {
 
 	dsn := os.Getenv("POSTGRES_DSN")
 	require.NotEmpty(t, dsn,
-		"POSTGRES_DSN must point at a throwaway database — the census reads a real catalog")
+		"POSTGRES_DSN must point at a throwaway database: the census reads a real catalog")
 
 	name := "census_probe_" + strings.ToLower(rand.Text())
 	maintenance := openProbeDB(pgdriver.WithDSN(dsn))

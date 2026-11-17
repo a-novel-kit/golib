@@ -19,7 +19,7 @@ func roundtripTestDB(t *testing.T) *bun.DB {
 
 	dsn := os.Getenv("POSTGRES_DSN")
 	require.NotEmpty(t, dsn,
-		"POSTGRES_DSN must point at a throwaway database — the roundtrip migrates a real one")
+		"POSTGRES_DSN must point at a throwaway database: the roundtrip migrates a real one")
 
 	db, err := newRoundtripDatabase(t, []pgdriver.Option{pgdriver.WithDSN(dsn)})
 	require.NoError(t, err)

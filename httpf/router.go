@@ -2,11 +2,9 @@ package httpf
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log"
-	"net"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -20,7 +18,6 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/logging"
 	"github.com/a-novel-kit/golib/otel"
-	"github.com/a-novel-kit/golib/servertls"
 )
 
 // NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
@@ -173,25 +170,6 @@ func standardLimit(router *chi.Mux, config ServerConfig) func(http.Handler) http
 	}
 }
 
-// NewServer returns a server for handler on the configured port, with the configured timeouts.
-//
-// Every request context carries the values of ctx, but not its cancellation. ctx is usually the
-// process context that [Serve] drains the server under. A request in flight when shutdown begins
-// then finishes within the drain. [EndOnShutdown] ends such a request at shutdown instead.
-func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *http.Server {
-	base := context.WithoutCancel(ctx)
-
-	return &http.Server{
-		Addr:              ":" + strconv.Itoa(config.Port),
-		Handler:           handler,
-		ReadTimeout:       config.Timeouts.Read,
-		ReadHeaderTimeout: config.Timeouts.ReadHeader,
-		WriteTimeout:      config.Timeouts.Write,
-		IdleTimeout:       config.Timeouts.Idle,
-		BaseContext:       func(net.Listener) context.Context { return base },
-	}
-}
-
 // EndOnShutdown ends the context of a request once ctx is done. Pass as ctx the process context the
 // server drains under. Mount it on a long request that keeps taking on work, such as a batch. The
 // request then stops at shutdown and answers within the drain. Other requests keep their context
@@ -232,29 +210,35 @@ func SendTelemetry(timeout time.Duration) func(http.Handler) http.Handler {
 	}
 }
 
-// ListenAndServe serves handler on the configured port until ctx is canceled, then drains active
-// requests within the configured shutdown timeout. See [Serve].
-//
-// The port serves TLS once config.TLS names a key pair, which [servertls.Config] loads and reloads
-// at renewal. A config.PlaintextPort also serves plaintext beside it. The listeners stop together:
-// one that fails stops the other.
-func ListenAndServe(ctx context.Context, config ServerConfig, handler http.Handler) error {
-	servers := []*http.Server{NewServer(ctx, config, handler)}
+// requestTimeoutKey holds the [requestTimeoutState] of a request, which [Streaming] lifts.
+type requestTimeoutKey struct{}
 
-	if config.TLS != (servertls.Files{}) {
-		tlsConfig, err := servertls.Config(config.TLS)
-		if err != nil {
-			return fmt.Errorf("serve HTTPS: %w", err)
-		}
+// requestTimeoutState is the request timeout of one request.
+type requestTimeoutState struct {
+	// afterDisconnect calls f once the client disconnects, as [context.AfterFunc] does.
+	afterDisconnect func(f func()) (stop func() bool)
+	// lifted is set by [Streaming], whose own limit then bounds the request.
+	lifted bool
+}
 
-		servers[0].TLSConfig = tlsConfig
+// requestTimeout ends a request's context once timeout passes, and answers 504 Gateway Timeout when
+// the handler returns past it. A route under [Streaming] lifts it.
+func requestTimeout(timeout time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			untimed := r.Context()
+			state := &requestTimeoutState{
+				afterDisconnect: func(f func()) func() bool { return context.AfterFunc(untimed, f) },
+			}
+
+			ctx, cancel := context.WithTimeout(context.WithValue(r.Context(), requestTimeoutKey{}, state), timeout)
+			defer cancel()
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+
+			if !state.lifted && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				w.WriteHeader(http.StatusGatewayTimeout)
+			}
+		})
 	}
-
-	if config.PlaintextPort != 0 {
-		plaintext := config
-		plaintext.Port = config.PlaintextPort
-		servers = append(servers, NewServer(ctx, plaintext, handler))
-	}
-
-	return serveAll(ctx, servers, config.Timeouts.Shutdown)
 }

@@ -86,14 +86,14 @@ func NewIssuerAt(url string) (*Issuer, error) {
 func (issuer *Issuer) Claims(subject, audience string) *jwa.Claims {
 	now := time.Now()
 
-	return &jwa.Claims{ClaimsCommon: jwa.ClaimsCommon{
+	return &jwa.Claims{
 		Iss: issuer.URL,
 		Sub: subject,
 		Aud: jwa.Audience{audience},
 		Exp: now.Add(time.Hour).Unix(),
 		Nbf: now.Unix(),
 		Iat: now.Unix(),
-	}}
+	}
 }
 
 // Sign returns claims as a token signed with the issuer's key.
@@ -134,7 +134,10 @@ func (issuer *Issuer) serveToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
-	_, _ = io.WriteString(w, token) //nolint:gosec // A token is base64url text, which no browser renders as markup.
+	// A token is base64url text, which no browser renders as markup. gosec stopped reporting G705
+	// here once Claims named the promoted fields of its literal, which hides the flow from its taint
+	// analysis: if it reports the line again, that is the reason to silence it.
+	_, _ = io.WriteString(w, token)
 }
 
 // keyID stamps the ID of the signing key on each token, as a Kubernetes issuer does.

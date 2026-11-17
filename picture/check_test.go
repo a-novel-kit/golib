@@ -513,9 +513,8 @@ func TestCheck(t *testing.T) {
 			require.Equal(t, testCase.expect, mediaType)
 
 			// Services read a refusal both ways, and the span names it as its error.type.
-			var refusal picture.RefusedError
-
-			require.Equal(t, err != nil, errors.As(err, &refusal))
+			refusal, refused := errors.AsType[picture.RefusedError](err)
+			require.Equal(t, err != nil, refused)
 			require.Equal(t, err != nil, errors.Is(err, picture.ErrRefused))
 
 			spans := recorder.Ended()

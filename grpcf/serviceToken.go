@@ -7,7 +7,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
@@ -18,10 +17,6 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 	"github.com/a-novel-kit/golib/servicetoken"
 )
-
-// healthMethods prefixes the methods of the health service, which the kubelet probes without a
-// token.
-var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
 
 // ServiceTokenUnaryInterceptor refuses a unary call unless verifier accepts its one service token,
 // which a client sends through [ServiceTokenCredentialsProvider]. The health service stays open.
