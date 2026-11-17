@@ -31,8 +31,8 @@ func TestVerifyRoundtrip(t *testing.T) {
 		t.Parallel()
 
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
-			os.DirFS("../testdata/roundtrip/migrations"),
-			&RoundtripOptions{Fixtures: os.DirFS("../testdata/roundtrip/fixtures")})
+			os.DirFS("testdata/roundtrip/migrations"),
+			&RoundtripOptions{Fixtures: os.DirFS("testdata/roundtrip/fixtures")})
 
 		require.NoError(t, err)
 	})
@@ -42,7 +42,7 @@ func TestVerifyRoundtrip(t *testing.T) {
 		t.Parallel()
 
 		require.NoError(t, verifyRoundtrip(t.Context(), roundtripTestDB(t),
-			os.DirFS("../testdata/roundtrip-strict/migrations"), nil))
+			os.DirFS("testdata/roundtrip-strict/migrations"), nil))
 	})
 
 	// A fixture runs before the next migration, so the row it seeds fails the NOT NULL column.
@@ -50,8 +50,8 @@ func TestVerifyRoundtrip(t *testing.T) {
 		t.Parallel()
 
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
-			os.DirFS("../testdata/roundtrip-strict/migrations"),
-			&RoundtripOptions{Fixtures: os.DirFS("../testdata/roundtrip/fixtures")})
+			os.DirFS("testdata/roundtrip-strict/migrations"),
+			&RoundtripOptions{Fixtures: os.DirFS("testdata/roundtrip/fixtures")})
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "20260725000002_probe_required")
@@ -62,7 +62,7 @@ func TestVerifyRoundtrip(t *testing.T) {
 		t.Parallel()
 
 		err := verifyRoundtrip(t.Context(), roundtripTestDB(t),
-			os.DirFS("../testdata/roundtrip-broken/migrations"), nil)
+			os.DirFS("testdata/roundtrip-broken/migrations"), nil)
 
 		require.ErrorIs(t, err, errMigrationDrift)
 		require.Contains(t, err.Error(), "20260725000002_probe_status",
@@ -82,7 +82,7 @@ func TestVerifyRoundtrip(t *testing.T) {
 
 //nolint:paralleltest // t.Setenv is incompatible with t.Parallel.
 func TestVerifyRoundtripSnapshots(t *testing.T) {
-	migrations := os.DirFS("../testdata/roundtrip/migrations")
+	migrations := os.DirFS("testdata/roundtrip/migrations")
 
 	t.Run("Success/RecordThenCheck", func(t *testing.T) {
 		dir := t.TempDir()

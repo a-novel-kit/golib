@@ -25,8 +25,9 @@ No repository in either organization uses these, so the release removes them out
 | `smtp.BoundedSender`, `httpf.ServiceTokenTransport`                                       | Nothing: no caller                                            |
 | `postgrestest.RunIsolatedTransactionalTest`, `NewContextTest`                             | `postgrestest.RunDBTest`                                      |
 | `postgres.Config.DBSchema`, `postgres.NewContextSchema`, `Default.DBSchema`, `DropSchema` | `postgres.Config.DB`                                          |
-| `grpcf.MaxConcurrentCalls`, `grpcf.MethodCallLimit`, `grpcf.CallLimitOption`              | `grpcf.NewCallLimit(limit)`                                   |
-| `config.Int8Parser` to `config.TimeParser`, `config.EnumParser`                           | `strconv.Atoi`, `strconv.ParseBool`, `time.ParseDuration`     |
+| `grpcf.MaxConcurrentCalls`                                                                | `grpcf.NewCallLimit(limit)`                                   |
+| `grpcf.MethodCallLimit`, `grpcf.CallLimitOption`                                          | Nothing: no caller                                            |
+| Every `config` parser except `StringParser`, `Int64Parser` and `SliceParser`              | A `strconv` or `time` function, or a one-line closure         |
 
 `httpf.NewServer`, `httpf.Serve`, `httpf.NewPoolTransport`, the `postgres` ping and health timeouts,
 `smtp.DefaultTimeout` and `loggingpresets.LogLevel` become unexported. `httpf.ListenAndServe`
@@ -36,9 +37,10 @@ serves a handler; `NewPoolClient` builds the pooled client.
 every caller already passes. A variable typed `postgres.Config` stops compiling there instead of
 failing at test time.
 
-## Replace `config.Must`
+## Prefer `lo.Must` to `config.Must`
 
-`config.Must` is deprecated. `lo.Must` from `github.com/samber/lo` does the same:
+`lo.Must` from `github.com/samber/lo` does what `config.Must` does. A later release removes
+`config.Must` once no consumer calls it:
 
 ```go
 // before
@@ -50,5 +52,6 @@ RestRateLimitStrictDefault = lo.Must(httpf.ParseRate("3/5m"))
 
 ## Expect plain ANSI colors in local logs
 
-The Local presets paint with ANSI escape sequences instead of lipgloss. A terminal shows the same
-colors. Output redirected to a file now keeps the escape sequences.
+The Local presets paint with ANSI escape sequences instead of lipgloss, in the same colors.
+`LogLocal` lines written to a file or a pipe now keep their escape sequences, as the request lines
+and banners already did, and every terminal gets 24-bit colors.

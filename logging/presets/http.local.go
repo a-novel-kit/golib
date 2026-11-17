@@ -52,7 +52,8 @@ func (logger *HTTPLocal) serve(next http.Handler, w http.ResponseWriter, r *http
 		paint(ansiFaint, fmt.Sprintf(" (%s)", metrics.Duration))
 
 	if level != levelInfo && len(body) > 0 {
-		message += level.paint("\n\t" + strings.ReplaceAll(string(body), "\n", "\n\t"))
+		// Four spaces, as lipgloss rendered a tab.
+		message += level.paint("\n    " + strings.ReplaceAll(string(body), "\n", "\n    "))
 	}
 
 	// This preset only ever runs in local development, where dumping the raw response body is safe.

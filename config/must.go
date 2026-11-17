@@ -3,7 +3,8 @@ package config
 // Must returns value, or panics when err is non-nil. Use it at initialization, where a failure is
 // unrecoverable and should stop the program.
 //
-// Deprecated: Use lo.Must from github.com/samber/lo, which does the same.
+// Prefer lo.Must from github.com/samber/lo, which does the same. A later release removes Must once no
+// consumer calls it.
 func Must[T any](value T, err error) T {
 	if err != nil {
 		panic(err)

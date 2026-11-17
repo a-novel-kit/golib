@@ -12,6 +12,6 @@ func TestRunMigrationRoundtripTest(t *testing.T) {
 	t.Parallel()
 
 	postgrestest.RunMigrationRoundtripTest(t, pgtest.Config(t),
-		os.DirFS("../testdata/roundtrip/migrations"),
-		&postgrestest.RoundtripOptions{Fixtures: os.DirFS("../testdata/roundtrip/fixtures")})
+		os.DirFS("testdata/roundtrip/migrations"),
+		&postgrestest.RoundtripOptions{Fixtures: os.DirFS("testdata/roundtrip/fixtures")})
 }

@@ -89,4 +89,20 @@ func TestLogLocal(t *testing.T) {
 			}
 		})
 	}
+
+	// Each level paints its line in its own color, then resets the terminal.
+	t.Run("Success/LevelColors", func(t *testing.T) {
+		t.Parallel()
+
+		out := &bytes.Buffer{}
+		logger := &loggingpresets.LogLocal{Out: out}
+
+		logger.Info(t.Context(), "x")
+		logger.Warn(t.Context(), "x")
+		logger.Err(t.Context(), "x")
+
+		require.Equal(t, "\x1b[38;2;37;230;227mx\x1b[0m\n"+
+			"\x1b[38;2;255;182;0mx\x1b[0m\n"+
+			"\x1b[38;2;255;50;50mx\x1b[0m\n", out.String())
+	})
 }
