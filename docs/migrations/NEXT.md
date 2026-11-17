@@ -146,6 +146,75 @@ The REST and gRPC drains default to 6 seconds instead of 30, the value every ser
 authentication set. Delete `TimeoutShutdownDefault`, `restDefaults` and `grpcDefaults` where they
 only set it. Authentication keeps its 25-second override.
 
+## Load Postgres with `postgrespresets.LoadConnection`
+
+`LoadConnection` reads the discrete `POSTGRES_*` variables, pool bounds included, and
+`ConnectionDefault` holds the fleet's values: port 5432, TLS on, 20 open and 20 idle connections.
+`Connection.Preset` replaces each service's `NewPostgresPreset`. Delete the `POSTGRES_*` block and
+its four default constants of `env.go`, `postgres.config.default.go`'s helper and its test:
+
+```go
+// env.go
+Postgres = postgrespresets.LoadConnection(getEnv, postgrespresets.ConnectionDefault)
+
+// postgres.config.default.go
+var PostgresPresetDefault = lo.Must(env.Postgres.Preset())
+
+var PostgresPresetMigrations = lo.Must(env.Postgres.Preset(pgdriver.WithConnParams(map[string]any{"lock_timeout": "3s"})))
+```
+
+The loader reads no `POSTGRES_DSN`. Move a service's compose files and CI to the discrete variables
+before it adopts the loader. `postgrespresets.MaxIdleConnsDefault` rises from 10 to 20.
+
+## Close the pool with `Close`
+
+`postgres.Config` gains `Close`, which closes the pool once opened and logs a failure. Replace the
+local `closeDatabase` and the second `DB` call of each main:
+
+```go
+// before
+ctx = lo.Must(postgres.NewContext(ctx, cfg.Postgres))
+database := lo.Must(cfg.Postgres.DB(ctx))
+defer closeDatabase(database)
+
+// after
+ctx = lo.Must(postgres.NewContext(ctx, cfg.Postgres))
+defer cfg.Postgres.Close()
+```
+
+## Read SQLSTATE with `postgres.SQLState`
+
+`SQLState(err)` returns the code and the constraint of the PostgreSQL error `err` wraps. It replaces
+`isUniqueViolation`, `isViolation` and the `errors.As` on `pgdriver.Error` in the DAO packages:
+
+```go
+code, constraint := postgres.SQLState(err)
+```
+
+## Run migrations with `RunMigrations`
+
+Prefer `RunMigrations` to `RunMigrationsContext`, and `postgres.WithTx(ctx, tx)` to
+`context.WithValue(ctx, postgres.ContextKey{}, tx)` in tests. Both replacements already exist in
+v0.65.0, so a service can move before it takes this release. A later release removes the old forms.
+
+```go
+db := lo.Must(config.PostgresPresetMigrations.DB(ctx))
+lo.Must0(postgres.RunMigrations(ctx, db, migrations.Migrations))
+```
+
+`RunMigrations` now logs the group it applied, such as `migrations: applied group #4 (...)`, each
+group of a run a lock retried, or that nothing was pending. A main that printed its own progress,
+as authentication's and json-keys' do, drops all of it: the `log.SetFlags` and `log.SetPrefix`
+lines, the `start` timer, the listing of the embedded files, the progress lines and the closing
+`done` line. Otherwise each line reads `migrations: migrations: ...`. What remains is the
+template's two-line main.
+
+## Open a job's root span with `worker.Run`
+
+`worker.Run(ctx, "job.RotateKeys", fn)` runs `fn` under a root span, and reports a failure there
+with its `error.type`, as a job's root span must. It replaces the hand-written `run` of
+json-keys' `rotate-keys`, and serves authentication's maintenance operations.
+
 ## Remove what golib no longer exports
 
 No repository in either organization uses these, so the release removes them outright:

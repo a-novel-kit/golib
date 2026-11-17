@@ -15,9 +15,9 @@ import (
 	postgrespresets "github.com/a-novel-kit/golib/postgres/presets"
 )
 
-// Config returns a preset for the database POSTGRES_DSN names, the variable production uses, so a
-// developer configures one thing. It has no default: the tests write, and a guessed target could be
-// any database listening on the usual port.
+// Config returns a preset for the database POSTGRES_DSN names, the URL form of a connection. It has
+// no default: the tests write, and a guessed target could be any database listening on the usual
+// port.
 func Config(t *testing.T) *postgrespresets.Default {
 	t.Helper()
 

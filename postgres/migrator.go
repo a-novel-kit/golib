@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"time"
 
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/migrate"
 
 	"github.com/a-novel-kit/golib/otel"
@@ -30,7 +30,9 @@ const (
 SELECT pg_advisory_lock(hashtextextended('golib/migrations:' || current_schema(), 0));`
 )
 
-// RunMigrations runs all the migrations found in the provided filesystem.
+// RunMigrations runs all the migrations found in the provided filesystem, and logs the group it
+// applied, such as "migrations: applied group #4 (20260722000000_probe)", or each group of a run a
+// lock retried.
 //
 // Runners against one schema apply migrations one at a time: a runner waits for another to finish,
 // then applies what is left. A runner keeps one connection of the pool for that wait, so the pool
@@ -65,10 +67,12 @@ func RunMigrations(ctx context.Context, db *bun.DB, migrations fs.FS) error {
 		return otel.ReportError(span, fmt.Errorf("create migrator: %w", err))
 	}
 
-	err = applyMigrations(ctx, migrator)
+	group, err := applyMigrations(ctx, migrator)
 	if err != nil {
 		return otel.ReportError(span, fmt.Errorf("apply mig: %w", err))
 	}
+
+	logApplied(group)
 
 	return nil
 }
@@ -100,32 +104,54 @@ func discardConn(conn bun.Conn) {
 	_ = conn.Close()
 }
 
-// applyMigrations applies the pending migrations. A migration that gives up waiting for a lock
-// runs again after lockRetryDelay, up to lockAttempts runs in all.
-func applyMigrations(ctx context.Context, migrator *migrate.Migrator) error {
+// applyMigrations applies the pending migrations, and returns the group they form. A migration that
+// gives up waiting for a lock runs again after lockRetryDelay, up to lockAttempts runs in all. The
+// migrations an attempt applied before the one that gave up stay applied as a group of their own,
+// which it logs before the next attempt.
+func applyMigrations(ctx context.Context, migrator *migrate.Migrator) (*migrate.MigrationGroup, error) {
 	for attempt := 1; ; attempt++ {
-		_, err := migrator.Migrate(ctx)
+		group, err := migrator.Migrate(ctx)
 		if err == nil || attempt == lockAttempts || !lockTimedOut(err) {
-			return err
+			return group, err
+		}
+
+		// bun appends a migration to its group before running it, so the last one is the one that
+		// gave up.
+		if applied := len(group.Migrations) - 1; applied > 0 {
+			logApplied(&migrate.MigrationGroup{ID: group.ID, Migrations: group.Migrations[:applied]})
 		}
 
 		select {
 		case <-ctx.Done():
-			return errors.Join(err, ctx.Err())
+			return nil, errors.Join(err, ctx.Err())
 		case <-time.After(lockRetryDelay):
 		}
 	}
 }
 
+// logApplied logs the migrations group holds, which a run applied, or that there were none.
+func logApplied(group *migrate.MigrationGroup) {
+	if group.IsZero() {
+		log.Println("migrations: none to apply")
+
+		return
+	}
+
+	log.Println("migrations: applied " + group.String())
+}
+
 // lockTimedOut reports whether a statement gave up waiting for a lock after lock_timeout.
 func lockTimedOut(err error) bool {
-	pgErr, ok := errors.AsType[pgdriver.Error](err)
+	code, _ := SQLState(err)
 
-	return ok && pgErr.Field('C') == lockNotAvailable
+	return code == lockNotAvailable
 }
 
 // RunMigrationsContext runs all the migrations found in the provided filesystem,
 // using the database connection from the context.
+//
+// Prefer [RunMigrations] with the pool of the migrations job's Config, which v0.65.0 already has. A
+// later release removes RunMigrationsContext once no consumer calls it.
 func RunMigrationsContext(ctx context.Context, migrations fs.FS) error {
 	tx, err := GetContext(ctx)
 	if err != nil {

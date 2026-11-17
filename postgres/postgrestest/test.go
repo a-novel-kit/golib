@@ -118,7 +118,7 @@ func RunDBTest(t *testing.T, config *postgrespresets.Default, migrations fs.FS, 
 	})
 	require.NoError(t, err)
 
-	callback(context.WithValue(t.Context(), postgres.ContextKey{}, db), t)
+	callback(postgres.WithTx(t.Context(), db), t)
 }
 
 // dbTestNewDatabase runs create on a maintenance connection to make the database called instance,

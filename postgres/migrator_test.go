@@ -1,9 +1,12 @@
 package postgres_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -239,4 +242,45 @@ func TestRunMigrations(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The runner logs the group it applied, which says what changed, and says when there was nothing.
+//
+//nolint:paralleltest // Swaps the standard logger's output.
+func TestRunMigrationsLog(t *testing.T) {
+	var out bytes.Buffer
+
+	flags := log.Flags()
+
+	log.SetOutput(&out)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetFlags(flags)
+	})
+
+	db := migrationDB(t, 500*time.Millisecond)
+	probe := map[string]string{"20260101000000_probe": "CREATE TABLE probe (id int);"}
+
+	require.NoError(t, postgres.RunMigrations(t.Context(), db, migrationFiles(probe)))
+	require.NoError(t, postgres.RunMigrations(t.Context(), db, migrationFiles(probe)))
+
+	// A lock on probe stops the third migration of the next run until a retry: the second stays
+	// applied as a group of its own, which the runner names too.
+	blocker, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+
+	_, err = blocker.NewRaw("LOCK TABLE probe IN ACCESS SHARE MODE").Exec(t.Context())
+	require.NoError(t, err)
+
+	time.AfterFunc(time.Second, func() { _ = blocker.Rollback() })
+
+	probe["20260102000000_second"] = "CREATE TABLE second (id int);"
+	probe["20260103000000_alter"] = "ALTER TABLE probe ADD COLUMN name text;"
+	require.NoError(t, postgres.RunMigrations(t.Context(), db, migrationFiles(probe)))
+
+	require.Equal(t, "migrations: applied group #1 (20260101000000_probe)\n"+
+		"migrations: none to apply\n"+
+		"migrations: applied group #2 (20260102000000_second)\n"+
+		"migrations: applied group #3 (20260103000000_alter)\n", out.String())
 }

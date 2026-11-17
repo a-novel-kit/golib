@@ -106,3 +106,88 @@ func TestConnection(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConnection(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		env map[string]string
+
+		expect postgrespresets.Connection
+	}{
+		{
+			name: "Success/Defaults",
+
+			expect: postgrespresets.ConnectionDefault,
+		},
+		{
+			name: "Success/Set",
+
+			env: map[string]string{
+				"POSTGRES_HOST":           "postgres.internal",
+				"POSTGRES_PORT":           "5433",
+				"POSTGRES_USER":           "service",
+				"POSTGRES_PASSWORD":       "secret",
+				"POSTGRES_DATABASE":       "service-db",
+				"POSTGRES_TLS_ENABLED":    "false",
+				"POSTGRES_MAX_OPEN_CONNS": "8",
+				"POSTGRES_MAX_IDLE_CONNS": "4",
+			},
+
+			expect: postgrespresets.Connection{
+				Host:         "postgres.internal",
+				Port:         5433,
+				User:         "service",
+				Password:     "secret",
+				Database:     "service-db",
+				MaxOpenConns: 8,
+				MaxIdleConns: 4,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			getenv := func(name string) string { return testCase.env[name] }
+			require.Equal(t, testCase.expect, postgrespresets.LoadConnection(getenv, postgrespresets.ConnectionDefault))
+		})
+	}
+
+	t.Run("Error/Unparsable", func(t *testing.T) {
+		t.Parallel()
+
+		require.Panics(t, func() {
+			postgrespresets.LoadConnection(func(string) string { return "many" }, postgrespresets.ConnectionDefault)
+		})
+	})
+}
+
+func TestConnectionPreset(t *testing.T) {
+	t.Parallel()
+
+	connection := postgrespresets.Connection{
+		Host:         "postgres.internal",
+		Port:         5432,
+		User:         "service",
+		Password:     "secret",
+		Database:     "service-db",
+		MaxOpenConns: 8,
+		MaxIdleConns: 4,
+	}
+
+	preset, err := connection.Preset(pgdriver.WithAddr("replica.internal:6543"))
+	require.NoError(t, err)
+	require.Equal(t, 8, preset.MaxOpenConns)
+	require.Equal(t, 4, preset.MaxIdleConns)
+
+	// The extra options follow the connection's own, so they win: the connection sets the address
+	// first.
+	require.Equal(t, "replica.internal:6543", pgdriver.NewConnector(preset.Options()...).Config().Addr)
+
+	_, err = postgrespresets.Connection{Host: "postgres.internal"}.Preset()
+	require.ErrorIs(t, err, postgrespresets.ErrConnectionPassword)
+}

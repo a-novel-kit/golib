@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"slices"
 	"sync"
 
@@ -21,9 +22,10 @@ const (
 	// database/sql keeps two, so past the second concurrent query every call opens
 	// a fresh connection and discards it on release. Each opening costs a TCP round
 	// trip, a TLS handshake and an authentication exchange. An idle connection costs
-	// a file descriptor here and a backend on the server, and ten stays well under a
-	// stock max_connections of 100 once multiplied by a service's replica count.
-	MaxIdleConnsDefault = 10
+	// a file descriptor here and a backend on the server. Twenty matches the open
+	// bound of [ConnectionDefault], so a burst keeps the connections it is about to
+	// reuse.
+	MaxIdleConnsDefault = 20
 )
 
 // Default is the standard postgres.Config implementation, backed by pgdriver.
@@ -74,6 +76,24 @@ func (config *Default) DB(ctx context.Context) (*bun.DB, error) {
 	}
 
 	return config.db, nil
+}
+
+// Close closes the pool, once opened, and logs a failure: a process that is exiting has nothing
+// else to do with it. A later [Default.DB] opens a new pool.
+func (config *Default) Close() {
+	config.mu.Lock()
+	defer config.mu.Unlock()
+
+	if config.db == nil {
+		return
+	}
+
+	err := config.db.Close()
+	if err != nil {
+		log.Println("close postgres: " + err.Error())
+	}
+
+	config.db = nil
 }
 
 // Options returns a copy of the driver options the config was built with.

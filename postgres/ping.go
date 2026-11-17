@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/driver/pgdriver"
 )
 
 const (
@@ -71,11 +70,9 @@ func ping(
 //
 // A refused connection, or any other error, is not transient.
 func transient(err error) bool {
-	if serverErr, ok := errors.AsType[pgdriver.Error](err); ok {
-		switch serverErr.Field('C') {
-		case "57P01", "57P02", "57P03":
-			return true
-		}
+	switch code, _ := SQLState(err); code {
+	case "57P01", "57P02", "57P03":
+		return true
 	}
 
 	return errors.Is(err, driver.ErrBadConn)
