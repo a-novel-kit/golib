@@ -290,7 +290,7 @@ func TestNewServer(t *testing.T) {
 				processCtx, baseContext = context.WithValue(processCtx, probeContextKey{}, "process"), nil
 			}
 
-			server := grpcf.NewServer(processCtx, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext)
+			server := grpcf.NewServer(processCtx, nil, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext)
 			grpcf.RegisterHealth(t.Context(), server)
 			server.RegisterService(probeService, struct{}{})
 
@@ -327,7 +327,7 @@ func TestNewServer(t *testing.T) {
 		// A stream would hold the drain to its deadline. It ends the moment shutdown begins, telling its
 		// client to resume elsewhere, and the drain completes at once.
 		ctx, cancel := context.WithCancel(t.Context())
-		server := grpcf.NewServer(ctx, &loggingpresets.GRPCLocal{}, nil, nil)
+		server := grpcf.NewServer(ctx, nil, &loggingpresets.GRPCLocal{}, nil, nil)
 		grpcf.RegisterHealth(t.Context(), server)
 
 		address, config := freeGRPCServer(t, grpcServerTestTimeout)
@@ -370,7 +370,7 @@ func TestNewServer(t *testing.T) {
 		// A call outlives the connection it started on, and the next call opens a new one.
 		calls := &heldCalls{started: make(chan struct{}, 1), release: make(chan struct{})}
 
-		server := grpcf.NewServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil)
+		server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, nil, nil)
 		server.RegisterService(heldService, calls)
 
 		address, config := freeGRPCServer(t, time.Second)
@@ -607,7 +607,7 @@ func TestNewServerFaults(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			recorder := oteltest.RecordSpans(t)
 
-			server := grpcf.NewServer(t.Context(), &loggingpresets.GRPCLocal{}, testCase.downtimeStart, nil)
+			server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, nil)
 			server.RegisterService(faultService, testCase.behavior)
 
 			address, config := freeGRPCServer(t, time.Second)

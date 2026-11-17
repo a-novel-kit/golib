@@ -23,8 +23,7 @@ func newStreamRouter(timeout time.Duration) *chi.Mux {
 	config.RateLimitsEnabled = false
 	config.Timeouts.Request = timeout
 
-	return httpf.NewRouter(
-		config,
+	return httpf.NewRouter(config, nil,
 		&loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}}, nil,
 	)
 }

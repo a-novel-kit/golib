@@ -22,6 +22,7 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	golibproto "github.com/a-novel-kit/golib/grpcf/proto/gen"
 	"github.com/a-novel-kit/golib/logging"
+	"github.com/a-novel-kit/golib/otel"
 	"github.com/a-novel-kit/golib/servertls"
 )
 
@@ -38,9 +39,12 @@ var errShuttingDown = errors.New("server shutting down")
 var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
 
 // NewServer returns a server with the standard interceptors, outermost first: tracing under the
-// global tracer provider, the end of
-// streams at shutdown, the base context, call logs, panic recovery, the planned downtime and the
-// report of server faults on the call's span, which [Fault] describes.
+// global tracer provider, the end of streams at shutdown, the base context, call logs, panic
+// recovery, the planned downtime and the report of server faults on the call's span, which [Fault]
+// describes.
+//
+// The tracing argument is deprecated and ignored: the server traces under the global providers
+// [otel.Init] installs. Pass nil; a later release drops it.
 //
 // Pass as ctx the context [ListenAndServe] drains the server under. Once ctx is done, every stream
 // ends with Unavailable, and its client resumes on another instance. A long-lived stream then cannot
@@ -57,6 +61,7 @@ var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
 // The health and echo services that [RegisterHealth] adds still answer during a downtime.
 func NewServer(
 	ctx context.Context,
+	tracing otel.Config,
 	logger logging.RPCConfig,
 	downtimeStart *time.Time,
 	baseContext func(ctx context.Context) context.Context,

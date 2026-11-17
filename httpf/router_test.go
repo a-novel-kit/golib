@@ -262,7 +262,7 @@ func TestNewRouter(t *testing.T) {
 
 			recorder := oteltest.RecordSpans(t)
 
-			router := httpf.NewRouter(config, requestLog, testCase.downtimeStart)
+			router := httpf.NewRouter(config, nil, requestLog, testCase.downtimeStart)
 			ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 			router.Get("/ping", ok)
 			router.Get("/items/{id}", ok)
@@ -322,7 +322,7 @@ func TestNewRouter(t *testing.T) {
 func TestNewRouterLiveness(t *testing.T) {
 	recorder := oteltest.RecordSpans(t)
 
-	router := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil)
+	router := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil, nil)
 	router.Get(httpf.ServerConfigDefault.Liveness, func(w http.ResponseWriter, r *http.Request) {
 		_, span := otel.Tracer().Start(r.Context(), "rest.Ping")
 		defer span.End()
@@ -421,9 +421,8 @@ func newFaultRouter(t *testing.T) (*chi.Mux, *tracetest.SpanRecorder) {
 
 	recorder := oteltest.RecordSpans(t)
 
-	router := httpf.NewRouter(
-		httpf.ServerConfigDefault, &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}}, nil,
-	)
+	requestLog := &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}}
+	router := httpf.NewRouter(httpf.ServerConfigDefault, nil, requestLog, nil)
 	router.Get("/panic", panicHandler)
 	router.Get("/abort", abortHandler)
 
@@ -433,7 +432,7 @@ func newFaultRouter(t *testing.T) (*chi.Mux, *tracetest.SpanRecorder) {
 func TestNewRouterHead(t *testing.T) {
 	t.Parallel()
 
-	router := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil)
+	router := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil, nil)
 	router.Get("/greeting", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = io.WriteString(w, "hello")

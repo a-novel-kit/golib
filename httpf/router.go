@@ -40,7 +40,12 @@ import (
 // takes the subrouter's pattern, such as "GET /v2/*". A path never names a span.
 //
 // A nil logger writes no request log, for a server whose spans record each request.
-func NewRouter(config ServerConfig, logger logging.HTTPConfig, downtimeStart *time.Time) *chi.Mux {
+//
+// The tracing argument is deprecated and ignored: the router traces under the global providers
+// [otel.Init] installs. Pass nil; a later release drops it.
+func NewRouter(
+	config ServerConfig, tracing otel.Config, logger logging.HTTPConfig, downtimeStart *time.Time,
+) *chi.Mux {
 	router := chi.NewRouter()
 
 	router.Use(middleware.Recoverer)

@@ -453,7 +453,7 @@ func TestHandleErrorFaults(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			recorder := oteltest.RecordSpans(t)
 
-			router := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil)
+			router := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil, nil)
 			router.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
 				ctx, span := otel.Tracer().Start(r.Context(), "handler")
 				defer span.End()

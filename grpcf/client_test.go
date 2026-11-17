@@ -34,7 +34,7 @@ func TestClientConfig(t *testing.T) {
 		gate, err := grpcf.ServiceTokenGate(serviceTokenConfig(issuer.URL), http.DefaultClient)
 		require.NoError(t, err)
 
-		server := grpcf.NewServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil, gate...)
+		server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, nil, nil, gate...)
 		server.RegisterService(probeService, struct{}{})
 
 		address, config := freeGRPCServer(t, time.Second)
@@ -68,7 +68,7 @@ func TestClientConfig(t *testing.T) {
 	t.Run("Error/TLSToPlaintextServer", func(t *testing.T) {
 		t.Parallel()
 
-		server := grpcf.NewServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil)
+		server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, nil, nil)
 		server.RegisterService(probeService, struct{}{})
 
 		address, config := freeGRPCServer(t, time.Second)
@@ -93,7 +93,7 @@ func TestClientConfig(t *testing.T) {
 		}
 
 		full := grpc.NewServer(grpc.InTapHandle(refuse))
-		open := grpcf.NewServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil)
+		open := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, nil, nil)
 		open.RegisterService(probeService, struct{}{})
 
 		fullAddress, fullConfig := freeGRPCServer(t, time.Second)
@@ -169,7 +169,7 @@ func TestClientConfigTLS(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			server := grpcf.NewServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil)
+			server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, nil, nil)
 			server.RegisterService(probeService, struct{}{})
 
 			address, config := freeGRPCServer(t, time.Second)

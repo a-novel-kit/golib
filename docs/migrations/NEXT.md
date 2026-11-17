@@ -7,23 +7,25 @@ uses, and drops lipgloss and samber/lo from its dependencies.
 
 ## Do I need to act?
 
-**Required in every service.** `httpf.NewRouter` and `grpcf.NewServer` lose their tracing argument,
-so the bump compiles once each call drops it (first section). Every other change either has no
-consumer in either organization or keeps working, deprecated, until the service moves to its
-replacement. Check a repository from its root for what stops compiling:
+**No, to take the bump.** Every service compiles and runs on it as it is: nothing removed has a
+consumer in either organization, and every changed signature keeps its old form, deprecated. Each
+section below is a recommended move that deletes a service's own copy of the same code. Check a
+repository from its root for a removed name:
 
 ```bash
-grep -rnE 'httpf\.NewRouter|grpcf\.NewServer|UntracedPaths|GetTraceProvider|GetLogger|GetPropagators|HTTPHandler\(\)|RPCInterceptor\(\)|httpftest|smtptest|BoundedSender|ServiceTokenTransport|RunIsolatedTransactionalTest|NewContextTest|NewContextSchema|DBSchema|DropSchema|MethodCallLimit|MaxConcurrentCalls\(|config\.(Int(8|16|32)?|Uint(8|16|32|64)?|Float(32|64)|Bool|Duration|Time|Enum)Parser|httpf\.(NewServer|Serve|NewPoolTransport)\(|postgres\.(PingTimeout|PingRetryInterval|HealthTimeout)|smtp\.DefaultTimeout|loggingpresets\.LogLevel' --include='*.go' .
+grep -rnE 'GetTraceProvider|GetLogger|GetPropagators|HTTPHandler\(\)|RPCInterceptor\(\)|httpftest|smtptest|BoundedSender|ServiceTokenTransport|RunIsolatedTransactionalTest|NewContextTest|NewContextSchema|DBSchema|DropSchema|MethodCallLimit|MaxConcurrentCalls\(|config\.(Int(8|16|32)?|Uint(8|16|32|64)?|Float(32|64)|Bool|Duration|Time|Enum)Parser|httpf\.(NewServer|Serve|NewPoolTransport)\(|postgres\.(PingTimeout|PingRetryInterval|HealthTimeout)|smtp\.DefaultTimeout|loggingpresets\.LogLevel' --include='*.go' .
 ```
 
-Run `go mod tidy` after the bump: it drops lipgloss and the 13 modules it brought, unless the
-service imports them.
+No output means nothing to do. Run `go mod tidy` after the bump: it drops lipgloss and the 13
+modules it brought, unless the service imports them.
 
-## Drop the tracing argument of `NewRouter` and `NewServer`
+## Pass nil for the tracing argument of `NewRouter` and `NewServer`
 
 `otel.Config` shrinks to `Init` and `Flush`. The presets install their providers in `Init`, and
 `httpf` and `grpcf` trace through otelhttp and otelgrpc under the global providers. The router
-leaves its liveness path untraced under every preset, so `otelpresets.OTLP.UntracedPaths` goes:
+leaves its liveness path untraced under every preset. The tracing argument of `httpf.NewRouter` and
+`grpcf.NewServer`, and `otelpresets.OTLP.UntracedPaths`, are therefore ignored and deprecated. A
+later release removes them:
 
 ```go
 // before
@@ -32,8 +34,8 @@ server := grpcf.NewServer(ctx, cfg.Otel, cfg.GrpcLogger, cfg.App.DowntimeStart, 
 &otelpresets.OTLP{UntracedPaths: []string{env.Rest.Liveness}, FlushTimeout: flushTimeout}
 
 // after
-router := httpf.NewRouter(cfg.Rest, cfg.RestLogger, cfg.App.DowntimeStart)
-server := grpcf.NewServer(ctx, cfg.GrpcLogger, cfg.App.DowntimeStart, nil, serviceToken...)
+router := httpf.NewRouter(cfg.Rest, nil, cfg.RestLogger, cfg.App.DowntimeStart)
+server := grpcf.NewServer(ctx, nil, cfg.GrpcLogger, cfg.App.DowntimeStart, nil, serviceToken...)
 &otelpresets.OTLP{FlushTimeout: flushTimeout}
 ```
 
