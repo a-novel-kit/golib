@@ -80,6 +80,22 @@ func TestClientConfig(t *testing.T) {
 		require.Equal(t, codes.Unavailable, status.Code(err))
 	})
 
+	// A local stack has no service token, so TLS alone keeps the plaintext connection of a local
+	// target: the call reaches a plaintext server.
+	t.Run("Success/TLSWithoutServiceToken", func(t *testing.T) {
+		t.Parallel()
+
+		server := grpcf.NewGRPCServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil)
+		server.RegisterService(probeService, struct{}{})
+
+		address, config := freeGRPCServer(t, time.Second)
+		go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
+
+		waitForGRPCServer(t, address)
+
+		require.NoError(t, invokeProbe(t, address, grpcf.ClientConfig{TLS: true}))
+	})
+
 	t.Run("Success/RetryOnAnotherServer", func(t *testing.T) {
 		t.Parallel()
 
