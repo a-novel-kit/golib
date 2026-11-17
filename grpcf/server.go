@@ -13,6 +13,7 @@ import (
 	middleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
@@ -30,6 +31,10 @@ const maxConnectionAge = 30 * time.Second
 
 // errShuttingDown ends the streams a server holds when its shutdown begins.
 var errShuttingDown = errors.New("server shutting down")
+
+// healthMethods prefixes the methods of the health service, which stay open to the kubelet's
+// probes: they need no service token, and still answer during a downtime.
+var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
 
 // NewServer returns a server with the standard interceptors, outermost first: tracing, the end of
 // streams at shutdown, the base context, call logs, panic recovery, the planned downtime and the

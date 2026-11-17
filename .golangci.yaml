@@ -80,9 +80,9 @@ linters:
     - maintidx
     - makezero
     - mirror
-    - modernize
     - misspell
     #    - mnd
+    - modernize
     - musttag
     - nakedret
     - nestif

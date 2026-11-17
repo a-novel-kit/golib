@@ -134,6 +134,9 @@ func (issuer *Issuer) serveToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
+	// A token is base64url text, which no browser renders as markup. gosec stopped reporting G705
+	// here once Claims named the promoted fields of its literal, which hides the flow from its taint
+	// analysis: if it reports the line again, that is the reason to silence it.
 	_, _ = io.WriteString(w, token)
 }
 
