@@ -80,8 +80,12 @@ func TestRunMigrationsContext(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 
-		ctx := postgres.WithTx(t.Context(), migrationDB(t, time.Second))
+		db := migrationDB(t, time.Second)
+
+		// WithTx stores any bun.IDB: here the pool, as NewContext does in a migrations job.
+		ctx := postgres.WithTx(t.Context(), db)
 		require.NoError(t, postgres.RunMigrationsContext(ctx, migrations))
+		require.Equal(t, []string{"20260101000000"}, appliedMigrations(t, db))
 	})
 
 	t.Run("Error/NoDB", func(t *testing.T) {
