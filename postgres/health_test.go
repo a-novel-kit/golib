@@ -46,7 +46,7 @@ func TestHealth(t *testing.T) {
 			name: "Error/TransactionDatabase",
 
 			newContext: func() context.Context {
-				return context.WithValue(t.Context(), postgres.ContextKey{}, bun.Tx{})
+				return postgres.WithTx(t.Context(), bun.Tx{})
 			},
 
 			expectErr: postgres.ErrNoDBInContext,
@@ -55,7 +55,7 @@ func TestHealth(t *testing.T) {
 			name: "Error/Cancelled",
 
 			newContext: func() context.Context {
-				return context.WithValue(cancelled, postgres.ContextKey{}, pool)
+				return postgres.WithTx(cancelled, pool)
 			},
 
 			expectErr: context.Canceled,
@@ -123,7 +123,7 @@ func TestHealth(t *testing.T) {
 				require.NoError(t, conn.Close())
 			}
 
-			ctx := context.WithValue(t.Context(), postgres.ContextKey{}, pool)
+			ctx := postgres.WithTx(t.Context(), pool)
 
 			if testCase.deadline {
 				var cancel context.CancelFunc

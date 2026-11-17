@@ -8,9 +8,13 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// ContextKey is the context value key under which the package stores the active
-// bun.IDB connection.
-type ContextKey struct{}
+// contextKey is the context value key under which the package stores the active bun.IDB connection.
+type contextKey struct{}
+
+// ContextKey is the context value key under which the package stores the active bun.IDB connection.
+//
+// Deprecated: Use [WithTx] to put a connection on a context, and [GetContext] to read it.
+type ContextKey = contextKey
 
 // ErrNoIDBInContext is returned by GetContext when the context carries no
 // bun.IDB, meaning it was never seeded by NewContext or one of its variants.
@@ -31,13 +35,13 @@ func NewContext(ctx context.Context, config Config) (context.Context, error) {
 		return nil, fmt.Errorf("get db from config: %w", err)
 	}
 
-	return context.WithValue(ctx, ContextKey{}, db), nil
+	return context.WithValue(ctx, contextKey{}, db), nil
 }
 
 // GetContext returns the bun.IDB stored in ctx by NewContext or one of its
 // variants, or ErrNoIDBInContext when none is present.
 func GetContext(ctx context.Context) (bun.IDB, error) {
-	db, ok := ctx.Value(ContextKey{}).(bun.IDB)
+	db, ok := ctx.Value(contextKey{}).(bun.IDB)
 	if !ok {
 		return nil, ErrNoIDBInContext
 	}
@@ -52,10 +56,10 @@ func GetContext(ctx context.Context) (bun.IDB, error) {
 // of the process context, the database handle included. A background task keeps them under
 // context.WithoutCancel. A later release removes TransferContext once no consumer calls it.
 func TransferContext(baseCtx, destCtx context.Context) context.Context {
-	db, ok := baseCtx.Value(ContextKey{}).(bun.IDB)
+	db, ok := baseCtx.Value(contextKey{}).(bun.IDB)
 	if !ok {
 		return destCtx
 	}
 
-	return context.WithValue(destCtx, ContextKey{}, db)
+	return context.WithValue(destCtx, contextKey{}, db)
 }

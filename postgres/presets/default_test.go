@@ -164,4 +164,27 @@ func TestDefault(t *testing.T) {
 
 		require.Zero(t, db.Stats().MaxOpenConnections, "0 is database/sql's encoding of unlimited")
 	})
+
+	// Close ends the pool. A main defers it unconditionally, so a config that never opened one takes
+	// it too, and a later DB opens a new pool.
+	t.Run("Success/Close", func(t *testing.T) {
+		t.Parallel()
+
+		config := pgtest.Config(t)
+		config.Close()
+
+		db, err := config.DB(t.Context())
+		require.NoError(t, err)
+
+		config.Close()
+		// database/sql keeps the closed pool's error unexported.
+		require.ErrorContains(t, db.PingContext(t.Context()), "database is closed")
+
+		reopened, err := config.DB(t.Context())
+		require.NoError(t, err)
+		require.NotSame(t, db, reopened)
+		require.NoError(t, reopened.PingContext(t.Context()))
+
+		config.Close()
+	})
 }

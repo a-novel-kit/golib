@@ -8,13 +8,14 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// WithTx derives a context carrying tx, so GetContext resolves that transaction.
+// WithTx derives a context carrying tx, so GetContext resolves it: a transaction, or the pool a test
+// harness opened.
 //
 // [WithinTx] applies it and is what callers normally want. WithTx serves a caller
 // that owns the transaction lifecycle itself, such as a test harness wrapping a
 // whole suite.
 func WithTx(ctx context.Context, tx bun.IDB) context.Context {
-	return context.WithValue(ctx, ContextKey{}, tx)
+	return context.WithValue(ctx, contextKey{}, tx)
 }
 
 // InTx reports whether ctx carries an open transaction. It reports false when

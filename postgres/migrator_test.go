@@ -1,9 +1,12 @@
 package postgres_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -239,4 +242,29 @@ func TestRunMigrations(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The runner logs the group it applied, which says what changed, and says when there was nothing.
+//
+//nolint:paralleltest // Swaps the standard logger's output.
+func TestRunMigrationsLog(t *testing.T) {
+	var out bytes.Buffer
+
+	flags := log.Flags()
+
+	log.SetOutput(&out)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetFlags(flags)
+	})
+
+	db := migrationDB(t, 500*time.Millisecond)
+	migrations := migrationFiles(map[string]string{"20260101000000_probe": "CREATE TABLE probe (id int);"})
+
+	require.NoError(t, postgres.RunMigrations(t.Context(), db, migrations))
+	require.NoError(t, postgres.RunMigrations(t.Context(), db, migrations))
+
+	require.Equal(t,
+		"migrations: applied group #1 (20260101000000_probe)\nmigrations: none to apply\n", out.String())
 }
