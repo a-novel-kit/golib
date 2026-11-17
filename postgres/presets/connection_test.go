@@ -25,6 +25,8 @@ func TestConnection(t *testing.T) {
 		expectTLSEnabled  bool
 		expectDialTimeout time.Duration
 		expectErr         error
+		// expectConnectorPanic expects the driver to refuse the options, instead of connecting anywhere.
+		expectConnectorPanic bool
 	}{
 		{
 			name: "Success/Discrete",
@@ -82,6 +84,18 @@ func TestConnection(t *testing.T) {
 			},
 			expectErr: postgrespresets.ErrConnectionPassword,
 		},
+		{
+			// An unset host never reaches the driver's default server: without a DSN either, the driver
+			// refuses to build a connector.
+			name: "Error/MissingHost",
+			connection: postgrespresets.Connection{
+				Port:     5432,
+				User:     "service",
+				Password: "password",
+				Database: "service-db",
+			},
+			expectConnectorPanic: true,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -92,6 +106,12 @@ func TestConnection(t *testing.T) {
 			require.ErrorIs(t, err, testCase.expectErr)
 
 			if testCase.expectErr != nil {
+				return
+			}
+
+			if testCase.expectConnectorPanic {
+				require.Panics(t, func() { pgdriver.NewConnector(options...) })
+
 				return
 			}
 
@@ -190,4 +210,11 @@ func TestConnectionPreset(t *testing.T) {
 
 	_, err = postgrespresets.Connection{Host: "postgres.internal"}.Preset()
 	require.ErrorIs(t, err, postgrespresets.ErrConnectionPassword)
+
+	// A service that sets no POSTGRES_HOST never reaches the driver's default server.
+	unsetHost := postgrespresets.LoadConnection(func(string) string { return "" }, postgrespresets.ConnectionDefault)
+
+	unset, err := unsetHost.Preset()
+	require.NoError(t, err)
+	require.Panics(t, func() { pgdriver.NewConnector(unset.Options()...) })
 }
