@@ -13,7 +13,7 @@ import (
 )
 
 // Ping answers the liveness probe with "pong", without touching any dependency. Mount it at the
-// router's liveness path, which [NewRouter] leaves untraced and never rate-limits.
+// router's liveness path, which [NewMux] leaves untraced and never rate-limits.
 func Ping(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
@@ -41,7 +41,7 @@ type healthStatus struct {
 // A probe's error is exported on its span, as the span's status description: a probe returns an
 // error safe to export, never a remote reply that can carry a credential, such as an SMTP server's.
 //
-// Health sets no timeout of its own. The request timeout of [NewRouter] bounds it, and so does each
+// Health sets no timeout of its own. The request timeout of [NewMux] bounds it, and so does each
 // probe's own, such as the second postgres.Health waits; a probe that ignores its context holds the
 // answer until it returns.
 func Health(probes map[string]func(ctx context.Context) error) http.HandlerFunc {

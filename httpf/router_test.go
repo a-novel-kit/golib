@@ -23,10 +23,11 @@ import (
 	"github.com/a-novel-kit/golib/logging"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	"github.com/a-novel-kit/golib/otel"
+	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 )
 
 //nolint:paralleltest // Swaps the process-wide tracer provider.
-func TestNewRouter(t *testing.T) {
+func TestNewMux(t *testing.T) {
 	started := time.Now().Add(-time.Hour)
 
 	testCases := []struct {
@@ -262,7 +263,7 @@ func TestNewRouter(t *testing.T) {
 
 			recorder := oteltest.RecordSpans(t)
 
-			router := httpf.NewRouter(config, nil, requestLog, testCase.downtimeStart)
+			router := httpf.NewMux(config, requestLog, testCase.downtimeStart)
 			ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 			router.Get("/ping", ok)
 			router.Get("/items/{id}", ok)
@@ -319,10 +320,10 @@ func TestNewRouter(t *testing.T) {
 // The liveness probe leaves no span, from the router or from the handlers under it.
 //
 //nolint:paralleltest // Swaps the process-wide tracer provider.
-func TestNewRouterLiveness(t *testing.T) {
+func TestNewMuxLiveness(t *testing.T) {
 	recorder := oteltest.RecordSpans(t)
 
-	router := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil, nil)
+	router := httpf.NewMux(httpf.ServerConfigDefault, nil, nil)
 	router.Get(httpf.ServerConfigDefault.Liveness, func(w http.ResponseWriter, r *http.Request) {
 		_, span := otel.Tracer().Start(r.Context(), "rest.Ping")
 		defer span.End()
@@ -340,6 +341,20 @@ func TestNewRouterLiveness(t *testing.T) {
 	spans := recorder.Ended()
 	require.Len(t, spans, 1)
 	require.Equal(t, "GET /items", spans[0].Name())
+}
+
+// NewRouter builds the router NewMux does, whatever tracing argument it gets.
+func TestNewRouter(t *testing.T) {
+	t.Parallel()
+
+	router := httpf.NewRouter(httpf.ServerConfigDefault, &otelpresets.Disabled{}, nil, nil)
+	router.Get(httpf.ServerConfigDefault.Liveness, httpf.Ping)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequestWithContext(
+		t.Context(), http.MethodGet, httpf.ServerConfigDefault.Liveness, nil,
+	))
+	require.Equal(t, "pong", response.Body.String())
 }
 
 func TestEndOnShutdown(t *testing.T) {
@@ -414,7 +429,7 @@ func abortHandler(http.ResponseWriter, *http.Request) {
 	panic(http.ErrAbortHandler)
 }
 
-// newFaultRouter returns a router from [httpf.NewRouter] serving panicHandler on /panic and
+// newFaultRouter returns a router from [httpf.NewMux] serving panicHandler on /panic and
 // abortHandler on /abort, with the recorder its spans end in.
 func newFaultRouter(t *testing.T) (*chi.Mux, *tracetest.SpanRecorder) {
 	t.Helper()
@@ -422,17 +437,17 @@ func newFaultRouter(t *testing.T) (*chi.Mux, *tracetest.SpanRecorder) {
 	recorder := oteltest.RecordSpans(t)
 
 	requestLog := &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: io.Discard}}
-	router := httpf.NewRouter(httpf.ServerConfigDefault, nil, requestLog, nil)
+	router := httpf.NewMux(httpf.ServerConfigDefault, requestLog, nil)
 	router.Get("/panic", panicHandler)
 	router.Get("/abort", abortHandler)
 
 	return router, recorder
 }
 
-func TestNewRouterHead(t *testing.T) {
+func TestNewMuxHead(t *testing.T) {
 	t.Parallel()
 
-	router := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil, nil)
+	router := httpf.NewMux(httpf.ServerConfigDefault, nil, nil)
 	router.Get("/greeting", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = io.WriteString(w, "hello")
@@ -459,7 +474,7 @@ func TestNewRouterHead(t *testing.T) {
 }
 
 //nolint:paralleltest // Swaps the process-wide tracer provider.
-func TestNewRouterFaults(t *testing.T) {
+func TestNewMuxFaults(t *testing.T) {
 	t.Run("Error/Panic", func(t *testing.T) {
 		router, recorder := newFaultRouter(t)
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/panic", nil)

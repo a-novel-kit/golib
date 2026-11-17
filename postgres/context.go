@@ -48,7 +48,7 @@ func GetContext(ctx context.Context) (bun.IDB, error) {
 // TransferContext copies the database handle baseCtx carries onto destCtx, such as onto a detached
 // context a background task runs under. It returns destCtx unchanged when baseCtx carries none.
 //
-// Prefer a gRPC server from grpcf.NewServer with a nil baseContext, which gives each call the values
+// Prefer a gRPC server from grpcf.NewGRPCServer with a nil baseContext, which gives each call the values
 // of the process context, the database handle included. A background task keeps them under
 // context.WithoutCancel. A later release removes TransferContext once no consumer calls it.
 func TransferContext(baseCtx, destCtx context.Context) context.Context {

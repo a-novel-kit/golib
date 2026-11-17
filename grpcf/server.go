@@ -38,13 +38,12 @@ var errShuttingDown = errors.New("server shutting down")
 // probes: they need no service token, and still answer during a downtime.
 var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
 
-// NewServer returns a server with the standard interceptors, outermost first: tracing under the
+// NewGRPCServer returns a server with the standard interceptors, outermost first: tracing under the
 // global tracer provider, the end of streams at shutdown, the base context, call logs, panic
 // recovery, the planned downtime and the report of server faults on the call's span, which [Fault]
 // describes.
 //
-// The tracing argument is deprecated and ignored: the server traces under the global providers
-// [otel.Init] installs. Pass nil; a later release drops it.
+// The server traces under the global providers [otel.Init] installs.
 //
 // Pass as ctx the context [ListenAndServe] drains the server under. Once ctx is done, every stream
 // ends with Unavailable, and its client resumes on another instance. A long-lived stream then cannot
@@ -59,9 +58,8 @@ var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
 // then reaches instances added since. An extra [grpc.KeepaliveParams] option replaces this age.
 //
 // The health and echo services that [RegisterHealth] adds still answer during a downtime.
-func NewServer(
+func NewGRPCServer(
 	ctx context.Context,
-	tracing otel.Config,
 	logger logging.RPCConfig,
 	downtimeStart *time.Time,
 	baseContext func(ctx context.Context) context.Context,
@@ -94,6 +92,19 @@ func NewServer(
 	}
 
 	return grpc.NewServer(slices.Concat(options, extra)...)
+}
+
+// NewServer is [NewGRPCServer] with a tracing argument it ignores, for the callers written before
+// NewGRPCServer. Prefer NewGRPCServer; a later release removes NewServer once no consumer calls it.
+func NewServer(
+	ctx context.Context,
+	_ otel.Config,
+	logger logging.RPCConfig,
+	downtimeStart *time.Time,
+	baseContext func(ctx context.Context) context.Context,
+	extra ...grpc.ServerOption,
+) *grpc.Server {
+	return NewGRPCServer(ctx, logger, downtimeStart, baseContext, extra...)
 }
 
 // endStreamsInterceptor ends a stream once ctx is done, which marks the start of shutdown.

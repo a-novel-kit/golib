@@ -22,7 +22,7 @@ const callsInFlightMetric = "# HELP grpc_server_calls_in_flight The gRPC calls t
 
 // CallLimit is a server option that caps the calls a server runs at once across all connections,
 // so the memory their requests hold stays bounded. The health service stays open and uncounted, so
-// probes still reach a busy server. Pass it to [NewServer] as an extra option. It sets the server's
+// probes still reach a busy server. Pass it to [NewGRPCServer] as an extra option. It sets the server's
 // tap handle, of which gRPC allows one.
 //
 // The server refuses a call from its headers, before reading the request, with Unavailable: the

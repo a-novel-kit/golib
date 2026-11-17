@@ -117,7 +117,7 @@ func TestOTLP(t *testing.T) {
 		config := &otelpresets.OTLP{}
 		require.NoError(t, otel.Init(config))
 
-		handler := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil, nil)
+		handler := httpf.NewMux(httpf.ServerConfigDefault, nil, nil)
 		handler.Get("/{path}", func(_ http.ResponseWriter, r *http.Request) {
 			_, span := otel.Tracer().Start(r.Context(), "rest.Handle")
 			span.End()

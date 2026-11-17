@@ -21,13 +21,14 @@ grep -rnE 'GetTraceProvider|GetLogger|GetPropagators|HTTPHandler\(\)|RPCIntercep
 No output means nothing to do. Run `go mod tidy` after the bump: it drops lipgloss and the 13
 modules it brought, unless the service imports them.
 
-## Pass nil for the tracing argument of `NewRouter` and `NewServer`
+## Build the router with `NewMux` and the gRPC server with `NewGRPCServer`
 
 `otel.Config` shrinks to `Init` and `Flush`. The presets install their providers in `Init`, and
 `httpf` and `grpcf` trace through otelhttp and otelgrpc under the global providers. The router
-leaves its liveness path untraced under every preset. The tracing argument of `httpf.NewRouter` and
-`grpcf.NewServer`, and `otelpresets.OTLP.UntracedPaths`, are therefore ignored and deprecated. A
-later release removes them:
+leaves its liveness path untraced under every preset. `httpf.NewMux` and `grpcf.NewGRPCServer` take
+no tracing argument. Prefer them to `httpf.NewRouter` and `grpcf.NewServer`, which ignore their
+tracing argument; a later release removes the old two once no consumer calls them. Leave
+`otelpresets.OTLP.UntracedPaths` unset: it does nothing.
 
 ```go
 // before
@@ -36,8 +37,8 @@ server := grpcf.NewServer(ctx, cfg.Otel, cfg.GrpcLogger, cfg.App.DowntimeStart, 
 &otelpresets.OTLP{UntracedPaths: []string{env.Rest.Liveness}, FlushTimeout: flushTimeout}
 
 // after
-router := httpf.NewRouter(cfg.Rest, nil, cfg.RestLogger, cfg.App.DowntimeStart)
-server := grpcf.NewServer(ctx, nil, cfg.GrpcLogger, cfg.App.DowntimeStart, nil, serviceToken...)
+router := httpf.NewMux(cfg.Rest, cfg.RestLogger, cfg.App.DowntimeStart)
+server := grpcf.NewGRPCServer(ctx, cfg.GrpcLogger, cfg.App.DowntimeStart, nil, serviceToken...)
 &otelpresets.OTLP{FlushTimeout: flushTimeout}
 ```
 

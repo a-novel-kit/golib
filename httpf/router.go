@@ -22,7 +22,7 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
+// NewMux returns a router with the standard middleware, outermost first: panic recovery, the
 // visitor IP, the request timeout, the body limit, tracing, the report of faults on the request's
 // span, CORS, request logs, the planned downtime, the standard rate limit and HEAD routing. The
 // liveness path answers during a downtime, is never rate-limited, and leaves no span: its requests
@@ -39,13 +39,9 @@ import (
 // keeps its method alone, such as one the rate limit refuses. Under a subrouter, an unknown path
 // takes the subrouter's pattern, such as "GET /v2/*". A path never names a span.
 //
-// A nil logger writes no request log, for a server whose spans record each request.
-//
-// The tracing argument is deprecated and ignored: the router traces under the global providers
-// [otel.Init] installs. Pass nil; a later release drops it.
-func NewRouter(
-	config ServerConfig, tracing otel.Config, logger logging.HTTPConfig, downtimeStart *time.Time,
-) *chi.Mux {
+// A nil logger writes no request log, for a server whose spans record each request. The router
+// traces under the global providers [otel.Init] installs.
+func NewMux(config ServerConfig, logger logging.HTTPConfig, downtimeStart *time.Time) *chi.Mux {
 	router := chi.NewRouter()
 
 	router.Use(middleware.Recoverer)
@@ -75,6 +71,12 @@ func NewRouter(
 	router.Use(middleware.GetHead)
 
 	return router
+}
+
+// NewRouter is [NewMux] with a tracing argument it ignores, for the callers written before NewMux.
+// Prefer NewMux; a later release removes NewRouter once no consumer calls it.
+func NewRouter(config ServerConfig, _ otel.Config, logger logging.HTTPConfig, downtimeStart *time.Time) *chi.Mux {
+	return NewMux(config, logger, downtimeStart)
 }
 
 // traceRequests opens the server span of each request, under the global tracer provider, except for
@@ -163,7 +165,7 @@ func capturePanic(span trace.Span) {
 }
 
 // serverSpan returns the span tracing opened for the request of ctx, under a router from
-// [NewRouter]. Elsewhere, it returns the span of ctx.
+// [NewMux]. Elsewhere, it returns the span of ctx.
 func serverSpan(ctx context.Context) trace.Span {
 	span, ok := ctx.Value(serverSpanKey{}).(trace.Span)
 	if !ok {

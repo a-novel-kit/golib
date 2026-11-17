@@ -31,7 +31,7 @@ type ErrMap map[error]int
 // and the trace keep it. When err carries tags from [WithTag], or a client error comes from a
 // validator, the body is an RFC 9457 problem details object holding those tags instead.
 //
-// A server error logs at error level and marks the span failed. Under a router from [NewRouter], the
+// A server error logs at error level and marks the span failed. Under a router from [NewMux], the
 // request's server span names its type through [otel.ErrorType]. A client error logs at warning level
 // and leaves the span status unset, since the handler answered it.
 //

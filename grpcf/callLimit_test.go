@@ -149,7 +149,7 @@ func TestCallLimit(t *testing.T) {
 			calls := &heldCalls{started: make(chan struct{}, held), release: make(chan struct{})}
 			callLimit := grpcf.NewCallLimit(testCase.limit)
 
-			server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, nil, nil, callLimit)
+			server := grpcf.NewGRPCServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil, callLimit)
 			grpcf.RegisterHealth(t.Context(), server)
 			server.RegisterService(heldService, calls)
 

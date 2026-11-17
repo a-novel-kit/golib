@@ -117,7 +117,7 @@ func TestServiceTokenGate(t *testing.T) {
 				return
 			}
 
-			server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, nil, nil, gate...)
+			server := grpcf.NewGRPCServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil, gate...)
 			grpcf.RegisterHealth(t.Context(), server)
 			server.RegisterService(probeService, struct{}{})
 

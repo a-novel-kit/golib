@@ -18,7 +18,7 @@ import (
 var _ otel.Config = (*OTLP)(nil)
 
 // keepEveryTrace samples every span, whatever a caller decided, except under a local parent that is
-// not sampled. Only the liveness requests httpf.NewRouter leaves untraced run under such a parent.
+// not sampled. Only the liveness requests httpf.NewMux leaves untraced run under such a parent.
 var keepEveryTrace = sdktrace.ParentBased(
 	sdktrace.AlwaysSample(),
 	sdktrace.WithRemoteParentNotSampled(sdktrace.AlwaysSample()),
@@ -29,7 +29,7 @@ var keepEveryTrace = sdktrace.ParentBased(
 // service. The preset sets no exporter option of its own, so moving to another backend changes
 // variables only.
 type OTLP struct {
-	// UntracedPaths does nothing: httpf.NewRouter leaves its liveness path untraced under every
+	// UntracedPaths does nothing: httpf.NewMux leaves its liveness path untraced under every
 	// preset. Leave it unset; a later release removes it once no consumer sets it.
 	UntracedPaths []string `json:"untracedPaths" yaml:"untracedPaths"`
 	// FlushTimeout bounds how long Flush waits for buffered data to drain. Zero waits indefinitely.

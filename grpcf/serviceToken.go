@@ -21,7 +21,7 @@ import (
 
 // ServiceTokenGate returns the server options that refuse a call unless its one service token
 // matches config. The health service stays open for the kubelet's probes, and client fetches the
-// issuer's keys, such as a client from httpf.NewPoolClient. Pass the options to [NewServer] as extra
+// issuer's keys, such as a client from httpf.NewPoolClient. Pass the options to [NewGRPCServer] as extra
 // options.
 //
 // A refused token answers Unauthenticated, with a message that tells the caller why. A verifier
@@ -52,7 +52,7 @@ func ServiceTokenGate(config servicetoken.Config, client *http.Client) ([]grpc.S
 // A refused token answers Unauthenticated, with a message that tells the caller why. A verifier
 // fault, such as an issuer it cannot reach, answers Unavailable as a [Fault].
 //
-// Pass it to [NewServer] through grpc.ChainUnaryInterceptor, so it runs within the standard
+// Pass it to [NewGRPCServer] through grpc.ChainUnaryInterceptor, so it runs within the standard
 // interceptors.
 //
 // Prefer [ServiceTokenGate], which builds the verifier and fails closed without an issuer.

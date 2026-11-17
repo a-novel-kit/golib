@@ -28,12 +28,13 @@ import (
 	"github.com/a-novel-kit/golib/internal/oteltest"
 	"github.com/a-novel-kit/golib/internal/tlstest"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
+	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 	"github.com/a-novel-kit/golib/servertls"
 )
 
 const grpcServerTestTimeout = 5 * time.Second
 
-// probeContextKey holds the value the base context of TestNewServer adds to every call.
+// probeContextKey holds the value the base context of TestNewGRPCServer adds to every call.
 type probeContextKey struct{}
 
 // probeService answers with the base context's value, through the server's interceptors.
@@ -238,7 +239,7 @@ func TestListenAndServe(t *testing.T) {
 	})
 }
 
-func TestNewServer(t *testing.T) {
+func TestNewGRPCServer(t *testing.T) {
 	t.Parallel()
 
 	started := time.Now().Add(-time.Hour)
@@ -290,7 +291,7 @@ func TestNewServer(t *testing.T) {
 				processCtx, baseContext = context.WithValue(processCtx, probeContextKey{}, "process"), nil
 			}
 
-			server := grpcf.NewServer(processCtx, nil, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext)
+			server := grpcf.NewGRPCServer(processCtx, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext)
 			grpcf.RegisterHealth(t.Context(), server)
 			server.RegisterService(probeService, struct{}{})
 
@@ -327,7 +328,7 @@ func TestNewServer(t *testing.T) {
 		// A stream would hold the drain to its deadline. It ends the moment shutdown begins, telling its
 		// client to resume elsewhere, and the drain completes at once.
 		ctx, cancel := context.WithCancel(t.Context())
-		server := grpcf.NewServer(ctx, nil, &loggingpresets.GRPCLocal{}, nil, nil)
+		server := grpcf.NewGRPCServer(ctx, &loggingpresets.GRPCLocal{}, nil, nil)
 		grpcf.RegisterHealth(t.Context(), server)
 
 		address, config := freeGRPCServer(t, grpcServerTestTimeout)
@@ -370,7 +371,7 @@ func TestNewServer(t *testing.T) {
 		// A call outlives the connection it started on, and the next call opens a new one.
 		calls := &heldCalls{started: make(chan struct{}, 1), release: make(chan struct{})}
 
-		server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, nil, nil)
+		server := grpcf.NewGRPCServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil)
 		server.RegisterService(heldService, calls)
 
 		address, config := freeGRPCServer(t, time.Second)
@@ -517,6 +518,30 @@ func panicCall(context.Context) error {
 	panic("secret")
 }
 
+// NewServer builds the server NewGRPCServer does, whatever tracing argument it gets.
+func TestNewServer(t *testing.T) {
+	t.Parallel()
+
+	server := grpcf.NewServer(t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
+	grpcf.RegisterHealth(t.Context(), server)
+
+	address, config := freeGRPCServer(t, time.Second)
+	go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
+
+	waitForGRPCServer(t, address)
+
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+	ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
+	t.Cleanup(cancel)
+
+	response, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
+	require.NoError(t, err)
+	require.Equal(t, healthpb.HealthCheckResponse_SERVING, response.GetStatus())
+}
+
 // driverError stands for an error type of a dependency, whose message holds caller input.
 type driverError struct{}
 
@@ -525,7 +550,7 @@ func (*driverError) Error() string {
 }
 
 //nolint:paralleltest // Swaps the process-wide tracer provider.
-func TestNewServerFaults(t *testing.T) {
+func TestNewGRPCServerFaults(t *testing.T) {
 	started := time.Now().Add(-time.Hour)
 
 	// The refusal a dependency in planned downtime sends.
@@ -607,7 +632,7 @@ func TestNewServerFaults(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			recorder := oteltest.RecordSpans(t)
 
-			server := grpcf.NewServer(t.Context(), nil, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, nil)
+			server := grpcf.NewGRPCServer(t.Context(), &loggingpresets.GRPCLocal{}, testCase.downtimeStart, nil)
 			server.RegisterService(faultService, testCase.behavior)
 
 			address, config := freeGRPCServer(t, time.Second)
