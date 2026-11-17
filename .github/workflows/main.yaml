@@ -13,14 +13,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: a-novel-kit/workflows/go-actions/generate-go@v1.87.0
+      - uses: a-novel-kit/workflows/go-actions/generate-go@v1.87.1
 
   lint-go:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: a-novel-kit/workflows/go-actions/lint-go@v1.87.0
+      - uses: a-novel-kit/workflows/go-actions/lint-go@v1.87.1
 
   lint-proto:
     runs-on: ubuntu-latest
@@ -37,7 +37,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: a-novel-kit/workflows/node-actions/lint-node@v1.87.0
+      - uses: a-novel-kit/workflows/node-actions/lint-node@v1.87.1
         with:
           # The node runner has no Go or buf toolchain, so it runs the
           # prettier part of `lint` alone.
@@ -50,7 +50,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: a-novel-kit/workflows/security-actions/scan-secrets@v1.87.0
+      - uses: a-novel-kit/workflows/security-actions/scan-secrets@v1.87.1
 
   # Audits the workflows themselves, such as for excessive permissions.
   lint-workflows:
@@ -58,7 +58,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: a-novel-kit/workflows/security-actions/lint-workflows@v1.87.0
+      - uses: a-novel-kit/workflows/security-actions/lint-workflows@v1.87.1
 
   test-go:
     runs-on: ubuntu-latest
@@ -84,7 +84,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: a-novel-kit/workflows/go-actions/test-go@v1.87.0
+      - uses: a-novel-kit/workflows/go-actions/test-go@v1.87.1
         with:
           modfile: gotestsum.mod
           race: "true"
