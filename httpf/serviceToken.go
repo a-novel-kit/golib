@@ -27,7 +27,7 @@ var errServiceTokenCount = fmt.Errorf("%w: expected one %s header", jwt.ErrToken
 type serviceTokenCallerKey struct{}
 
 // ServiceTokenMiddleware refuses a request unless verifier accepts its one service token, which a
-// client sends through [ServiceTokenTransport]. The handlers then read the token's caller with
+// client sends in the [servicetoken.Header] header. The handlers then read the token's caller with
 // [ServiceTokenCaller]. A request to a path listed in open passes unchecked, such as the liveness
 // route the kubelet probes without a token. [HandleError] answers each refusal and logs it through
 // logger.

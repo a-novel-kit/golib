@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 
+	"github.com/a-novel-kit/golib/internal/pgtest"
 	"github.com/a-novel-kit/golib/postgres"
 )
 
@@ -71,10 +71,8 @@ func TestHealth(t *testing.T) {
 		})
 	}
 
-	dsn := os.Getenv("POSTGRES_DSN")
-	require.NotEmpty(t, dsn, "POSTGRES_DSN must point at a throwaway database")
-
-	admin := openProbeDB(pgdriver.WithDSN(dsn))
+	options := pgtest.Config(t).Options()
+	admin := pgtest.Open(options...)
 
 	t.Cleanup(func() { require.NoError(t, admin.Close()) })
 
@@ -100,7 +98,7 @@ func TestHealth(t *testing.T) {
 
 			// The presets check a pooled connection before handing it out. This pool checks none, so
 			// every stale connection reaches the probe.
-			pool := openProbeDB(pgdriver.WithDSN(dsn))
+			pool := pgtest.Open(options...)
 			// An expired probe can leave intentionally closed sockets in the pool.
 			t.Cleanup(func() { requireClosed(t, pool.Close, net.ErrClosed) })
 

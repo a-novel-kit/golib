@@ -1,31 +1,25 @@
-package postgres_test
+package postgrestest_test
 
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
-	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 
+	"github.com/a-novel-kit/golib/internal/pgtest"
 	"github.com/a-novel-kit/golib/postgres/postgrestest"
 )
 
-// openProbeDB opens a pool from options, without pinging it.
-func openProbeDB(options ...pgdriver.Option) *bun.DB {
-	return bun.NewDB(sql.OpenDB(pgdriver.NewConnector(options...)), pgdialect.New())
-}
-
 // dropProbeDB drops the probe database called name from a test cleanup, on a connection of its
-// own. It takes a background context, since t.Context is canceled by the time cleanups run.
-func dropProbeDB(dsn, name string) {
-	maintenance := openProbeDB(pgdriver.WithDSN(dsn))
+// own to the cluster options reach. It takes a background context, since t.Context is canceled by
+// the time cleanups run.
+func dropProbeDB(options []pgdriver.Option, name string) {
+	maintenance := pgtest.Open(options...)
 	defer func() { _ = maintenance.Close() }()
 
 	_, _ = maintenance.NewRaw("DROP DATABASE IF EXISTS ? WITH (FORCE)", bun.Ident(name)).Exec(context.Background())
@@ -36,23 +30,20 @@ func dropProbeDB(dsn, name string) {
 func probeDB(t *testing.T, statements ...string) *bun.DB {
 	t.Helper()
 
-	dsn := os.Getenv("POSTGRES_DSN")
-	require.NotEmpty(t, dsn,
-		"POSTGRES_DSN must point at a throwaway database: the census reads a real catalog")
-
+	options := pgtest.Config(t).Options()
 	name := "census_probe_" + strings.ToLower(rand.Text())
-	maintenance := openProbeDB(pgdriver.WithDSN(dsn))
+	maintenance := pgtest.Open(options...)
 
 	ctx := t.Context()
 
 	_, err := maintenance.NewRaw("CREATE DATABASE ?", bun.Ident(name)).Exec(ctx)
 	require.NoError(t, err, "create the probe database")
 
-	t.Cleanup(func() { dropProbeDB(dsn, name) })
+	t.Cleanup(func() { dropProbeDB(options, name) })
 
 	require.NoError(t, maintenance.Close())
 
-	db := openProbeDB(pgdriver.WithDSN(dsn), pgdriver.WithDatabase(name))
+	db := pgtest.Open(append(options, pgdriver.WithDatabase(name))...)
 
 	t.Cleanup(func() { _ = db.Close() })
 

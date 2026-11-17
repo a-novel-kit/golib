@@ -19,7 +19,7 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/migrate"
 
-	"github.com/a-novel-kit/golib/postgres"
+	postgrespresets "github.com/a-novel-kit/golib/postgres/presets"
 )
 
 const (
@@ -57,8 +57,10 @@ type RoundtripOptions struct {
 // It snapshots each up, verifies each down against the preceding snapshot, then re-applies the full
 // set. Fixtures run between steps. Snapshots bind each schema to its exact migration prefix.
 //
-// config must expose Options() []pgdriver.Option, as postgrespresets.Default does.
-func RunMigrationRoundtripTest(t *testing.T, config postgres.Config, migrations fs.FS, opts *RoundtripOptions) {
+// config names the cluster the roundtrip creates its database in.
+func RunMigrationRoundtripTest(
+	t *testing.T, config *postgrespresets.Default, migrations fs.FS, opts *RoundtripOptions,
+) {
 	t.Helper()
 
 	require.NoError(t, verifyRoundtrip(t.Context(), roundtripDatabase(t, config), migrations, opts))
@@ -429,15 +431,10 @@ func roundtripSourceOf(name string) (roundtripSource, bool) {
 }
 
 // roundtripDatabase creates the empty database a roundtrip runs in, dropped with the test.
-func roundtripDatabase(t *testing.T, config postgres.Config) *bun.DB {
+func roundtripDatabase(t *testing.T, config *postgrespresets.Default) *bun.DB {
 	t.Helper()
 
-	optionsConfig, ok := config.(dbTestOptionsConfig)
-	require.Truef(t, ok,
-		"RunMigrationRoundtripTest requires a Config exposing Options() []pgdriver.Option "+
-			"(e.g. postgrespresets.Default)")
-
-	db, err := newRoundtripDatabase(t, optionsConfig.Options())
+	db, err := newRoundtripDatabase(t, config.Options())
 	require.NoError(t, err)
 
 	return db

@@ -5,11 +5,9 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -52,8 +50,7 @@ type OTLP struct {
 
 // Init prints the OTLP startup banner.
 func (config *OTLP) Init() error {
-	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	_, _ = fmt.Fprintln(os.Stdout, banner.Render("📡 OpenTelemetry OTLP Mode: exporting traces and logs over OTLP/HTTP"))
+	printBanner(bannerExport, "📡 OpenTelemetry OTLP Mode: exporting traces and logs over OTLP/HTTP")
 
 	return nil
 }

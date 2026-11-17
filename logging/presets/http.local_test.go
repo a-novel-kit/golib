@@ -87,6 +87,26 @@ func TestHTTPLocal(t *testing.T) {
 		})
 	}
 
+	// A failure's body follows its line in the line's color, indented four spaces.
+	t.Run("Error/BodyColorAndIndent", func(t *testing.T) {
+		t.Parallel()
+
+		out := &bytes.Buffer{}
+		logger := &loggingpresets.HTTPLocal{BaseLogger: &loggingpresets.LogLocal{Out: out}}
+
+		handler := logger.Logger()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+
+			_, _ = io.WriteString(w, "bad\ninput")
+		}))
+
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(
+			t.Context(), http.MethodGet, "/items/42", nil,
+		))
+
+		require.True(t, strings.HasSuffix(out.String(), "\x1b[38;2;255;182;0m\n    bad\n    input\x1b[0m\n"), out.String())
+	})
+
 	t.Run("Error/LongBody", func(t *testing.T) {
 		t.Parallel()
 

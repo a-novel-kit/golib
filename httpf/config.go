@@ -1,6 +1,7 @@
 package httpf
 
 import (
+	"cmp"
 	"net/http"
 	"strconv"
 	"time"
@@ -43,10 +44,15 @@ type ServerConfig struct {
 
 // ServerTimeouts bound each phase of a request.
 type ServerTimeouts struct {
-	Read       time.Duration `json:"read"       yaml:"read"`
+	// Read bounds reading a whole request, its body included.
+	Read time.Duration `json:"read" yaml:"read"`
+	// ReadHeader bounds reading a request's headers, so a client that sends them slowly cannot hold a
+	// connection.
 	ReadHeader time.Duration `json:"readHeader" yaml:"readHeader"`
-	Write      time.Duration `json:"write"      yaml:"write"`
-	Idle       time.Duration `json:"idle"       yaml:"idle"`
+	// Write bounds writing a response, from the end of the request's headers.
+	Write time.Duration `json:"write" yaml:"write"`
+	// Idle bounds how long a keep-alive connection waits for its next request.
+	Idle time.Duration `json:"idle" yaml:"idle"`
 	// Request bounds handling one request, after its headers are read.
 	Request time.Duration `json:"request" yaml:"request"`
 	// Shutdown bounds the drain of active requests before remaining connections close.
@@ -108,11 +114,11 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 	return ServerConfig{
 		Port: config.LoadEnv(getenv("REST_PORT"), defaults.Port, strconv.Atoi),
 		TLS: servertls.Files{
-			CertFile: config.LoadEnv(getenv("REST_TLS_CERT_FILE"), defaults.TLS.CertFile, config.StringParser),
-			KeyFile:  config.LoadEnv(getenv("REST_TLS_KEY_FILE"), defaults.TLS.KeyFile, config.StringParser),
+			CertFile: cmp.Or(getenv("REST_TLS_CERT_FILE"), defaults.TLS.CertFile),
+			KeyFile:  cmp.Or(getenv("REST_TLS_KEY_FILE"), defaults.TLS.KeyFile),
 		},
 		PlaintextPort: config.LoadEnv(getenv("REST_PLAINTEXT_PORT"), defaults.PlaintextPort, strconv.Atoi),
-		Liveness:      config.LoadEnv(getenv("REST_LIVENESS_PATH"), defaults.Liveness, config.StringParser),
+		Liveness:      cmp.Or(getenv("REST_LIVENESS_PATH"), defaults.Liveness),
 		Timeouts: ServerTimeouts{
 			Read:       config.LoadEnv(getenv("REST_TIMEOUT_READ"), defaults.Timeouts.Read, time.ParseDuration),
 			ReadHeader: config.LoadEnv(getenv("REST_TIMEOUT_READ_HEADER"), defaults.Timeouts.ReadHeader, time.ParseDuration),
@@ -122,17 +128,13 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 			Shutdown:   config.LoadEnv(getenv("REST_TIMEOUT_SHUTDOWN"), defaults.Timeouts.Shutdown, time.ParseDuration),
 		},
 		MaxRequestSize:    config.LoadEnv(getenv("REST_MAX_REQUEST_SIZE"), defaults.MaxRequestSize, config.Int64Parser),
-		ClientIPHeader:    config.LoadEnv(getenv("REST_CLIENT_IP_HEADER"), defaults.ClientIPHeader, config.StringParser),
+		ClientIPHeader:    cmp.Or(getenv("REST_CLIENT_IP_HEADER"), defaults.ClientIPHeader),
 		RateLimitsEnabled: config.LoadEnv(getenv("REST_RATE_LIMITS_ENABLED"), defaults.RateLimitsEnabled, strconv.ParseBool),
 		RateLimit:         config.LoadEnv(getenv("REST_RATE_LIMIT"), defaults.RateLimit, ParseRate),
 		RateLimitStore: RateLimitStore{
-			Addr: config.LoadEnv(getenv("REST_RATE_LIMIT_STORE_ADDR"), defaults.RateLimitStore.Addr, config.StringParser),
-			Username: config.LoadEnv(
-				getenv("REST_RATE_LIMIT_STORE_USERNAME"), defaults.RateLimitStore.Username, config.StringParser,
-			),
-			Password: config.LoadEnv(
-				getenv("REST_RATE_LIMIT_STORE_PASSWORD"), defaults.RateLimitStore.Password, config.StringParser,
-			),
+			Addr:     cmp.Or(getenv("REST_RATE_LIMIT_STORE_ADDR"), defaults.RateLimitStore.Addr),
+			Username: cmp.Or(getenv("REST_RATE_LIMIT_STORE_USERNAME"), defaults.RateLimitStore.Username),
+			Password: cmp.Or(getenv("REST_RATE_LIMIT_STORE_PASSWORD"), defaults.RateLimitStore.Password),
 		},
 		Cors: CorsConfig{
 			AllowedOrigins: config.LoadEnv(getenv("REST_CORS_ALLOWED_ORIGINS"), defaults.Cors.AllowedOrigins, stringSlice),

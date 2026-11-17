@@ -12,22 +12,14 @@ import (
 	"github.com/a-novel-kit/golib/servertls"
 )
 
-// Serve listens on server.Addr until ctx is canceled or the server stops. Cancellation drains
+// serve listens on server.Addr until ctx is canceled or the server stops. Cancellation drains
 // active requests within shutdownTimeout, then closes remaining connections. A forced shutdown
 // returns an error wrapping [context.DeadlineExceeded]. A server with a TLSConfig serves TLS, with
 // the certificate its configuration presents.
 //
 // [http.ErrServerClosed] is a normal result. A serving error that races with shutdown is joined
 // with the shutdown error so callers can inspect both with [errors.Is].
-//
-// A command can connect process signals directly:
-//
-//	processCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-//	defer stop()
-//	if err := httpf.Serve(processCtx, server, 30*time.Second); err != nil {
-//		log.Printf("run HTTP server: %v", err)
-//	}
-func Serve(ctx context.Context, server *http.Server, shutdownTimeout time.Duration) error {
+func serve(ctx context.Context, server *http.Server, shutdownTimeout time.Duration) error {
 	serveErrors := make(chan error, 1)
 
 	go func() {
@@ -78,7 +70,7 @@ func Serve(ctx context.Context, server *http.Server, shutdownTimeout time.Durati
 	)
 }
 
-// serveAll runs [Serve] for each server, and stops them all once ctx is canceled or one of them
+// serveAll runs serve for each server, and stops them all once ctx is canceled or one of them
 // stops.
 func serveAll(ctx context.Context, servers []*http.Server, shutdownTimeout time.Duration) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -87,7 +79,7 @@ func serveAll(ctx context.Context, servers []*http.Server, shutdownTimeout time.
 	serveErrors := make(chan error, len(servers))
 	for _, server := range servers {
 		go func() {
-			serveErrors <- Serve(ctx, server, shutdownTimeout)
+			serveErrors <- serve(ctx, server, shutdownTimeout)
 
 			cancel()
 		}()
@@ -110,12 +102,12 @@ func wrapServerError(operation string, err error) error {
 	return fmt.Errorf("%s: %w", operation, err)
 }
 
-// NewServer returns a server for handler on the configured port, with the configured timeouts.
+// newServer returns a server for handler on the configured port, with the configured timeouts.
 //
 // Every request context carries the values of ctx, but not its cancellation. ctx is usually the
-// process context that [Serve] drains the server under. A request in flight when shutdown begins
+// process context that [ListenAndServe] drains the server under. A request in flight when shutdown begins
 // then finishes within the drain. [EndOnShutdown] ends such a request at shutdown instead.
-func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *http.Server {
+func newServer(ctx context.Context, config ServerConfig, handler http.Handler) *http.Server {
 	base := context.WithoutCancel(ctx)
 
 	return &http.Server{
@@ -130,13 +122,23 @@ func NewServer(ctx context.Context, config ServerConfig, handler http.Handler) *
 }
 
 // ListenAndServe serves handler on the configured port until ctx is canceled, then drains active
-// requests within the configured shutdown timeout. See [Serve].
+// requests within the configured shutdown timeout, then closes remaining connections. A forced
+// shutdown returns an error wrapping [context.DeadlineExceeded]. A serving error that races with
+// shutdown is joined with the shutdown error, so callers can inspect both with [errors.Is].
+//
+// A command can connect process signals directly:
+//
+//	processCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+//	defer stop()
+//	if err := httpf.ListenAndServe(processCtx, cfg.Rest, router); err != nil {
+//		log.Printf("run HTTP server: %v", err)
+//	}
 //
 // The port serves TLS once config.TLS names a key pair, which [servertls.Config] loads and reloads
 // at renewal. A config.PlaintextPort also serves plaintext beside it. The listeners stop together:
 // one that fails stops the other.
 func ListenAndServe(ctx context.Context, config ServerConfig, handler http.Handler) error {
-	servers := []*http.Server{NewServer(ctx, config, handler)}
+	servers := []*http.Server{newServer(ctx, config, handler)}
 
 	if config.TLS != (servertls.Files{}) {
 		tlsConfig, err := servertls.Config(config.TLS)
@@ -150,7 +152,7 @@ func ListenAndServe(ctx context.Context, config ServerConfig, handler http.Handl
 	if config.PlaintextPort != 0 {
 		plaintext := config
 		plaintext.Port = config.PlaintextPort
-		servers = append(servers, NewServer(ctx, plaintext, handler))
+		servers = append(servers, newServer(ctx, plaintext, handler))
 	}
 
 	return serveAll(ctx, servers, config.Timeouts.Shutdown)

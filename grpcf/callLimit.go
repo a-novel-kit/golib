@@ -28,7 +28,7 @@ const callsInFlightMetric = "# HELP grpc_server_calls_in_flight The gRPC calls t
 // The server refuses a call from its headers, before reading the request, with Unavailable: the
 // client may retry it, here or on another instance. The refusal reaches no interceptor, so only the
 // client records it. A call holds its slot until it ends or its client cancels it, and a stream
-// holds one for as long as it stays open. [MethodCallLimit] adds a cap of its own to one method.
+// holds one for as long as it stays open.
 //
 // CallLimit is also an [http.Handler] that serves the calls in flight as the gauge
 // grpc_server_calls_in_flight, in the Prometheus text format. An autoscaler that reads the gauge adds
@@ -36,31 +36,13 @@ const callsInFlightMetric = "# HELP grpc_server_calls_in_flight The gRPC calls t
 type CallLimit struct {
 	grpc.ServerOption
 
-	server  callCount
-	methods map[string]*callCount
-}
-
-// CallLimitOption configures a [CallLimit].
-type CallLimitOption func(*CallLimit)
-
-// MethodCallLimit caps the calls to one method that run at once, inside the server's cap: each call
-// takes a slot from both. It suits a method far costlier than the others, so its calls cannot fill
-// the server and starve the cheap ones. Name the method in full, as "/package.Service/Method". A
-// limit of zero or less bounds nothing.
-func MethodCallLimit(fullMethod string, limit int) CallLimitOption {
-	return func(callLimit *CallLimit) {
-		callLimit.methods[fullMethod] = &callCount{limit: int64(limit)}
-	}
+	server callCount
 }
 
 // NewCallLimit returns a CallLimit that runs limit calls at once. A limit of zero or less bounds
 // nothing, and the calls in flight are still counted.
-func NewCallLimit(limit int, options ...CallLimitOption) *CallLimit {
-	callLimit := &CallLimit{server: callCount{limit: int64(limit)}, methods: map[string]*callCount{}}
-	for _, option := range options {
-		option(callLimit)
-	}
-
+func NewCallLimit(limit int) *CallLimit {
+	callLimit := &CallLimit{server: callCount{limit: int64(limit)}}
 	callLimit.ServerOption = grpc.InTapHandle(callLimit.admit)
 
 	return callLimit
@@ -74,30 +56,19 @@ func (callLimit *CallLimit) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	_, _ = io.WriteString(w, callsInFlightMetric+strconv.FormatInt(callLimit.server.inFlight.Load(), 10)+"\n")
 }
 
-// admit counts the call info describes until it ends, or refuses it with Unavailable once its method
-// or the server runs its limit of calls.
+// admit counts the call info describes until it ends, or refuses it with Unavailable once the
+// server runs its limit of calls.
 func (callLimit *CallLimit) admit(ctx context.Context, info *tap.Info) (context.Context, error) {
 	if strings.HasPrefix(info.FullMethodName, healthMethods) {
 		return ctx, nil
 	}
 
-	// The method's cap comes first, so a full method takes no slot from the server.
-	method := callLimit.methods[info.FullMethodName]
-	if method != nil && !method.take() {
-		return ctx, status.Error(codes.Unavailable, "method at its concurrent call limit: retry later")
-	}
-
 	if !callLimit.server.take() {
-		method.release()
-
 		return ctx, status.Error(codes.Unavailable, "server at its concurrent call limit: retry later")
 	}
 
 	// The transport cancels the call's context once the call ends, however it ends.
-	context.AfterFunc(ctx, func() {
-		callLimit.server.release()
-		method.release()
-	})
+	context.AfterFunc(ctx, callLimit.server.release)
 
 	return ctx, nil
 }
@@ -122,17 +93,7 @@ func (count *callCount) take() bool {
 	}
 }
 
-// release counts one call fewer. A nil count, for a method without a cap of its own, does nothing.
+// release counts one call fewer.
 func (count *callCount) release() {
-	if count != nil {
-		count.inFlight.Add(-1)
-	}
-}
-
-// MaxConcurrentCalls returns a server option that refuses a call while limit others run, as
-// [CallLimit] describes.
-//
-// Deprecated: Use [NewCallLimit], whose CallLimit also serves the calls in flight.
-func MaxConcurrentCalls(limit int) grpc.ServerOption {
-	return NewCallLimit(limit)
+	count.inFlight.Add(-1)
 }

@@ -68,25 +68,18 @@ func TestSendJSONStatus(t *testing.T) {
 		expectSpanDescription string
 	}{
 		{
-			name:       "OK",
+			name:       "Success/OK",
 			status:     http.StatusOK,
 			data:       map[string]string{"hello": "world"},
 			expectBody: `{"hello":"world"}`,
 		},
 		{
 			// A status other than 200 still answers application/json.
-			name:       "Created",
+			name:       "Success/Created",
 			status:     http.StatusCreated,
-			data:       map[string]string{"id": "abc"},
-			expectBody: `{"id":"abc"}`,
+			data:       []string{"abc"},
+			expectBody: `["abc"]`,
 		},
-		{
-			name:       "Accepted",
-			status:     http.StatusAccepted,
-			data:       []string{"queued"},
-			expectBody: `["queued"]`,
-		},
-
 		{
 			// A client error status is an answer, not a fault.
 			name:       "ErrorStatus/BadRequest",

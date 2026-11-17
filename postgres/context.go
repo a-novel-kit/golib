@@ -34,17 +34,6 @@ func NewContext(ctx context.Context, config Config) (context.Context, error) {
 	return context.WithValue(ctx, ContextKey{}, db), nil
 }
 
-// NewContextSchema derives a context carrying a connection scoped to the named
-// schema, creating the schema first when create is true.
-func NewContextSchema(ctx context.Context, config Config, schema string, create bool) (context.Context, error) {
-	db, err := config.DBSchema(ctx, schema, create)
-	if err != nil {
-		return nil, fmt.Errorf("get db from config: %w", err)
-	}
-
-	return context.WithValue(ctx, ContextKey{}, db), nil
-}
-
 // GetContext returns the bun.IDB stored in ctx by NewContext or one of its
 // variants, or ErrNoIDBInContext when none is present.
 func GetContext(ctx context.Context) (bun.IDB, error) {

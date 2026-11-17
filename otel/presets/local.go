@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -39,8 +38,7 @@ type Local struct {
 
 // Init prints the local development banner.
 func (config *Local) Init() error {
-	banner := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	_, _ = fmt.Fprintln(os.Stdout, banner.Render("🚀 OpenTelemetry Local Mode: All traces and logs to stdout"))
+	printBanner(bannerStart, "🚀 OpenTelemetry Local Mode: All traces and logs to stdout")
 
 	return nil
 }

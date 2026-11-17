@@ -3,9 +3,7 @@ package postgrespresets_test
 import (
 	"context"
 	"crypto/rand"
-	"os"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/driver/pgdriver"
 
+	"github.com/a-novel-kit/golib/internal/pgtest"
 	postgrespresets "github.com/a-novel-kit/golib/postgres/presets"
 )
 
@@ -21,17 +20,6 @@ import (
 // database/sql's own idle default of two and below the preset's, so the number
 // of connections left idle afterwards tells the two apart.
 const concurrentQueries = 5
-
-// testConfig points the tests at the throwaway database POSTGRES_DSN names.
-func testConfig(t *testing.T) *postgrespresets.Default {
-	t.Helper()
-
-	dsn := os.Getenv("POSTGRES_DSN")
-	require.NotEmpty(t, dsn,
-		"POSTGRES_DSN must point at a throwaway database: this package opens real connections")
-
-	return postgrespresets.NewDefault(pgdriver.WithDSN(dsn))
-}
 
 // holdOpen runs concurrentQueries statements that overlap in time, forcing the pool
 // to open that many connections, and returns once every one has been released back
@@ -61,23 +49,6 @@ func holdOpen(ctx context.Context, t *testing.T, config *postgrespresets.Default
 func TestDefault(t *testing.T) {
 	t.Parallel()
 
-	// All five connections survive being released, so the next caller reuses them without a
-	// fresh handshake.
-	t.Run("Success/KeepsIdleConnections", func(t *testing.T) {
-		t.Parallel()
-
-		config := testConfig(t)
-
-		ctx := t.Context()
-		holdOpen(ctx, t, config)
-
-		db, err := config.DB(ctx)
-		require.NoError(t, err)
-
-		require.Equal(t, concurrentQueries, db.Stats().Idle,
-			"every released connection should have been kept, not closed and reopened later")
-	})
-
 	// A restart or a failover ends every session, idle ones included. The pool replaces each
 	// connection the server closed, so every statement after it succeeds.
 	t.Run("Success/ReplacesConnectionsTheServerClosed", func(t *testing.T) {
@@ -85,12 +56,12 @@ func TestDefault(t *testing.T) {
 
 		// The application name tells the sessions of this pool apart from those of parallel tests.
 		name := "golib-test-" + rand.Text()
-		config := postgrespresets.NewDefault(append(testConfig(t).Options(), pgdriver.WithApplicationName(name))...)
+		config := postgrespresets.NewDefault(append(pgtest.Config(t).Options(), pgdriver.WithApplicationName(name))...)
 
 		ctx := t.Context()
 		holdOpen(ctx, t, config)
 
-		admin, err := testConfig(t).DB(ctx)
+		admin, err := pgtest.Config(t).DB(ctx)
 		require.NoError(t, err)
 
 		// The timeout waits for each session to end, so its error is on the wire before the next
@@ -112,7 +83,7 @@ func TestDefault(t *testing.T) {
 
 		// The driver leaves a read deadline behind, which passes while the connection sits idle.
 		readTimeout := pgdriver.WithReadTimeout(100 * time.Millisecond)
-		config := postgrespresets.NewDefault(append(testConfig(t).Options(), readTimeout)...)
+		config := postgrespresets.NewDefault(append(pgtest.Config(t).Options(), readTimeout)...)
 
 		ctx := t.Context()
 
@@ -128,44 +99,44 @@ func TestDefault(t *testing.T) {
 		require.Equal(t, before, after)
 	})
 
-	// A deployment that sets its own number gets it. The default applies only when none is set.
-	t.Run("Success/HonorsTheIdleOverride", func(t *testing.T) {
-		t.Parallel()
+	// A pool keeps up to MaxIdleConns released connections, so the next callers reuse them without a
+	// fresh handshake. Zero keeps MaxIdleConnsDefault, above the queries holdOpen runs, and a negative
+	// value keeps none, matching database/sql.
+	idleCases := []struct {
+		name string
 
-		config := testConfig(t)
-		config.MaxIdleConns = 1
+		maxIdleConns int
 
-		ctx := t.Context()
-		holdOpen(ctx, t, config)
+		expectIdle int
+	}{
+		{name: "Success/KeepsIdleConnections", maxIdleConns: 0, expectIdle: concurrentQueries},
+		{name: "Success/HonorsTheIdleOverride", maxIdleConns: 1, expectIdle: 1},
+		{name: "Success/NegativeIdleOverrideKeepsNone", maxIdleConns: -1, expectIdle: 0},
+	}
 
-		db, err := config.DB(ctx)
-		require.NoError(t, err)
+	for _, testCase := range idleCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		require.Equal(t, 1, db.Stats().Idle)
-	})
+			config := pgtest.Config(t)
+			config.MaxIdleConns = testCase.maxIdleConns
 
-	// A negative override keeps nothing, matching database/sql.
-	t.Run("Success/NegativeIdleOverrideKeepsNone", func(t *testing.T) {
-		t.Parallel()
+			ctx := t.Context()
+			holdOpen(ctx, t, config)
 
-		config := testConfig(t)
-		config.MaxIdleConns = -1
+			db, err := config.DB(ctx)
+			require.NoError(t, err)
 
-		ctx := t.Context()
-		holdOpen(ctx, t, config)
-
-		db, err := config.DB(ctx)
-		require.NoError(t, err)
-
-		require.Zero(t, db.Stats().Idle)
-	})
+			require.Equal(t, testCase.expectIdle, db.Stats().Idle)
+		})
+	}
 
 	// The open limit has no default. A service states its own where it builds the config, and
 	// the pool honors it on every connection it opens.
 	t.Run("Success/BoundsOpenConnections", func(t *testing.T) {
 		t.Parallel()
 
-		config := testConfig(t)
+		config := pgtest.Config(t)
 		config.MaxOpenConns = 2
 
 		ctx := t.Context()
@@ -186,51 +157,11 @@ func TestDefault(t *testing.T) {
 	t.Run("Success/OpenConnectionsUnlimitedByDefault", func(t *testing.T) {
 		t.Parallel()
 
-		config := testConfig(t)
+		config := pgtest.Config(t)
 
 		db, err := config.DB(t.Context())
 		require.NoError(t, err)
 
 		require.Zero(t, db.Stats().MaxOpenConnections, "0 is database/sql's encoding of unlimited")
-	})
-
-	t.Run("Success/BoundsSchemaOpenConnections", func(t *testing.T) {
-		t.Parallel()
-
-		config := testConfig(t)
-		config.MaxOpenConns = 2
-
-		schema := "max_open_connections_" + strings.ToLower(rand.Text())
-
-		t.Cleanup(func() {
-			require.NoError(t, config.DropSchema(context.Background(), schema))
-		})
-
-		db, err := config.DBSchema(t.Context(), schema, true)
-		require.NoError(t, err)
-
-		require.Equal(t, 2, db.Stats().MaxOpenConnections)
-	})
-
-	t.Run("Success/SchemaNameAsWritten", func(t *testing.T) {
-		t.Parallel()
-
-		config := testConfig(t)
-
-		// Case, a space and a quote only survive as a quoted identifier, in the statement and in
-		// search_path alike.
-		schema := `Literal "Schema" ` + rand.Text()
-
-		t.Cleanup(func() {
-			require.NoError(t, config.DropSchema(context.Background(), schema))
-		})
-
-		db, err := config.DBSchema(t.Context(), schema, true)
-		require.NoError(t, err)
-
-		var current string
-
-		require.NoError(t, db.NewRaw("SELECT current_schema()").Scan(t.Context(), &current))
-		require.Equal(t, schema, current)
 	})
 }

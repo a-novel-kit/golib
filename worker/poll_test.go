@@ -7,15 +7,15 @@ import (
 	"io"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	otelglobal "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
+	"github.com/a-novel-kit/golib/internal/oteltest"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	"github.com/a-novel-kit/golib/worker"
 )
@@ -25,7 +25,7 @@ const (
 	// times out for being slow.
 	pollTimeout = time.Second
 
-	// pollStagger is long enough to measure without making the suite wait on it.
+	// pollStagger delays the first run of the stagger case, on the fake clock of its bubble.
 	pollStagger = 150 * time.Millisecond
 
 	// pollDrainRuns is how many consecutive units of work the drain case reports.
@@ -128,49 +128,42 @@ func TestPoll(t *testing.T) {
 		}
 	})
 
+	// The bubble's fake clock makes the stagger exact, and costs the suite no wait.
 	t.Run("Success/StaggersTheFirstRun", func(t *testing.T) {
 		t.Parallel()
 
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
 
-		started := time.Now()
-		firstCall := make(chan time.Duration, 1)
+			started := time.Now()
 
-		recordFirstCall := func(context.Context) (bool, error) {
-			select {
-			case firstCall <- time.Since(started):
-			default:
+			var firstCall time.Duration
+
+			recordFirstCall := func(context.Context) (bool, error) {
+				if firstCall == 0 {
+					firstCall = time.Since(started)
+				}
+
+				return false, nil
 			}
 
-			return false, nil
-		}
+			go worker.Poll(ctx, discardLogger, "test", time.Hour, pollStagger, recordFirstCall)
 
-		go worker.Poll(ctx, discardLogger, "test", time.Hour, pollStagger, recordFirstCall)
+			time.Sleep(pollStagger)
+			synctest.Wait()
 
-		select {
-		case elapsed := <-firstCall:
-			require.GreaterOrEqual(t, elapsed, pollStagger)
-		case <-time.After(pollTimeout):
-			require.FailNow(t, "Poll never ran its callback")
-		}
+			require.Equal(t, pollStagger, firstCall)
+		})
 	})
 }
 
 //nolint:paralleltest // Replaces the process-wide tracer provider while the loop runs.
 func TestPollTelemetry(t *testing.T) {
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	previous := otelglobal.GetTracerProvider()
-
-	otelglobal.SetTracerProvider(provider)
-	t.Cleanup(func() {
-		otelglobal.SetTracerProvider(previous)
-		require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context())))
-	})
+	recorder := oteltest.RecordSpans(t)
 
 	// The process's own span: the runs must not gather under it.
-	ctx, process := provider.Tracer("worker-test").Start(t.Context(), "process")
+	ctx, process := otelglobal.GetTracerProvider().Tracer("worker-test").Start(t.Context(), "process")
 	defer process.End()
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -243,15 +236,7 @@ func TestPollFaults(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			recorder := tracetest.NewSpanRecorder()
-			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-			previous := otelglobal.GetTracerProvider()
-
-			otelglobal.SetTracerProvider(provider)
-			t.Cleanup(func() {
-				otelglobal.SetTracerProvider(previous)
-				require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context())))
-			})
+			recorder := oteltest.RecordSpans(t)
 
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()

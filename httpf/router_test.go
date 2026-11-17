@@ -14,15 +14,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	gootel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/a-novel-kit/golib/httpf"
+	"github.com/a-novel-kit/golib/internal/oteltest"
 	"github.com/a-novel-kit/golib/logging"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	"github.com/a-novel-kit/golib/otel"
@@ -501,10 +500,7 @@ func TestSendTelemetry(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
 
-	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
-
-	gootel.SetTracerProvider(provider)
-	t.Cleanup(func() { gootel.SetTracerProvider(noop.NewTracerProvider()) })
+	oteltest.Install(t, provider)
 
 	handler := httpf.SendTelemetry(time.Second)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		_, span := otel.Tracer().Start(r.Context(), "sweep")

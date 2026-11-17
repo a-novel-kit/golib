@@ -87,10 +87,7 @@ func TestCallLimit(t *testing.T) {
 	testCases := []struct {
 		name string
 
-		limit   int
-		options []grpcf.CallLimitOption
-		// next is the method of the call made after the held ones: test.Held/Pass when empty.
-		next string
+		limit int
 		// end ends the first held call before the next one starts, or leaves it running when nil.
 		end func(release chan<- struct{}, cancel context.CancelFunc)
 
@@ -136,42 +133,6 @@ func TestCallLimit(t *testing.T) {
 			expectCode:    codes.OK,
 		},
 		{
-			name: "Error/MethodAtLimit",
-
-			options: []grpcf.CallLimitOption{grpcf.MethodCallLimit("/test.Held/Hold", held)},
-			next:    "/test.Held/Hold",
-
-			expectCode: codes.Unavailable,
-		},
-		{
-			// A method's cap leaves the others alone.
-			name: "Success/OtherMethodUnderLimit",
-
-			options: []grpcf.CallLimitOption{grpcf.MethodCallLimit("/test.Held/Hold", held)},
-
-			expectCode: codes.OK,
-		},
-		{
-			// A method's cap never lifts the server's. The refusal also hands back the method's slot,
-			// which the last call checks.
-			name: "Error/ServerAtLimitUnderMethodLimit",
-
-			limit:   held,
-			options: []grpcf.CallLimitOption{grpcf.MethodCallLimit("/test.Held/Pass", 1)},
-
-			expectCode: codes.Unavailable,
-		},
-		{
-			name: "Success/MethodSlotFreedOnEnd",
-
-			options: []grpcf.CallLimitOption{grpcf.MethodCallLimit("/test.Held/Hold", held)},
-			next:    "/test.Held/Hold",
-			end:     func(release chan<- struct{}, _ context.CancelFunc) { release <- struct{}{} },
-
-			expectEndCode: codes.OK,
-			expectCode:    codes.OK,
-		},
-		{
 			name: "Success/SlotFreedOnCancel",
 
 			limit: held,
@@ -187,12 +148,7 @@ func TestCallLimit(t *testing.T) {
 			t.Parallel()
 
 			calls := &heldCalls{started: make(chan struct{}, held), release: make(chan struct{})}
-			callLimit := grpcf.NewCallLimit(testCase.limit, testCase.options...)
-
-			next := testCase.next
-			if next == "" {
-				next = "/test.Held/Pass"
-			}
+			callLimit := grpcf.NewCallLimit(testCase.limit)
 
 			server := grpcf.NewServer(
 				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil, callLimit,
@@ -250,29 +206,11 @@ func TestCallLimit(t *testing.T) {
 				}
 			}
 
-			// A slot frees once the transport cancels its call's context, just after the call returns. An
-			// admitted test.Held/Hold call holds until the release.
-			nextResult := make(chan error, 1)
-			heldLeft, nextHeld := running, false
-
+			// A slot frees once the transport cancels its call's context, just after the call returns.
 			require.Eventually(t, func() bool {
-				if next != "/test.Held/Hold" {
-					err := connection.Invoke(ctx, next, &emptypb.Empty{}, &emptypb.Empty{})
+				err := connection.Invoke(ctx, "/test.Held/Pass", &emptypb.Empty{}, &emptypb.Empty{})
 
-					return status.Code(err) == testCase.expectCode
-				}
-
-				go func() { nextResult <- connection.Invoke(ctx, next, &emptypb.Empty{}, &emptypb.Empty{}) }()
-
-				select {
-				case err := <-nextResult:
-					return status.Code(err) == testCase.expectCode
-				case <-calls.started:
-					running++
-					nextHeld = true
-
-					return testCase.expectCode == codes.OK
-				}
+				return status.Code(err) == testCase.expectCode
 			}, grpcServerTestTimeout, 10*time.Millisecond)
 
 			healthResponse, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
@@ -287,17 +225,13 @@ func TestCallLimit(t *testing.T) {
 
 			close(calls.release)
 
-			for range heldLeft {
+			for range running {
 				select {
 				case err = <-results:
 					require.NoError(t, err)
 				case <-ctx.Done():
 					require.FailNow(t, "held calls did not end")
 				}
-			}
-
-			if nextHeld {
-				require.NoError(t, <-nextResult)
 			}
 
 			require.Eventually(t, func() bool {

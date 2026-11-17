@@ -19,8 +19,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/a-novel-kit/golib/internal/oteltest"
 	"github.com/a-novel-kit/golib/otel"
 )
 
@@ -311,10 +311,7 @@ func TestForceFlush(t *testing.T) {
 		exporter := tracetest.NewInMemoryExporter()
 		provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Hour)))
 
-		t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
-
-		gootel.SetTracerProvider(provider)
-		t.Cleanup(func() { gootel.SetTracerProvider(noop.NewTracerProvider()) })
+		oteltest.Install(t, provider)
 
 		_, span := otel.Tracer().Start(t.Context(), "buffered")
 		span.End()
