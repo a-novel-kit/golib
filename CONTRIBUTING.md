@@ -10,19 +10,20 @@ what a library is and when one graduates. This file covers what is specific to `
 `golib` stays small. Weigh any addition against three questions.
 
 - Does a well-maintained library already do it? Use that library directly, without a wrapper here.
-- Does only one service need it? Keep it in that service until a second one does.
+- Is it generic glue, the same in every caller? It needs no second consumer: services stop copying
+  it once it lands here.
 - Has it grown a broad API of its own? It then
   [graduates](https://github.com/a-novel-kit/.github/blob/master/docs/taxonomy.md#libraries) to its
   own repository, as [`jwt`](https://github.com/a-novel-kit/jwt) did.
 
-A good addition is a small, dependency-light helper that several services share and nothing
+A good addition is a small, dependency-light helper that services would otherwise copy and nothing
 upstream covers.
 
 ## Breaking changes
 
 Services pin a released version, so every exported identifier, signature, error value and default
-is a contract. A release that asks anything of its consumers ships a migration guide in
-[`docs/migrations`](./docs/migrations), named after the version.
+is a contract. A change that asks anything of its consumers adds its steps to
+[`docs/migrations/NEXT.md`](./docs/migrations), which the release names after its version.
 
 ## Run the PostgreSQL tests
 
