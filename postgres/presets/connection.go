@@ -57,10 +57,11 @@ var ConnectionDefault = Connection{Port: 5432, TLSEnabled: true, MaxOpenConns: 2
 
 // LoadConnection reads the POSTGRES_* variables through getenv, which applies the service's prefix,
 // and keeps defaults for unset ones: POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD,
-// POSTGRES_DATABASE, POSTGRES_TLS_ENABLED, POSTGRES_MAX_OPEN_CONNS and POSTGRES_MAX_IDLE_CONNS. It
-// panics on a value it cannot parse.
+// POSTGRES_DATABASE, POSTGRES_TLS_ENABLED, POSTGRES_MAX_OPEN_CONNS and POSTGRES_MAX_IDLE_CONNS. No
+// variable fills DSN or DialTimeout, which keep their defaults. It panics on a value it cannot parse.
 func LoadConnection(getenv func(name string) string, defaults Connection) Connection {
 	return Connection{
+		DSN:          defaults.DSN,
 		Host:         cmp.Or(getenv("POSTGRES_HOST"), defaults.Host),
 		Port:         config.LoadEnv(getenv("POSTGRES_PORT"), defaults.Port, strconv.Atoi),
 		User:         cmp.Or(getenv("POSTGRES_USER"), defaults.User),

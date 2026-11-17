@@ -193,17 +193,21 @@ code, constraint := postgres.SQLState(err)
 
 ## Run migrations with `RunMigrations`
 
-`RunMigrations` logs the group it applied, such as `migrations: applied group #4 (...)`, or that
-nothing was pending. Delete a main's own listing of the embedded files. `RunMigrationsContext` is
-deprecated:
+Prefer `RunMigrations` to `RunMigrationsContext`, and `postgres.WithTx(ctx, tx)` to
+`context.WithValue(ctx, postgres.ContextKey{}, tx)` in tests. Both replacements already exist in
+v0.65.0, so a service can move before it takes this release. A later release removes the old forms.
 
 ```go
 db := lo.Must(config.PostgresPresetMigrations.DB(ctx))
 lo.Must0(postgres.RunMigrations(ctx, db, migrations.Migrations))
 ```
 
-`postgres.ContextKey` is deprecated too. A test puts a transaction on its context with
-`postgres.WithTx(ctx, tx)`.
+`RunMigrations` now logs the group it applied, such as `migrations: applied group #4 (...)`, each
+group of a run a lock retried, or that nothing was pending. A main that printed its own progress,
+as authentication's and json-keys' do, drops all of it: the `log.SetFlags` and `log.SetPrefix`
+lines, the `start` timer, the listing of the embedded files, the progress lines and the closing
+`done` line. Otherwise each line reads `migrations: migrations: ...`. What remains is the
+template's two-line main.
 
 ## Open a job's root span with `worker.Run`
 

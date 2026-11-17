@@ -179,15 +179,14 @@ func TestConnectionPreset(t *testing.T) {
 		MaxIdleConns: 4,
 	}
 
-	preset, err := connection.Preset(pgdriver.WithApplicationName("migrations"))
+	preset, err := connection.Preset(pgdriver.WithAddr("replica.internal:6543"))
 	require.NoError(t, err)
 	require.Equal(t, 8, preset.MaxOpenConns)
 	require.Equal(t, 4, preset.MaxIdleConns)
 
-	// The extra options follow the connection's own.
-	options, err := connection.Options()
-	require.NoError(t, err)
-	require.Len(t, preset.Options(), len(options)+1)
+	// The extra options follow the connection's own, so they win: the connection sets the address
+	// first.
+	require.Equal(t, "replica.internal:6543", pgdriver.NewConnector(preset.Options()...).Config().Addr)
 
 	_, err = postgrespresets.Connection{Host: "postgres.internal"}.Preset()
 	require.ErrorIs(t, err, postgrespresets.ErrConnectionPassword)

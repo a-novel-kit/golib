@@ -48,7 +48,7 @@ go get github.com/a-novel-kit/golib
 | `smtp`                          | Sends transactional mail behind one `Sender` interface, with a real SMTP sender for production and a debug sender for local runs.                                                                                                                   |
 | `transaction`                   | Declares a unit of work in one interface that names no database, so business code can require atomicity without reaching a driver. `postgres` implements it.                                                                                        |
 | `transaction/transactiontest`   | Runs a unit of work in memory, for tests to assert that a caller opened one.                                                                                                                                                                        |
-| `worker`                        | Runs the background loops that live beside the request path, each run traced on its own and a failing or panicking run recorded on its span and logged.                                                                                             |
+| `worker`                        | Runs the background loops and the one-shot jobs beside the request path, each run the root of its own trace, a failure recorded on its span.                                                                                                        |
 
 ## Contributing
 

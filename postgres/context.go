@@ -13,7 +13,8 @@ type contextKey struct{}
 
 // ContextKey is the context value key under which the package stores the active bun.IDB connection.
 //
-// Deprecated: Use [WithTx] to put a connection on a context, and [GetContext] to read it.
+// Prefer [WithTx] to put a connection on a context, which v0.65.0 already has, and [GetContext] to
+// read it. A later release unexports the key once no consumer names it.
 type ContextKey = contextKey
 
 // ErrNoIDBInContext is returned by GetContext when the context carries no
