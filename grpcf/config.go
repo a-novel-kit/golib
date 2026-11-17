@@ -19,7 +19,8 @@ type ServerConfig struct {
 	// PlaintextPort, when not zero, also serves plaintext there, so callers move to a TLS Port
 	// without a failed call.
 	PlaintextPort int `json:"plaintextPort" yaml:"plaintextPort"`
-	// Shutdown bounds the drain of active calls before remaining ones stop.
+	// Shutdown bounds the drain of active calls before remaining ones stop. The default of 6 seconds
+	// leaves room for the OpenTelemetry flush before Kubernetes kills the pod at 30.
 	Shutdown time.Duration `json:"shutdown" yaml:"shutdown"`
 	// MaxConcurrentCalls bounds the calls the server runs at once, once passed to [NewCallLimit].
 	// Zero bounds nothing.
@@ -30,7 +31,7 @@ type ServerConfig struct {
 // overrides a field on a copy before loading.
 var ServerConfigDefault = ServerConfig{
 	Port:     8080,
-	Shutdown: 30 * time.Second,
+	Shutdown: 6 * time.Second,
 }
 
 // LoadServerConfig reads the GRPC_* variables through getenv, which applies the service's prefix,

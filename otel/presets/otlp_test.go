@@ -12,15 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	gootel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	lognoop "go.opentelemetry.io/otel/log/noop"
 	"go.opentelemetry.io/otel/sdk/resource"
-	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	collectorlogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 
+	"github.com/a-novel-kit/golib/httpf"
 	"github.com/a-novel-kit/golib/otel"
 	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 )
@@ -104,7 +102,6 @@ func defaultServiceName() string {
 	return value.AsString()
 }
 
-//nolint:paralleltest // The exporters read process-wide variables, and Init sets the global providers.
 func TestOTLP(t *testing.T) {
 	t.Run("Success/Export", func(t *testing.T) {
 		receiver := &otlpReceiver{exports: map[string][]otlpExport{}}
@@ -115,19 +112,20 @@ func TestOTLP(t *testing.T) {
 		t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Basic b3RscDp0ZXN0")
 		t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
 
-		config := &otelpresets.OTLP{UntracedPaths: []string{"/ping"}}
-		require.NoError(t, otel.Init(config))
-		t.Cleanup(func() {
-			gootel.SetTracerProvider(tracenoop.NewTracerProvider())
-			gootel.SetLoggerProvider(lognoop.NewLoggerProvider())
-		})
+		restoreGlobals(t)
 
-		handler := config.HTTPHandler()(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		config := &otelpresets.OTLP{}
+		require.NoError(t, otel.Init(config))
+
+		handler := httpf.NewRouter(httpf.ServerConfigDefault, nil, nil)
+		handler.Get("/{path}", func(_ http.ResponseWriter, r *http.Request) {
 			_, span := otel.Tracer().Start(r.Context(), "rest.Handle")
 			span.End()
-		}))
+		})
 
-		for _, path := range []string{"/ping", "/items"} {
+		// The router leaves its liveness path untraced, and the preset's sampler drops the spans
+		// opened under it.
+		for _, path := range []string{httpf.ServerConfigDefault.Liveness, "/items"} {
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
 			handler.ServeHTTP(httptest.NewRecorder(), request)
 		}
@@ -178,24 +176,5 @@ func TestOTLP(t *testing.T) {
 		}
 
 		require.Equal(t, []string{"exported"}, logBodies)
-	})
-
-	t.Run("Success/ProvidersBuiltOnce", func(t *testing.T) {
-		config := &otelpresets.OTLP{}
-		t.Cleanup(config.Flush)
-
-		firstTracer, err := config.GetTraceProvider()
-		require.NoError(t, err)
-
-		secondTracer, err := config.GetTraceProvider()
-		require.NoError(t, err)
-		require.Same(t, firstTracer, secondTracer)
-
-		firstLogger, err := config.GetLogger()
-		require.NoError(t, err)
-
-		secondLogger, err := config.GetLogger()
-		require.NoError(t, err)
-		require.Same(t, firstLogger, secondLogger)
 	})
 }

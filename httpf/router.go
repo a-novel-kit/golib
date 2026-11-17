@@ -2,6 +2,7 @@ package httpf
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
@@ -23,8 +25,9 @@ import (
 // NewRouter returns a router with the standard middleware, outermost first: panic recovery, the
 // visitor IP, the request timeout, the body limit, tracing, the report of faults on the request's
 // span, CORS, request logs, the planned downtime, the standard rate limit and HEAD routing. The
-// liveness path answers during a downtime and is never rate-limited. A route under [Streaming]
-// answers past the request timeout.
+// liveness path answers during a downtime, is never rate-limited, and leaves no span: its requests
+// run under a parent span that is not sampled, so the spans their handlers open drop with it. A
+// route under [Streaming] answers past the request timeout.
 //
 // Every GET route answers HEAD too, as RFC 9110 §9.1 requires: the GET handler runs, and net/http
 // drops the body it writes. One deviation is deliberate: the Allow header of a 405 lists the methods
@@ -37,9 +40,7 @@ import (
 // takes the subrouter's pattern, such as "GET /v2/*". A path never names a span.
 //
 // A nil logger writes no request log, for a server whose spans record each request.
-func NewRouter(
-	config ServerConfig, tracing otel.Config, logger logging.HTTPConfig, downtimeStart *time.Time,
-) *chi.Mux {
+func NewRouter(config ServerConfig, logger logging.HTTPConfig, downtimeStart *time.Time) *chi.Mux {
 	router := chi.NewRouter()
 
 	router.Use(middleware.Recoverer)
@@ -52,7 +53,7 @@ func NewRouter(
 
 	router.Use(requestTimeout(config.Timeouts.Request))
 	router.Use(middleware.RequestSize(config.MaxRequestSize))
-	router.Use(tracing.HTTPHandler())
+	router.Use(traceRequests(config.Liveness))
 	router.Use(recordFaults)
 	router.Use(cors.Handler(corsOptions(config.Cors)))
 
@@ -69,6 +70,43 @@ func NewRouter(
 	router.Use(middleware.GetHead)
 
 	return router
+}
+
+// traceRequests opens the server span of each request, under the global tracer provider, except for
+// requests to liveness, which run under a parent span that is not sampled.
+func traceRequests(liveness string) func(http.Handler) http.Handler {
+	traced := otelhttp.NewMiddleware("")
+
+	return func(next http.Handler) http.Handler {
+		tracedNext := traced(next)
+
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == liveness {
+				next.ServeHTTP(w, r.WithContext(untracedContext(r.Context())))
+
+				return
+			}
+
+			tracedNext.ServeHTTP(w, r)
+		})
+	}
+}
+
+// untracedContext returns ctx under a local parent span that is not sampled.
+func untracedContext(ctx context.Context) context.Context {
+	var (
+		traceID trace.TraceID
+		spanID  trace.SpanID
+	)
+
+	// crypto/rand.Read never fails.
+	_, _ = rand.Read(traceID[:])
+	_, _ = rand.Read(spanID[:])
+
+	return trace.ContextWithSpanContext(ctx, trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID,
+		SpanID:  spanID,
+	}))
 }
 
 // serverSpanKey holds the span tracing opened for a request, on which [HandleError] sets a server

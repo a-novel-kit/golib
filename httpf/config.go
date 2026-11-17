@@ -55,7 +55,8 @@ type ServerTimeouts struct {
 	Idle time.Duration `json:"idle" yaml:"idle"`
 	// Request bounds handling one request, after its headers are read.
 	Request time.Duration `json:"request" yaml:"request"`
-	// Shutdown bounds the drain of active requests before remaining connections close.
+	// Shutdown bounds the drain of active requests before remaining connections close. The default of
+	// 6 seconds leaves room for the OpenTelemetry flush before Kubernetes kills the pod at 30.
 	Shutdown time.Duration `json:"shutdown" yaml:"shutdown"`
 }
 
@@ -91,7 +92,7 @@ var ServerConfigDefault = ServerConfig{
 		Write:      30 * time.Second,
 		Idle:       60 * time.Second,
 		Request:    60 * time.Second,
-		Shutdown:   30 * time.Second,
+		Shutdown:   6 * time.Second,
 	},
 	MaxRequestSize:    16 << 10,
 	RateLimitsEnabled: true,

@@ -12,7 +12,7 @@ import (
 	"github.com/a-novel-kit/golib/servicetoken/servicetokentest"
 )
 
-func TestServiceTokenMiddleware(t *testing.T) {
+func TestServiceTokenGate(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -26,29 +26,29 @@ func TestServiceTokenMiddleware(t *testing.T) {
 
 	issuer := servicetokentest.NewIssuer(t)
 	config := servicetoken.Config{Issuer: issuer.URL, Audience: audience, Callers: []string{caller}}
-	verifier := servicetoken.NewVerifier(config, http.DefaultClient)
 
-	config.Issuer = unreachable.URL
-	faulty := servicetoken.NewVerifier(config, http.DefaultClient)
+	faulty := config
+	faulty.Issuer = unreachable.URL
 
 	valid := issuer.Sign(t, issuer.Claims(caller, audience))
 
 	testCases := []struct {
 		name string
 
-		verifier *servicetoken.Verifier
-		path     string
-		tokens   []string
+		config servicetoken.Config
+		path   string
+		tokens []string
 
+		expectErr       error
 		expectStatus    int
 		expectChallenge string
 	}{
 		{
 			name: "Success",
 
-			verifier: verifier,
-			path:     "/v2/session",
-			tokens:   []string{valid},
+			config: config,
+			path:   "/v2/session",
+			tokens: []string{valid},
 
 			expectStatus: http.StatusOK,
 		},
@@ -56,8 +56,8 @@ func TestServiceTokenMiddleware(t *testing.T) {
 			// The kubelet probes the liveness route without a token.
 			name: "Success/OpenPath",
 
-			verifier: verifier,
-			path:     liveness,
+			config: config,
+			path:   liveness,
 
 			expectStatus: http.StatusOK,
 		},
@@ -65,8 +65,8 @@ func TestServiceTokenMiddleware(t *testing.T) {
 			// An open path admits that path alone, never the routes it prefixes.
 			name: "Error/OpenPathPrefix",
 
-			verifier: verifier,
-			path:     liveness + "/more",
+			config: config,
+			path:   liveness + "/more",
 
 			expectStatus:    http.StatusUnauthorized,
 			expectChallenge: "Bearer",
@@ -74,8 +74,8 @@ func TestServiceTokenMiddleware(t *testing.T) {
 		{
 			name: "Error/Missing",
 
-			verifier: verifier,
-			path:     "/v2/session",
+			config: config,
+			path:   "/v2/session",
 
 			expectStatus:    http.StatusUnauthorized,
 			expectChallenge: "Bearer",
@@ -83,9 +83,9 @@ func TestServiceTokenMiddleware(t *testing.T) {
 		{
 			name: "Error/Several",
 
-			verifier: verifier,
-			path:     "/v2/session",
-			tokens:   []string{valid, valid},
+			config: config,
+			path:   "/v2/session",
+			tokens: []string{valid, valid},
 
 			expectStatus:    http.StatusUnauthorized,
 			expectChallenge: `Bearer error="invalid_request"`,
@@ -93,9 +93,9 @@ func TestServiceTokenMiddleware(t *testing.T) {
 		{
 			name: "Error/Rejected",
 
-			verifier: verifier,
-			path:     "/v2/session",
-			tokens:   []string{issuer.Sign(t, issuer.Claims(caller, "json-keys"))},
+			config: config,
+			path:   "/v2/session",
+			tokens: []string{issuer.Sign(t, issuer.Claims(caller, "json-keys"))},
 
 			expectStatus:    http.StatusUnauthorized,
 			expectChallenge: `Bearer error="invalid_token"`,
@@ -103,11 +103,28 @@ func TestServiceTokenMiddleware(t *testing.T) {
 		{
 			name: "Error/VerifierFault",
 
-			verifier: faulty,
-			path:     "/v2/session",
-			tokens:   []string{valid},
+			config: faulty,
+			path:   "/v2/session",
+			tokens: []string{valid},
 
 			expectStatus: http.StatusInternalServerError,
+		},
+		{
+			// A deployment that forgets the issuer stops at startup.
+			name: "Error/IssuerRequired",
+
+			config: servicetoken.Config{Audience: audience, Callers: []string{caller}},
+
+			expectErr: servicetoken.ErrIssuerRequired,
+		},
+		{
+			// A local or test stack runs without an issuer, and admits every request.
+			name: "Success/IssuerOptional",
+
+			config: servicetoken.Config{IssuerOptional: true},
+			path:   "/v2/session",
+
+			expectStatus: http.StatusOK,
 		},
 	}
 
@@ -115,8 +132,15 @@ func TestServiceTokenMiddleware(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
+			gate, err := httpf.ServiceTokenGate(testCase.config, http.DefaultClient, &recordingLog{}, liveness)
+			require.ErrorIs(t, err, testCase.expectErr)
+
+			if err != nil {
+				return
+			}
+
 			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-			handler := httpf.ServiceTokenMiddleware(testCase.verifier, &recordingLog{}, liveness)(next)
+			handler := gate(next)
 
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, testCase.path, nil)
 			for _, token := range testCase.tokens {
@@ -144,9 +168,9 @@ func TestServiceTokenCaller(t *testing.T) {
 	issuer := servicetokentest.NewIssuer(t)
 	config := servicetoken.Config{Issuer: issuer.URL, Audience: audience, Callers: []string{caller}}
 
-	withServiceToken := httpf.ServiceTokenMiddleware(
-		servicetoken.NewVerifier(config, http.DefaultClient), &recordingLog{}, liveness,
-	)
+	withServiceToken, err := httpf.ServiceTokenGate(config, http.DefaultClient, &recordingLog{}, liveness)
+	require.NoError(t, err)
+
 	withoutServiceToken := func(next http.Handler) http.Handler { return next }
 
 	valid := issuer.Sign(t, issuer.Claims(caller, audience))

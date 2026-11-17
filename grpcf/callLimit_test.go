@@ -18,7 +18,6 @@ import (
 
 	"github.com/a-novel-kit/golib/grpcf"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
-	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 )
 
 // heldService holds each call to test.Held/Hold until the test ends it, and answers test.Held/Pass at
@@ -151,9 +150,9 @@ func TestCallLimit(t *testing.T) {
 			callLimit := grpcf.NewCallLimit(testCase.limit)
 
 			server := grpcf.NewServer(
-				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil, callLimit,
+				t.Context(), &loggingpresets.GRPCLocal{}, nil, nil, callLimit,
 			)
-			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+			grpcf.RegisterHealth(t.Context(), server)
 			server.RegisterService(heldService, calls)
 
 			address, config := freeGRPCServer(t, time.Second)

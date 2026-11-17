@@ -17,10 +17,11 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+
 	"github.com/a-novel-kit/golib/downtime"
 	golibproto "github.com/a-novel-kit/golib/grpcf/proto/gen"
 	"github.com/a-novel-kit/golib/logging"
-	"github.com/a-novel-kit/golib/otel"
 	"github.com/a-novel-kit/golib/servertls"
 )
 
@@ -36,7 +37,8 @@ var errShuttingDown = errors.New("server shutting down")
 // probes: they need no service token, and still answer during a downtime.
 var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
 
-// NewServer returns a server with the standard interceptors, outermost first: tracing, the end of
+// NewServer returns a server with the standard interceptors, outermost first: tracing under the
+// global tracer provider, the end of
 // streams at shutdown, the base context, call logs, panic recovery, the planned downtime and the
 // report of server faults on the call's span, which [Fault] describes.
 //
@@ -45,29 +47,29 @@ var healthMethods = "/" + healthpb.Health_ServiceDesc.ServiceName + "/"
 // hold the drain to its deadline. Unary calls finish within the drain.
 //
 // baseContext derives the context of each call, so a call reaches process-wide values such as the
-// database connection. A nil baseContext keeps the call's own context.
+// database connection. A nil baseContext gives each call the values of ctx, as httpf gives each
+// request: a value the call carries comes first, then one of ctx.
 //
 // Each connection closes gracefully after 30 seconds, give or take a tenth: calls in progress
 // finish, and the client connects again. A client that balances over every instance of a service
 // then reaches instances added since. An extra [grpc.KeepaliveParams] option replaces this age.
 //
-// The health and echo services that [RegisterEchoServers] adds still answer during a downtime.
+// The health and echo services that [RegisterHealth] adds still answer during a downtime.
 func NewServer(
 	ctx context.Context,
-	tracing otel.Config,
 	logger logging.RPCConfig,
 	downtimeStart *time.Time,
 	baseContext func(ctx context.Context) context.Context,
 	extra ...grpc.ServerOption,
 ) *grpc.Server {
 	if baseContext == nil {
-		baseContext = func(ctx context.Context) context.Context { return ctx }
+		baseContext = func(callCtx context.Context) context.Context { return withValuesOf(callCtx, ctx) }
 	}
 
 	open := []string{healthMethods, "/" + golibproto.EchoService_ServiceDesc.ServiceName + "/"}
 
 	options := []grpc.ServerOption{
-		tracing.RPCInterceptor(),
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			baseContextUnaryInterceptor(baseContext),
 			logger.UnaryInterceptor(),

@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -224,8 +225,8 @@ func TestLimits(t *testing.T) {
 		config := httpf.ServerConfigDefault
 		config.RateLimitStore = httpf.RateLimitStore{Addr: store.Addr()}
 
-		tracing := &tracedConfig{provider: provider}
-		router := tracing.HTTPHandler()(limitRouter(twoPerMinute(httpf.NewLimits(config))))
+		traced := otelhttp.NewMiddleware("", otelhttp.WithTracerProvider(provider))
+		router := traced(limitRouter(twoPerMinute(httpf.NewLimits(config))))
 
 		// requireLastLocal checks whether the span of the last request records a local count.
 		requireLastLocal := func(expect bool) {

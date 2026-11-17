@@ -2,41 +2,21 @@ package otel
 
 import (
 	"fmt"
-	"net/http"
-
-	"google.golang.org/grpc"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/log"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
 )
 
-// Config wires one OpenTelemetry backend into the process. Each implementation
-// targets a single destination for traces and logs, and the presets subpackage
-// ships ready-made ones. Pass a Config to Init to install its providers as the
-// global state.
+// Config wires one OpenTelemetry backend into the process. Each implementation targets a single
+// destination for traces and logs, and the presets subpackage ships ready-made ones. httpf and grpcf
+// trace every request and call through the providers it installs.
 type Config interface {
-	// Init sets up the backend's SDK clients and prints its startup banner.
+	// Init installs the backend's propagator, tracer and logger providers as the process-global
+	// OpenTelemetry state, and prints its startup banner.
 	Init() error
-	// GetPropagators returns the propagator that extracts and injects trace
-	// context across service boundaries.
-	GetPropagators() (propagation.TextMapPropagator, error)
-	// GetTraceProvider returns the tracer provider to install globally.
-	GetTraceProvider() (trace.TracerProvider, error)
-	// GetLogger returns the logger provider to install globally.
-	GetLogger() (log.LoggerProvider, error)
 	// Flush drains buffered spans and logs; run it before the process exits.
 	Flush()
-	// HTTPHandler returns middleware that instruments incoming HTTP requests.
-	HTTPHandler() func(http.Handler) http.Handler
-	// RPCInterceptor returns the server option that instruments incoming gRPC calls.
-	RPCInterceptor() grpc.ServerOption
 }
 
-// Init runs the backend's own setup, then installs its propagator, tracer, and
-// logger providers as the process-global OpenTelemetry state. A nil config leaves
-// telemetry disabled and is a no-op.
+// Init installs the providers of config as the process-global OpenTelemetry state. A nil config
+// leaves telemetry disabled and is a no-op.
 func Init(config Config) error {
 	if config == nil {
 		return nil
@@ -46,25 +26,6 @@ func Init(config Config) error {
 	if err != nil {
 		return fmt.Errorf("initialize otel: %w", err)
 	}
-
-	tracePropagator, err := config.GetPropagators()
-	if err != nil {
-		return fmt.Errorf("get trace propagators: %w", err)
-	}
-
-	traceProvider, err := config.GetTraceProvider()
-	if err != nil {
-		return fmt.Errorf("get trace provider: %w", err)
-	}
-
-	logger, err := config.GetLogger()
-	if err != nil {
-		return fmt.Errorf("get logger: %w", err)
-	}
-
-	otel.SetTextMapPropagator(tracePropagator)
-	otel.SetTracerProvider(traceProvider)
-	otel.SetLoggerProvider(logger)
 
 	return nil
 }

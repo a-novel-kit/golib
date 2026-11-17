@@ -32,3 +32,26 @@ func baseContextStreamInterceptor(
 		return handler(srv, stream)
 	}
 }
+
+// valuesOf is the context of a call that also reaches the values of base, such as the process
+// context the server serves under. The call keeps its own deadline and cancellation.
+type valuesOf struct {
+	context.Context //nolint:containedctx // The type is a context, merging the values of two.
+
+	base context.Context //nolint:containedctx // The type is a context, merging the values of two.
+}
+
+// Value returns the value the call carries for key, or else the one base carries.
+func (ctx valuesOf) Value(key any) any {
+	value := ctx.Context.Value(key)
+	if value != nil {
+		return value
+	}
+
+	return ctx.base.Value(key)
+}
+
+// withValuesOf returns callCtx, reaching the values of base for a key callCtx lacks.
+func withValuesOf(callCtx, base context.Context) context.Context {
+	return valuesOf{Context: callCtx, base: base}
+}

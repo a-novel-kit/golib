@@ -13,39 +13,33 @@ import (
 	"github.com/a-novel-kit/golib/grpcf"
 )
 
-func TestRegisterEchoServers(t *testing.T) {
+func TestRegisterHealth(t *testing.T) {
 	t.Parallel()
+
+	// drain stands for the process context, done once the server starts to drain.
+	drain, startDrain := context.WithCancel(t.Context())
 
 	address, config := freeGRPCServer(t, time.Second)
 	server := grpc.NewServer()
-	healthcheck := grpcf.RegisterEchoServers(server)
-	healthcheck.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	grpcf.RegisterHealth(drain, server)
 
-	serveErrors := make(chan error, 1)
-	go func() { serveErrors <- grpcf.ListenAndServe(t.Context(), config, server) }()
+	go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
 
 	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 
-	client := healthpb.NewHealthClient(connection)
 	ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
 	t.Cleanup(cancel)
 
-	watch, err := client.Watch(ctx, &healthpb.HealthCheckRequest{}, grpc.WaitForReady(true))
+	watch, err := healthpb.NewHealthClient(connection).Watch(ctx, &healthpb.HealthCheckRequest{}, grpc.WaitForReady(true))
 	require.NoError(t, err)
 
 	response, err := watch.Recv()
 	require.NoError(t, err)
 	require.Equal(t, healthpb.HealthCheckResponse_SERVING, response.GetStatus())
 
-	time.Sleep(20 * time.Millisecond)
-
-	response, err = client.Check(ctx, &healthpb.HealthCheckRequest{})
-	require.NoError(t, err)
-	require.Equal(t, healthpb.HealthCheckResponse_SERVING, response.GetStatus())
-
-	healthcheck.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+	startDrain()
 
 	response, err = watch.Recv()
 	require.NoError(t, err)

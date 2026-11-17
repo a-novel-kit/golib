@@ -21,17 +21,13 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/attribute"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/a-novel-kit/golib/downtime"
 	"github.com/a-novel-kit/golib/grpcf"
+	"github.com/a-novel-kit/golib/internal/oteltest"
 	"github.com/a-novel-kit/golib/internal/tlstest"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
-	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 	"github.com/a-novel-kit/golib/servertls"
 )
 
@@ -251,12 +247,22 @@ func TestNewServer(t *testing.T) {
 		name string
 
 		downtimeStart *time.Time
+		// processValues passes no baseContext, so each call reaches the values of the server's context.
+		processValues bool
 
 		expectCode  codes.Code
 		expectValue string
 	}{
 		{
 			name: "Success/BaseContext",
+
+			expectCode:  codes.OK,
+			expectValue: "process",
+		},
+		{
+			name: "Success/ProcessContextValues",
+
+			processValues: true,
 
 			expectCode:  codes.OK,
 			expectValue: "process",
@@ -275,14 +281,17 @@ func TestNewServer(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
+			processCtx := t.Context()
 			baseContext := func(ctx context.Context) context.Context {
 				return context.WithValue(ctx, probeContextKey{}, "process")
 			}
 
-			server := grpcf.NewServer(
-				t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext,
-			)
-			grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+			if testCase.processValues {
+				processCtx, baseContext = context.WithValue(processCtx, probeContextKey{}, "process"), nil
+			}
+
+			server := grpcf.NewServer(processCtx, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, baseContext)
+			grpcf.RegisterHealth(t.Context(), server)
 			server.RegisterService(probeService, struct{}{})
 
 			address, config := freeGRPCServer(t, time.Second)
@@ -318,8 +327,8 @@ func TestNewServer(t *testing.T) {
 		// A stream would hold the drain to its deadline. It ends the moment shutdown begins, telling its
 		// client to resume elsewhere, and the drain completes at once.
 		ctx, cancel := context.WithCancel(t.Context())
-		server := grpcf.NewServer(ctx, &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
-		grpcf.RegisterEchoServers(server).SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+		server := grpcf.NewServer(ctx, &loggingpresets.GRPCLocal{}, nil, nil)
+		grpcf.RegisterHealth(t.Context(), server)
 
 		address, config := freeGRPCServer(t, grpcServerTestTimeout)
 		serveErrors := make(chan error, 1)
@@ -361,7 +370,7 @@ func TestNewServer(t *testing.T) {
 		// A call outlives the connection it started on, and the next call opens a new one.
 		calls := &heldCalls{started: make(chan struct{}, 1), release: make(chan struct{})}
 
-		server := grpcf.NewServer(t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
+		server := grpcf.NewServer(t.Context(), &loggingpresets.GRPCLocal{}, nil, nil)
 		server.RegisterService(heldService, calls)
 
 		address, config := freeGRPCServer(t, time.Second)
@@ -508,17 +517,6 @@ func panicCall(context.Context) error {
 	panic("secret")
 }
 
-// tracedConfig is a telemetry backend that exports nothing but traces each call on provider.
-type tracedConfig struct {
-	otelpresets.Disabled
-
-	provider trace.TracerProvider
-}
-
-func (config *tracedConfig) RPCInterceptor() grpc.ServerOption {
-	return grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithTracerProvider(config.provider)))
-}
-
 // driverError stands for an error type of a dependency, whose message holds caller input.
 type driverError struct{}
 
@@ -526,9 +524,8 @@ func (*driverError) Error() string {
 	return "password authentication failed for user=secret"
 }
 
+//nolint:paralleltest // Swaps the process-wide tracer provider.
 func TestNewServerFaults(t *testing.T) {
-	t.Parallel()
-
 	started := time.Now().Add(-time.Hour)
 
 	// The refusal a dependency in planned downtime sends.
@@ -608,16 +605,9 @@ func TestNewServerFaults(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
+			recorder := oteltest.RecordSpans(t)
 
-			recorder := tracetest.NewSpanRecorder()
-			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-
-			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
-
-			server := grpcf.NewServer(
-				t.Context(), &tracedConfig{provider: provider}, &loggingpresets.GRPCLocal{}, testCase.downtimeStart, nil,
-			)
+			server := grpcf.NewServer(t.Context(), &loggingpresets.GRPCLocal{}, testCase.downtimeStart, nil)
 			server.RegisterService(faultService, testCase.behavior)
 
 			address, config := freeGRPCServer(t, time.Second)

@@ -38,6 +38,19 @@ func withServiceTokens(ctx context.Context, tokens ...string) context.Context {
 	return metadata.NewIncomingContext(ctx, md)
 }
 
+func TestServiceTokenGate(t *testing.T) {
+	t.Parallel()
+
+	// A deployment that forgets the issuer stops at startup.
+	_, err := grpcf.ServiceTokenGate(servicetoken.Config{Audience: serviceTokenAudience}, http.DefaultClient)
+	require.ErrorIs(t, err, servicetoken.ErrIssuerRequired)
+
+	// A local or test stack runs without an issuer, and admits every call.
+	options, err := grpcf.ServiceTokenGate(servicetoken.Config{IssuerOptional: true}, http.DefaultClient)
+	require.NoError(t, err)
+	require.Empty(t, options)
+}
+
 func TestServiceTokenUnaryInterceptor(t *testing.T) {
 	t.Parallel()
 
