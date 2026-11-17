@@ -271,4 +271,13 @@ func TestLoadClientConfig(t *testing.T) {
 			require.Equal(t, testCase.expectAddress, client.Address())
 		})
 	}
+
+	t.Run("Error/Unparsable", func(t *testing.T) {
+		t.Parallel()
+
+		require.Panics(t, func() {
+			getenv := func(name string) string { return map[string]string{"SERVICE_JSON_KEYS_PORT": "abc"}[name] }
+			grpcf.LoadClientConfig(getenv, "SERVICE_JSON_KEYS", defaults)
+		})
+	})
 }

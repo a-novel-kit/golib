@@ -118,6 +118,16 @@ func TestServiceTokenGate(t *testing.T) {
 			expectErr: servicetoken.ErrIssuerRequired,
 		},
 		{
+			// A configured gate ignores the opt-out.
+			name: "Error/IssuerOptionalWithIssuer",
+
+			config: servicetoken.Config{Issuer: issuer.URL, Audience: audience, Callers: []string{caller}, IssuerOptional: true},
+			path:   "/v2/session",
+
+			expectStatus:    http.StatusUnauthorized,
+			expectChallenge: "Bearer",
+		},
+		{
 			// A local or test stack runs without an issuer, and admits every request.
 			name: "Success/IssuerOptional",
 

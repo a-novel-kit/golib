@@ -37,7 +37,7 @@ func RegisterHealth(ctx context.Context, server *grpc.Server) {
 // RegisterEchoServers registers the built-in echo service and the standard health service on
 // server. It returns the health server, through which the caller reports its serving status.
 //
-// Deprecated: Use [RegisterHealth], which also reports the serving status.
+// Prefer [RegisterHealth], which also reports the serving status. A later release removes it once no consumer uses it.
 func RegisterEchoServers(server *grpc.Server) *health.Server {
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(server, healthcheck)

@@ -80,8 +80,8 @@ func (client ClientConfig) DialOptions() []grpc.DialOption {
 
 // CredentialsProvider supplies the gRPC dial options of a connection.
 //
-// Deprecated: Use [ClientConfig.DialOptions], which [LoadClientConfig] configures from the
-// environment.
+// Prefer [ClientConfig.DialOptions], which [LoadClientConfig] configures from the environment. A
+// later release removes the interface once no consumer uses it.
 type CredentialsProvider interface {
 	// Options returns the dial options to pass when creating the client.
 	Options(ctx context.Context) ([]grpc.DialOption, error)
@@ -90,7 +90,8 @@ type CredentialsProvider interface {
 // LocalCredentialsProvider dials without transport security, for plaintext connections to a service
 // on a trusted local network.
 //
-// Deprecated: Use the [ClientConfig.DialOptions] of a ClientConfig without a TokenPath.
+// Prefer the [ClientConfig.DialOptions] of a ClientConfig without a TokenPath.
+// A later release removes it once no consumer uses it.
 type LocalCredentialsProvider struct{}
 
 // Options returns the dial options of a ClientConfig without a TokenPath.
@@ -101,7 +102,8 @@ func (provider *LocalCredentialsProvider) Options(_ context.Context) ([]grpc.Dia
 // ServiceTokenCredentialsProvider dials a service in the same Kubernetes cluster with the caller's
 // service token, as [ClientConfig.DialOptions] describes.
 //
-// Deprecated: Use the [ClientConfig.DialOptions] of a ClientConfig with a TokenPath.
+// Prefer the [ClientConfig.DialOptions] of a ClientConfig with a TokenPath.
+// A later release removes it once no consumer uses it.
 type ServiceTokenCredentialsProvider struct {
 	// ServiceTokenPath is the file the kubelet projects the caller's service token into.
 	ServiceTokenPath string

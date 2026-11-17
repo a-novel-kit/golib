@@ -8,8 +8,10 @@ uses, and drops lipgloss and samber/lo from its dependencies.
 ## Do I need to act?
 
 **No, to take the bump.** Every service compiles and runs on it as it is: nothing removed has a
-consumer in either organization, and every changed signature keeps its old form, deprecated. Each
-section below is a recommended move that deletes a service's own copy of the same code. Check a
+consumer in either organization, and every changed signature keeps its old form. The old forms carry
+no `Deprecated:` paragraph, so staticcheck stays green on the bump. Each section below is a
+recommended move that deletes a service's own copy of the same code; a later release removes an old
+form once no consumer uses it. Check a
 repository from its root for a removed name:
 
 ```bash
@@ -41,7 +43,7 @@ server := grpcf.NewServer(ctx, nil, cfg.GrpcLogger, cfg.App.DowntimeStart, nil, 
 
 `otel.Init(cfg.Otel)` and `defer cfg.Otel.Flush()` stay as they are. A nil `baseContext` now gives
 each gRPC call the values of the process context, so the closure that called
-`postgres.TransferContext` goes, and `TransferContext` is deprecated. A value only one service
+`postgres.TransferContext` goes; prefer that to `TransferContext`. A value only one service
 transfers, such as json-keys' master key, rides the process context the same way.
 
 ## Pick the telemetry backend with `otelpresets.LoadTelemetry`
@@ -89,8 +91,8 @@ serviceToken := lo.Must(grpcf.ServiceTokenGate(cfg.ServiceToken, httpf.NewPoolCl
 ```
 
 A service whose gate failed open, as the template's did, now refuses to start without an issuer.
-Set `SERVICE_ISSUER_OPTIONAL=true` in its local and test stacks. `httpf.ServiceTokenMiddleware` and
-the two `grpcf` interceptors are deprecated.
+Set `SERVICE_ISSUER_OPTIONAL=true` in its local and test stacks. Prefer the gates to
+`httpf.ServiceTokenMiddleware` and the two `grpcf` interceptors.
 
 ## Serve ping and health from `httpf`
 
@@ -106,7 +108,9 @@ api.Get("/healthcheck", httpf.Health(map[string]func(context.Context) error{
 ```
 
 Delete `rest.ping.go`, `rest.health.go` and their tests, and keep only the probe functions a service
-owns. A probe sets attributes on the span of its context, as auth's SMTP probe does. Each probe's
+owns. A probe sets attributes on the span of its context, as auth's SMTP probe does. Its error is
+exported on that span, so it returns one safe to export: auth's SMTP probe keeps returning
+`errSmtpUnhealthy`, never the error of `Ping`, whose reply text can carry a credential. Each probe's
 span is named `rest.Health(<name>)`, such as `rest.Health(client:postgres)`, and the ping opens no
 span of its own.
 
@@ -121,7 +125,7 @@ grpcf.RegisterHealth(ctx, server)
 
 `LoadClientConfig` reads `<PREFIX>_HOST`, `_PORT`, `_TLS` and `_TOKEN_PATH`. `Address` and
 `DialOptions` replace `net.JoinHostPort`, the `newCredentials` selector and `lo.Must(....Options(ctx))`.
-`CredentialsProvider` and its two implementations are deprecated:
+Prefer it to `CredentialsProvider` and its two implementations:
 
 ```go
 // env.go

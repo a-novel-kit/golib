@@ -54,4 +54,14 @@ func TestLoadConfig(t *testing.T) {
 			require.Equal(t, testCase.expect, config)
 		})
 	}
+
+	t.Run("Error/Unparsable", func(t *testing.T) {
+		t.Parallel()
+
+		require.Panics(t, func() {
+			servicetoken.LoadConfig(func(name string) string {
+				return map[string]string{"SERVICE_ISSUER_OPTIONAL": "yes"}[name]
+			})
+		})
+	})
 }

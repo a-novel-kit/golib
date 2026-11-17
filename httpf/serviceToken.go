@@ -60,7 +60,8 @@ func ServiceTokenGate(
 // A refused token answers 401 with the WWW-Authenticate challenge RFC 9110 §15.5.2 requires, which
 // [serviceTokenChallenge] describes.
 //
-// Deprecated: Use [ServiceTokenGate], which builds the verifier and fails closed without an issuer.
+// Prefer [ServiceTokenGate], which builds the verifier and fails closed without an issuer.
+// A later release removes it once no consumer uses it.
 func ServiceTokenMiddleware(
 	verifier *servicetoken.Verifier, logger logging.Log, open ...string,
 ) func(http.Handler) http.Handler {

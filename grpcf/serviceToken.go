@@ -55,7 +55,8 @@ func ServiceTokenGate(config servicetoken.Config, client *http.Client) ([]grpc.S
 // Pass it to [NewServer] through grpc.ChainUnaryInterceptor, so it runs within the standard
 // interceptors.
 //
-// Deprecated: Use [ServiceTokenGate], which builds the verifier and fails closed without an issuer.
+// Prefer [ServiceTokenGate], which builds the verifier and fails closed without an issuer.
+// A later release removes it once no consumer uses it.
 func ServiceTokenUnaryInterceptor(verifier *servicetoken.Verifier) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		err := checkServiceToken(ctx, verifier, info.FullMethod)
@@ -69,7 +70,8 @@ func ServiceTokenUnaryInterceptor(verifier *servicetoken.Verifier) grpc.UnarySer
 
 // ServiceTokenStreamInterceptor is the streaming counterpart of [ServiceTokenUnaryInterceptor].
 //
-// Deprecated: Use [ServiceTokenGate], which builds the verifier and fails closed without an issuer.
+// Prefer [ServiceTokenGate], which builds the verifier and fails closed without an issuer.
+// A later release removes it once no consumer uses it.
 func ServiceTokenStreamInterceptor(verifier *servicetoken.Verifier) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		err := checkServiceToken(stream.Context(), verifier, info.FullMethod)
