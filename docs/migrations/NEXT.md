@@ -1,19 +1,143 @@
 # Upgrading to NEXT
 
-golib removes the exports no repository in either organization uses, and drops lipgloss and
-samber/lo from its dependencies.
+golib takes over the boilerplate every service copied: the service token gate, the ping and health
+handlers, the telemetry and Postgres presets read from the environment, the gRPC client
+configuration, the job root span and the SQLSTATE reader. It also removes the exports no repository
+uses, and drops lipgloss and samber/lo from its dependencies.
 
 ## Do I need to act?
 
-**No, in every service.** Nothing removed has a consumer in either organization. Check a repository
-from its root:
+**Required in every service.** `httpf.NewRouter` and `grpcf.NewServer` lose their tracing argument,
+so the bump compiles once each call drops it (first section). Every other change either has no
+consumer in either organization or keeps working, deprecated, until the service moves to its
+replacement. Check a repository from its root for what stops compiling:
 
 ```bash
-grep -rnE 'httpftest|smtptest|BoundedSender|ServiceTokenTransport|RunIsolatedTransactionalTest|NewContextTest|NewContextSchema|DBSchema|DropSchema|MethodCallLimit|MaxConcurrentCalls\(|config\.(Int(8|16|32)?|Uint(8|16|32|64)?|Float(32|64)|Bool|Duration|Time|Enum)Parser|httpf\.(NewServer|Serve|NewPoolTransport)\(|postgres\.(PingTimeout|PingRetryInterval|HealthTimeout)|smtp\.DefaultTimeout|loggingpresets\.LogLevel' --include='*.go' .
+grep -rnE 'httpf\.NewRouter|grpcf\.NewServer|UntracedPaths|GetTraceProvider|GetLogger|GetPropagators|HTTPHandler\(\)|RPCInterceptor\(\)|httpftest|smtptest|BoundedSender|ServiceTokenTransport|RunIsolatedTransactionalTest|NewContextTest|NewContextSchema|DBSchema|DropSchema|MethodCallLimit|MaxConcurrentCalls\(|config\.(Int(8|16|32)?|Uint(8|16|32|64)?|Float(32|64)|Bool|Duration|Time|Enum)Parser|httpf\.(NewServer|Serve|NewPoolTransport)\(|postgres\.(PingTimeout|PingRetryInterval|HealthTimeout)|smtp\.DefaultTimeout|loggingpresets\.LogLevel' --include='*.go' .
 ```
 
-No output means nothing to do. Run `go mod tidy` after the bump: it drops lipgloss and the 13
-modules it brought, unless the service imports them.
+Run `go mod tidy` after the bump: it drops lipgloss and the 13 modules it brought, unless the
+service imports them.
+
+## Drop the tracing argument of `NewRouter` and `NewServer`
+
+`otel.Config` shrinks to `Init` and `Flush`. The presets install their providers in `Init`, and
+`httpf` and `grpcf` trace through otelhttp and otelgrpc under the global providers. The router
+leaves its liveness path untraced under every preset, so `otelpresets.OTLP.UntracedPaths` goes:
+
+```go
+// before
+router := httpf.NewRouter(cfg.Rest, cfg.Otel, cfg.RestLogger, cfg.App.DowntimeStart)
+server := grpcf.NewServer(ctx, cfg.Otel, cfg.GrpcLogger, cfg.App.DowntimeStart, ctxInterceptor, serviceToken...)
+&otelpresets.OTLP{UntracedPaths: []string{env.Rest.Liveness}, FlushTimeout: flushTimeout}
+
+// after
+router := httpf.NewRouter(cfg.Rest, cfg.RestLogger, cfg.App.DowntimeStart)
+server := grpcf.NewServer(ctx, cfg.GrpcLogger, cfg.App.DowntimeStart, nil, serviceToken...)
+&otelpresets.OTLP{FlushTimeout: flushTimeout}
+```
+
+`otel.Init(cfg.Otel)` and `defer cfg.Otel.Flush()` stay as they are. A nil `baseContext` now gives
+each gRPC call the values of the process context, so the closure that called
+`postgres.TransferContext` goes, and `TransferContext` is deprecated. A value only one service
+transfers, such as json-keys' master key, rides the process context the same way.
+
+## Pick the telemetry backend with `otelpresets.LoadTelemetry`
+
+`LoadTelemetry` holds the switch each `app.config.default.go` wrote: `OTEL` off is `Disabled`, no
+`OTEL_EXPORTER_OTLP_ENDPOINT` is `Local`, both is `OTLP`, with the loggers that match. Delete
+`newOtelPreset`, `exportsOTLP`, `LoggerDev`, `LoggerDevGrpc`, `LoggerProd`, `OtelFlushTimeout`,
+`OtelJobFlushTimeout`, the `Otel` and `OTLPEndpoint` variables of `env.go`, and the
+`if env.OTLPEndpoint == "" { log.SetFlags(...) }` line of each main: `Disabled` and `Local` drop the
+time from log lines themselves.
+
+```go
+// env.go
+Telemetry = otelpresets.LoadTelemetry(getEnv, otelpresets.ServerFlushTimeout)
+
+// app.config.default.go
+Otel:       env.Telemetry.Otel,
+Logger:     env.Telemetry.Logger,
+RestLogger: env.Telemetry.HTTPLogger,
+GrpcLogger: env.Telemetry.RPCLogger,
+```
+
+A job loads its own with `otelpresets.JobFlushTimeout`.
+
+## Gate service tokens with `ServiceTokenGate`
+
+`servicetoken.LoadConfig` reads `SERVICE_TOKEN_ISSUER`, `SERVICE_TOKEN_AUDIENCE`,
+`SERVICE_TOKEN_CALLERS` and `SERVICE_ISSUER_OPTIONAL` into one `servicetoken.Config`, whose new
+`IssuerOptional` field replaces the separate `ServiceIssuerOptional` setting.
+`httpf.ServiceTokenGate` and `grpcf.ServiceTokenGate` always fail closed: without an issuer they
+return `servicetoken.ErrIssuerRequired`, unless `IssuerOptional` is set. Delete the local
+`RestServiceToken` or `GrpcServiceToken` wrapper, its test, and the `log.Fatalln` guard of the main:
+
+```go
+// env.go
+ServiceToken = servicetoken.LoadConfig(getEnv)
+
+// main.go, REST
+withServiceToken := lo.Must(httpf.ServiceTokenGate(
+	cfg.ServiceToken, httpf.NewPoolClient(httpf.PoolOptions{}), cfg.Logger, cfg.Rest.Liveness,
+))
+
+// main.go, gRPC
+serviceToken := lo.Must(grpcf.ServiceTokenGate(cfg.ServiceToken, httpf.NewPoolClient(httpf.PoolOptions{})))
+```
+
+A service whose gate failed open, as the template's did, now refuses to start without an issuer.
+Set `SERVICE_ISSUER_OPTIONAL=true` in its local and test stacks. `httpf.ServiceTokenMiddleware` and
+the two `grpcf` interceptors are deprecated.
+
+## Serve ping and health from `httpf`
+
+`httpf.Ping` answers "pong". `httpf.Health` runs named probes at once and answers the same body as
+the local handlers, `{"client:postgres": {"status": "up"}}`, with 503 when a probe fails:
+
+```go
+api.Get("/ping", httpf.Ping)
+api.Get("/healthcheck", httpf.Health(map[string]func(context.Context) error{
+	"client:postgres": postgres.Health,
+	"api:jsonKeys":    jsonKeysStatus,
+}))
+```
+
+Delete `rest.ping.go`, `rest.health.go` and their tests, and keep only the probe functions a service
+owns. A probe sets attributes on the span of its context, as auth's SMTP probe does. Each probe's
+span is named `rest.Health(<name>)`, such as `rest.Health(client:postgres)`, and the ping opens no
+span of its own.
+
+A gRPC main replaces `RegisterEchoServers`, the `SERVING` status and the goroutine that flips it with
+one call, which reports `NOT_SERVING` once ctx is done:
+
+```go
+grpcf.RegisterHealth(ctx, server)
+```
+
+## Dial dependencies with `grpcf.LoadClientConfig`
+
+`LoadClientConfig` reads `<PREFIX>_HOST`, `_PORT`, `_TLS` and `_TOKEN_PATH`. `Address` and
+`DialOptions` replace `net.JoinHostPort`, the `newCredentials` selector and `lo.Must(....Options(ctx))`.
+`CredentialsProvider` and its two implementations are deprecated:
+
+```go
+// env.go
+ServiceJsonKeys = grpcf.LoadClientConfig(getEnv, "SERVICE_JSON_KEYS", grpcf.ClientConfig{Host: "localhost", Port: 8080})
+
+// main.go
+jsonKeysClient := lo.Must(servicejsonkeys.NewClient(env.ServiceJsonKeys.Address(), env.ServiceJsonKeys.DialOptions()...))
+```
+
+The token path is now `SERVICE_JSON_KEYS_TOKEN_PATH` in every service. To read authentication's old
+`SERVICE_TOKEN_PATH` for one more release, pass it as the default:
+`grpcf.ClientConfig{Host: "localhost", Port: 8080, TokenPath: getEnv("SERVICE_TOKEN_PATH")}`.
+
+## Delete the 6-second drain overrides
+
+The REST and gRPC drains default to 6 seconds instead of 30, the value every service but
+authentication set. Delete `TimeoutShutdownDefault`, `restDefaults` and `grpcDefaults` where they
+only set it. Authentication keeps its 25-second override.
 
 ## Remove what golib no longer exports
 
