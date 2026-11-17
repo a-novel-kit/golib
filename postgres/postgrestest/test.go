@@ -70,6 +70,8 @@ const (
 	// previous clone can take a moment to drain, which fails the statement with SQLSTATE 55006
 	// (object_in_use). A short retry absorbs that. A real configuration error fails every attempt.
 	dbTestCreateAttempts = 5
+	// dbTestDuplicateDatabase is the SQLSTATE of CREATE DATABASE on a name that already exists.
+	dbTestDuplicateDatabase = "42P04"
 	// dbTestCreateBackoff is the wait between CREATE DATABASE … TEMPLATE
 	// attempts.
 	dbTestCreateBackoff = 200 * time.Millisecond
@@ -309,19 +311,39 @@ func dbTestDropDatabase(ctx context.Context, maintenance *bun.DB, name string) e
 	return nil
 }
 
-// dbTestCreateInstance clones template into a fresh database called instance,
-// retrying briefly on the transient object_in_use failure that a still-draining
-// previous clone can cause.
+// dbTestCreateInstance clones template into a fresh database called instance, retrying as
+// dbTestRetryCreate describes.
 func dbTestCreateInstance(ctx context.Context, maintenance *bun.DB, instance, template string) error {
 	dbTestCloneMu.Lock()
 	defer dbTestCloneMu.Unlock()
 
+	return dbTestRetryCreate(ctx, func(ctx context.Context) error {
+		_, err := maintenance.NewRaw("CREATE DATABASE ? TEMPLATE ?", bun.Ident(instance), bun.Ident(template)).Exec(ctx)
+
+		return err
+	})
+}
+
+// dbTestRetryCreate runs create, which makes a database of its own random name, retrying briefly on
+// a failure such as the transient object_in_use a still-draining previous clone causes. A retry
+// that finds the database already there succeeds: the attempt before it timed out on the client
+// after the server had created the database, which is atomic, so the database is whole. A first
+// attempt that finds it fails at once: another database took the name.
+func dbTestRetryCreate(ctx context.Context, create func(ctx context.Context) error) error {
 	var err error
 
 	for attempt := range dbTestCreateAttempts {
-		_, err = maintenance.NewRaw("CREATE DATABASE ? TEMPLATE ?", bun.Ident(instance), bun.Ident(template)).Exec(ctx)
+		err = create(ctx)
 		if err == nil {
 			return nil
+		}
+
+		if code, _ := postgres.SQLState(err); code == dbTestDuplicateDatabase {
+			if attempt > 0 {
+				return nil
+			}
+
+			return fmt.Errorf("clone template into test database: %w", err)
 		}
 
 		if attempt < dbTestCreateAttempts-1 {
