@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// DefaultTimeout is the network budget used when [ProdSender.Timeout] is non-positive.
-const DefaultTimeout = 30 * time.Second
+// defaultTimeout is the network budget used when [ProdSender.Timeout] is non-positive.
+const defaultTimeout = 30 * time.Second
 
 // ErrNoAuthSupport is returned when a [ProdSender] with a Password meets a server that does not
 // advertise the AUTH extension. Delivery stops there: a configured credential is always used.
@@ -53,7 +53,7 @@ type ProdSender struct {
 
 	// Timeout is the shared network budget from DNS resolution through SMTP QUIT, for both
 	// SendMail and Ping. Template rendering happens before this budget starts.
-	// Non-positive selects [DefaultTimeout].
+	// Non-positive selects 30 seconds.
 	Timeout time.Duration `json:"timeout" yaml:"timeout"`
 }
 
@@ -160,7 +160,7 @@ func (sender *ProdSender) deliver(recipients []string, msg []byte) error {
 // timeout returns the network budget of one exchange.
 func (sender *ProdSender) timeout() time.Duration {
 	if sender.Timeout <= 0 {
-		return DefaultTimeout
+		return defaultTimeout
 	}
 
 	return sender.Timeout

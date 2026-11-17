@@ -4,15 +4,13 @@ import (
 	"context"
 	"embed"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/uptrace/bun/driver/pgdriver"
 
+	"github.com/a-novel-kit/golib/internal/pgtest"
 	"github.com/a-novel-kit/golib/postgres"
 	"github.com/a-novel-kit/golib/postgres/postgrestest"
-	postgrespresets "github.com/a-novel-kit/golib/postgres/presets"
 )
 
 // migrations is the probe schema the transaction tests write to.
@@ -24,20 +22,6 @@ var migrations embed.FS
 // stands for any error a real unit of work might raise; only its identity
 // matters.
 var errRollback = errors.New("rollback")
-
-// testConfig points the tests at a throwaway database, named by the same
-// environment variable production uses so a developer configures one thing. The
-// variable has no default, since these tests write and a guessed target could be
-// any database listening on the usual port.
-func testConfig(t *testing.T) postgres.Config {
-	t.Helper()
-
-	dsn := os.Getenv("POSTGRES_DSN")
-	require.NotEmpty(t, dsn,
-		"POSTGRES_DSN must point at a throwaway database: this package wraps a real one and cannot be tested without it")
-
-	return postgrespresets.NewDefault(pgdriver.WithDSN(dsn))
-}
 
 // writeProbe inserts one row through GetContext, the way every consumer's
 // data-access code resolves its handle, so the tests exercise the path a real
@@ -75,7 +59,7 @@ func TestWithinTx(t *testing.T) {
 
 		id := "commit"
 
-		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+		postgrestest.RunDBTest(t, pgtest.Config(t), migrations, func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
@@ -95,7 +79,7 @@ func TestWithinTx(t *testing.T) {
 
 		id := "rollback"
 
-		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+		postgrestest.RunDBTest(t, pgtest.Config(t), migrations, func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
@@ -117,7 +101,7 @@ func TestWithinTx(t *testing.T) {
 		outer := "nested-outer"
 		inner := "nested-inner"
 
-		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+		postgrestest.RunDBTest(t, pgtest.Config(t), migrations, func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
@@ -156,7 +140,7 @@ func TestTransactor(t *testing.T) {
 
 		id := "transactor"
 
-		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+		postgrestest.RunDBTest(t, pgtest.Config(t), migrations, func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			err := postgres.NewTransactor(nil).WithinTx(ctx, func(ctx context.Context) error {
@@ -177,7 +161,7 @@ func TestInTx(t *testing.T) {
 	t.Run("Success/PoolThenTransaction", func(t *testing.T) {
 		t.Parallel()
 
-		postgrestest.RunDBTest(t, testConfig(t), migrations, func(ctx context.Context, t *testing.T) {
+		postgrestest.RunDBTest(t, pgtest.Config(t), migrations, func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			require.False(t, postgres.InTx(ctx), "the pool is on the context outside a transaction")

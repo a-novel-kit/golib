@@ -1,6 +1,7 @@
 package grpcf
 
 import (
+	"cmp"
 	"strconv"
 	"time"
 
@@ -38,8 +39,8 @@ func LoadServerConfig(getenv func(name string) string, defaults ServerConfig) Se
 	return ServerConfig{
 		Port: config.LoadEnv(getenv("GRPC_PORT"), defaults.Port, strconv.Atoi),
 		TLS: servertls.Files{
-			CertFile: config.LoadEnv(getenv("GRPC_TLS_CERT_FILE"), defaults.TLS.CertFile, config.StringParser),
-			KeyFile:  config.LoadEnv(getenv("GRPC_TLS_KEY_FILE"), defaults.TLS.KeyFile, config.StringParser),
+			CertFile: cmp.Or(getenv("GRPC_TLS_CERT_FILE"), defaults.TLS.CertFile),
+			KeyFile:  cmp.Or(getenv("GRPC_TLS_KEY_FILE"), defaults.TLS.KeyFile),
 		},
 		PlaintextPort: config.LoadEnv(getenv("GRPC_PLAINTEXT_PORT"), defaults.PlaintextPort, strconv.Atoi),
 		Shutdown:      config.LoadEnv(getenv("GRPC_TIMEOUT_SHUTDOWN"), defaults.Shutdown, time.ParseDuration),

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"github.com/felixge/httpsnoop"
 
 	"github.com/a-novel-kit/golib/logging"
@@ -27,10 +26,10 @@ type HTTPLocal struct {
 }
 
 // localStatusPrefixes marks the request line of each level.
-var localStatusPrefixes = map[LogLevel]string{
-	LogLevelInfo:  "✓",
-	LogLevelWarn:  "⚠",
-	LogLevelError: "🗙",
+var localStatusPrefixes = map[logLevel]string{
+	levelInfo:  "✓",
+	levelWarn:  "⚠",
+	levelError: "🗙",
 }
 
 func (logger *HTTPLocal) Logger() func(http.Handler) http.Handler {
@@ -47,15 +46,13 @@ func (logger *HTTPLocal) serve(next http.Handler, w http.ResponseWriter, r *http
 	metrics, body := serveKeepingBody(next, w, r)
 
 	level := statusLevel(metrics.Code)
-	style := level.style()
-	faint := lipgloss.NewStyle().Faint(true)
 
-	message := faint.Render(start.Format(time.StampNano)) + " " +
-		style.Render(fmt.Sprintf("%s %s %s", localStatusPrefixes[level], r.Method, r.URL.Path)) +
-		faint.Render(fmt.Sprintf(" (%s)", metrics.Duration))
+	message := paint(ansiFaint, start.Format(time.StampNano)) + " " +
+		level.paint(fmt.Sprintf("%s %s %s", localStatusPrefixes[level], r.Method, r.URL.Path)) +
+		paint(ansiFaint, fmt.Sprintf(" (%s)", metrics.Duration))
 
-	if level != LogLevelInfo && len(body) > 0 {
-		message += style.Render("\n\t" + strings.ReplaceAll(string(body), "\n", "\n\t"))
+	if level != levelInfo && len(body) > 0 {
+		message += level.paint("\n\t" + strings.ReplaceAll(string(body), "\n", "\n\t"))
 	}
 
 	// This preset only ever runs in local development, where dumping the raw response body is safe.

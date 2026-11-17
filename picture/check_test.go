@@ -2,7 +2,6 @@ package picture_test
 
 import (
 	"bytes"
-	"context"
 	_ "embed"
 	"encoding/binary"
 	"errors"
@@ -16,12 +15,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	otelglobal "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
+	"github.com/a-novel-kit/golib/internal/oteltest"
 	"github.com/a-novel-kit/golib/picture"
 )
 
@@ -506,7 +503,7 @@ func TestCheck(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			recorder := recordSpans(t)
+			recorder := oteltest.RecordSpans(t)
 
 			mediaType, err := picture.Check(t.Context(), testCase.data, testCase.rule)
 			require.ErrorIs(t, err, testCase.expectErr)
@@ -526,23 +523,6 @@ func TestCheck(t *testing.T) {
 			require.Equal(t, string(refusal), errorType.AsString())
 		})
 	}
-}
-
-// recordSpans installs a tracer provider that records the spans started until the test ends.
-func recordSpans(t *testing.T) *tracetest.SpanRecorder {
-	t.Helper()
-
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	previous := otelglobal.GetTracerProvider()
-
-	otelglobal.SetTracerProvider(provider)
-	t.Cleanup(func() {
-		otelglobal.SetTracerProvider(previous)
-		require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context())))
-	})
-
-	return recorder
 }
 
 // newImage returns an image of the given size, shaded so its encoding holds more than a header.

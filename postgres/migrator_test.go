@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +14,7 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/driver/pgdriver"
 
+	"github.com/a-novel-kit/golib/internal/pgtest"
 	"github.com/a-novel-kit/golib/postgres"
 	postgrespresets "github.com/a-novel-kit/golib/postgres/presets"
 )
@@ -35,7 +35,7 @@ func migrationFiles(ups map[string]string) fstest.MapFS {
 func migrationDB(t *testing.T, lockTimeout time.Duration) *bun.DB {
 	t.Helper()
 
-	admin, err := testConfig(t).DB(t.Context())
+	admin, err := pgtest.Config(t).DB(t.Context())
 	require.NoError(t, err)
 
 	schema := "mig_" + strings.ToLower(rand.Text())[:12]
@@ -48,11 +48,10 @@ func migrationDB(t *testing.T, lockTimeout time.Duration) *bun.DB {
 	})
 
 	db, err := postgrespresets.NewDefault(
-		pgdriver.WithDSN(os.Getenv("POSTGRES_DSN")),
-		pgdriver.WithConnParams(map[string]any{
+		append(pgtest.Config(t).Options(), pgdriver.WithConnParams(map[string]any{
 			"search_path":  schema,
 			"lock_timeout": fmt.Sprintf("%dms", lockTimeout.Milliseconds()),
-		}),
+		}))...,
 	).DB(t.Context())
 	require.NoError(t, err)
 

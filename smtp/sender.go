@@ -4,8 +4,6 @@ import (
 	"net/mail"
 	"strings"
 	"text/template"
-
-	"github.com/samber/lo"
 )
 
 // MailUser is a single mail participant, pairing a display name with its
@@ -43,14 +41,17 @@ func (mailUsers MailUsers) String() string {
 
 // Emails returns just the email addresses, dropping the display names.
 func (mailUsers MailUsers) Emails() []string {
-	return lo.Map(mailUsers, func(item MailUser, _ int) string {
-		return item.Email
-	})
+	emails := make([]string, len(mailUsers))
+	for i, mailUser := range mailUsers {
+		emails[i] = mailUser.Email
+	}
+
+	return emails
 }
 
 // Sender delivers a rendered mail template to a set of recipients. The delivery
 // backend swaps per environment: a real SMTP server in production, a writer in
-// local development, an in-memory recorder in tests.
+// local development.
 type Sender interface {
 	// SendMail renders template tName from t with data and delivers the result
 	// to the given recipients.

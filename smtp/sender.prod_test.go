@@ -530,14 +530,6 @@ func TestProdSender(t *testing.T) {
 		require.Error(t, err)
 		require.Less(t, time.Since(start), 5*time.Second)
 	})
-
-	t.Run("Success/DefaultTimeout", func(t *testing.T) {
-		t.Parallel()
-
-		// An unset Timeout selects DefaultTimeout. Proving it on a dial would cost the whole
-		// DefaultTimeout, so the test holds the constant to its contract.
-		require.Positive(t, smtp.DefaultTimeout)
-	})
 }
 
 // rejectGreeting answers every greeting of one connection with 421 and returns the commands it

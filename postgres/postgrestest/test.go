@@ -22,76 +22,12 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 
 	"github.com/a-novel-kit/golib/postgres"
+	postgrespresets "github.com/a-novel-kit/golib/postgres/presets"
 )
-
-// schemaNameLen caps the length of a test schema name, keeping it within PostgreSQL's 63-byte
-// identifier limit.
-const schemaNameLen = 31
 
 // TransactionalTestFunc is the body of a database-backed test, run with a
 // context carrying the connection isolated for that test.
 type TransactionalTestFunc func(context.Context, *testing.T)
-
-// schemaDropper is the optional capability a Config offers to remove a schema created
-// through DBSchema. The bundled Default implements it. A Config without it leaves its
-// throwaway schemas in place.
-type schemaDropper interface {
-	DropSchema(ctx context.Context, schema string) error
-}
-
-// NewContextTest derives a context bound to a fresh, randomly named schema created
-// through config, isolating the test from others sharing the database. It returns the
-// schema name so the caller can drop it once done.
-func NewContextTest(ctx context.Context, config postgres.Config) (context.Context, string, error) {
-	schemaName := "ta_" + strings.ToLower(rand.Text())
-	schemaName = fmt.Sprintf("%.*s", schemaNameLen, schemaName)
-
-	db, err := config.DBSchema(ctx, schemaName, true)
-	if err != nil {
-		return nil, "", fmt.Errorf("get db from config: %w", err)
-	}
-
-	return context.WithValue(ctx, postgres.ContextKey{}, db), schemaName, nil
-}
-
-// RunIsolatedTransactionalTest runs callback in a throwaway schema, which admits
-// operations a transaction cannot host concurrently, such as refreshing a
-// materialized view.
-//
-// The schema lives in the existing database, so its extensions remain available.
-// Each call reruns the whole migration set, which makes RunTransactionalTest the
-// cheaper default.
-func RunIsolatedTransactionalTest(
-	t *testing.T,
-	config postgres.Config,
-	migrations fs.FS,
-	callback TransactionalTestFunc,
-) {
-	t.Helper()
-
-	ctx, schema, err := NewContextTest(t.Context(), config)
-	require.NoError(t, err)
-
-	if dropper, ok := config.(schemaDropper); ok {
-		t.Cleanup(func() { dropTestSchema(ctx, t, dropper, schema) })
-	}
-
-	require.NoError(t, postgres.RunMigrationsContext(ctx, migrations))
-
-	callback(ctx, t)
-}
-
-// dropTestSchema drops schema from a test cleanup. A failure leaks the schema, and the test still
-// passes.
-func dropTestSchema(ctx context.Context, t *testing.T, dropper schemaDropper, schema string) {
-	t.Helper()
-
-	// t.Context is canceled by the time cleanups run.
-	err := dropper.DropSchema(context.WithoutCancel(ctx), schema)
-	if err != nil {
-		t.Logf("drop test schema %s: %v", schema, err)
-	}
-}
 
 // RunTransactionalTest runs callback inside a transaction that is rolled back on
 // cleanup. Sub-transactions resolve to that same transaction, so concurrent calls
@@ -139,13 +75,6 @@ const (
 	dbTestCreateBackoff = 200 * time.Millisecond
 )
 
-// dbTestOptionsConfig is the capability RunDBTest needs beyond the Config interface. RunDBTest reads
-// the raw driver options to connect to another database of the same cluster, such as the clone of
-// a test. postgrespresets.Default satisfies it.
-type dbTestOptionsConfig interface {
-	Options() []pgdriver.Option
-}
-
 var (
 	// dbTestMu serializes template creation within a process. The first RunDBTest call of a
 	// migration set migrates its template while the other calls wait, so only the first test pays
@@ -172,16 +101,12 @@ var (
 // fast file-level copy of that template. The test's cleanup drops the copy. The template stays for
 // later runs until the migrations change.
 //
-// config must expose Options() []pgdriver.Option, as postgrespresets.Default does. callback
-// receives a context carrying a *bun.DB for its database, which [postgres.GetContext] returns.
-func RunDBTest(t *testing.T, config postgres.Config, migrations fs.FS, callback TransactionalTestFunc) {
+// config names the cluster, whose driver options reach the template and the copy. callback receives
+// a context carrying a *bun.DB for its database, which [postgres.GetContext] returns.
+func RunDBTest(t *testing.T, config *postgrespresets.Default, migrations fs.FS, callback TransactionalTestFunc) {
 	t.Helper()
 
-	optionsConfig, ok := config.(dbTestOptionsConfig)
-	require.Truef(t, ok,
-		"RunDBTest requires a Config exposing Options() []pgdriver.Option (e.g. postgrespresets.Default)")
-
-	options := optionsConfig.Options()
+	options := config.Options()
 
 	template, err := dbTestEnsureTemplate(t.Context(), options, migrations)
 	require.NoError(t, err)

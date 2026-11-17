@@ -10,18 +10,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/migrate"
+
+	"github.com/a-novel-kit/golib/internal/pgtest"
 )
 
 func roundtripTestDB(t *testing.T) *bun.DB {
 	t.Helper()
 
-	dsn := os.Getenv("POSTGRES_DSN")
-	require.NotEmpty(t, dsn,
-		"POSTGRES_DSN must point at a throwaway database: the roundtrip migrates a real one")
-
-	db, err := newRoundtripDatabase(t, []pgdriver.Option{pgdriver.WithDSN(dsn)})
+	db, err := newRoundtripDatabase(t, pgtest.Config(t).Options())
 	require.NoError(t, err)
 
 	return db

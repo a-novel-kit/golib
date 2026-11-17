@@ -12,17 +12,17 @@ import (
 )
 
 const (
-	// PingTimeout bounds how long Ping keeps retrying before giving up.
-	PingTimeout = 10 * time.Second
-	// PingRetryInterval is the wait between failed ping attempts, keeping Ping
+	// pingTimeout bounds how long Ping keeps retrying before giving up.
+	pingTimeout = 10 * time.Second
+	// pingRetryInterval is the wait between failed ping attempts, keeping Ping
 	// from tight-looping reconnects on an unreachable database.
-	PingRetryInterval = 100 * time.Millisecond
+	pingRetryInterval = 100 * time.Millisecond
 )
 
-// Ping retries a database connection until it answers or [PingTimeout] passes. It honors ctx
+// Ping retries a database connection until it answers or 10 seconds pass. It honors ctx
 // cancellation both for each attempt and for the wait between attempts.
 func Ping(ctx context.Context, client *bun.DB) error {
-	return ping(ctx, client, PingTimeout, PingRetryInterval, nil)
+	return ping(ctx, client, pingTimeout, pingRetryInterval, nil)
 }
 
 // pinger is the part of a database handle ping needs, so a test can script its answers.
