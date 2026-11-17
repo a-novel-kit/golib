@@ -506,9 +506,8 @@ func TestProdSender(t *testing.T) {
 
 		require.Error(t, err)
 
-		var netErr net.Error
-
-		require.True(t, errors.As(err, &netErr) && netErr.Timeout(), "expected a timeout, got %v", err)
+		netErr, ok := errors.AsType[net.Error](err)
+		require.True(t, ok && netErr.Timeout(), "expected a timeout, got %v", err)
 		require.Less(t, elapsed, 5*time.Second, "the send must return on its own deadline")
 	})
 

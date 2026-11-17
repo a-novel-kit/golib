@@ -49,8 +49,8 @@ func WithTag(err error, key string, value any) error {
 		value = true
 	}
 
-	var tagged *taggedError
-	if !errors.As(err, &tagged) {
+	tagged, ok := errors.AsType[*taggedError](err)
+	if !ok {
 		tagged = &taggedError{error: err, tags: map[string]any{}}
 		err = tagged
 	}
@@ -74,16 +74,16 @@ type problem struct {
 func problemDocument(span trace.Span, err error, status int) *problem {
 	tags := map[string]any{}
 
-	var tagged *taggedError
-	if errors.As(err, &tagged) {
+	if tagged, ok := errors.AsType[*taggedError](err); ok {
 		maps.Copy(tags, tagged.tags)
 	}
 
 	// A server error can come from a validator rejecting the server's own data, whose fields stay
 	// internal.
-	var fields validator.ValidationErrors
-	if _, set := tags[InvalidFieldsTag]; !set && status < http.StatusInternalServerError && errors.As(err, &fields) {
-		tags[InvalidFieldsTag] = invalidFields(fields)
+	if _, set := tags[InvalidFieldsTag]; !set && status < http.StatusInternalServerError {
+		if fields, ok := errors.AsType[validator.ValidationErrors](err); ok {
+			tags[InvalidFieldsTag] = invalidFields(fields)
+		}
 	}
 
 	encoded := encodeTags(span, tags)

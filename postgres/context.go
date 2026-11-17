@@ -61,3 +61,8 @@ func TransferContext(baseCtx, destCtx context.Context) context.Context {
 
 	return context.WithValue(destCtx, ContextKey{}, db)
 }
+
+// ErrNoDBInContext is returned by an operation that needs the connection pool, such as
+// [RunMigrationsContext] or [Health], when the context carries a transaction instead.
+// [ErrNoIDBInContext] covers the case of no connection at all.
+var ErrNoDBInContext = errors.New("context does not contain a bun.DB")

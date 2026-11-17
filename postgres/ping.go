@@ -71,8 +71,7 @@ func ping(
 //
 // A refused connection, or any other error, is not transient.
 func transient(err error) bool {
-	var serverErr pgdriver.Error
-	if errors.As(err, &serverErr) {
+	if serverErr, ok := errors.AsType[pgdriver.Error](err); ok {
 		switch serverErr.Field('C') {
 		case "57P01", "57P02", "57P03":
 			return true

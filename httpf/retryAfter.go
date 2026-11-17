@@ -45,8 +45,11 @@ func setRetryAfter(w http.ResponseWriter, err error, status int) {
 		return
 	}
 
-	var delayed interface{ RetryAfter() time.Duration }
-	if !errors.As(err, &delayed) {
+	delayed, ok := errors.AsType[interface {
+		error
+		RetryAfter() time.Duration
+	}](err)
+	if !ok {
 		return
 	}
 

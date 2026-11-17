@@ -15,11 +15,6 @@ import (
 	"github.com/a-novel-kit/golib/otel"
 )
 
-// ErrNoDBInContext is returned by an operation that needs the connection pool, such as
-// [RunMigrationsContext] or [Health], when the context carries a transaction instead.
-// [ErrNoIDBInContext] covers the case of no connection at all.
-var ErrNoDBInContext = errors.New("context does not contain a bun.DB")
-
 const (
 	// lockAttempts bounds the runs of a migration that gives up waiting for a lock.
 	lockAttempts = 5
@@ -124,9 +119,9 @@ func applyMigrations(ctx context.Context, migrator *migrate.Migrator) error {
 
 // lockTimedOut reports whether a statement gave up waiting for a lock after lock_timeout.
 func lockTimedOut(err error) bool {
-	var pgErr pgdriver.Error
+	pgErr, ok := errors.AsType[pgdriver.Error](err)
 
-	return errors.As(err, &pgErr) && pgErr.Field('C') == lockNotAvailable
+	return ok && pgErr.Field('C') == lockNotAvailable
 }
 
 // RunMigrationsContext runs all the migrations found in the provided filesystem,

@@ -119,7 +119,7 @@ func roundtripPlan(migrations fs.FS, opts *RoundtripOptions) (migrate.MigrationS
 
 	ordered := discovery.Sorted()
 	if len(ordered) == 0 {
-		return nil, nil, errors.New("no migrations discovered — the roundtrip would assert nothing")
+		return nil, nil, errors.New("no migrations discovered: the roundtrip would assert nothing")
 	}
 
 	if opts.Snapshots == "" {
@@ -303,7 +303,7 @@ func roundtripCheckSnapshot(
 
 	want, err := os.ReadFile(snapshotPath) //nolint:gosec // Built from a migration filename.
 	if err != nil {
-		return fmt.Errorf("read snapshot %s — run with %s=1 to record it: %w",
+		return fmt.Errorf("read snapshot %s (run with %s=1 to record it): %w",
 			snapshotPath, roundtripUpdateEnv, err)
 	}
 

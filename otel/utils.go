@@ -74,7 +74,7 @@ func (err reportedError) Unwrap() error {
 // span holding the detail. The returned error carries that mark through any wrapping: compare it
 // with errors.Is, never ==.
 func ReportError(span trace.Span, err error) error {
-	if errors.As(err, new(reportedError)) {
+	if _, ok := errors.AsType[reportedError](err); ok {
 		span.SetStatus(codes.Error, "")
 
 		return err

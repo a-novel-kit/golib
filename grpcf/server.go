@@ -13,7 +13,6 @@ import (
 	middleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
@@ -60,10 +59,7 @@ func NewServer(
 		baseContext = func(ctx context.Context) context.Context { return ctx }
 	}
 
-	open := []string{
-		"/" + healthpb.Health_ServiceDesc.ServiceName + "/",
-		"/" + golibproto.EchoService_ServiceDesc.ServiceName + "/",
-	}
+	open := []string{healthMethods, "/" + golibproto.EchoService_ServiceDesc.ServiceName + "/"}
 
 	options := []grpc.ServerOption{
 		tracing.RPCInterceptor(),
