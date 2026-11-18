@@ -17,7 +17,7 @@ import (
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 )
 
-// newStreamRouter returns a router from [httpf.NewRouter] whose requests time out after timeout.
+// newStreamRouter returns a router from [httpf.NewMux] whose requests time out after timeout.
 func newStreamRouter(timeout time.Duration) *chi.Mux {
 	config := httpf.ServerConfigDefault
 	config.RateLimitsEnabled = false
@@ -231,7 +231,7 @@ func TestEventStream(t *testing.T) {
 	})
 
 	// The client reads an event while its handler still runs, through every middleware of
-	// NewRouter and a real connection.
+	// NewMux and a real connection.
 	t.Run("Success/ThroughRouter", func(t *testing.T) {
 		t.Parallel()
 

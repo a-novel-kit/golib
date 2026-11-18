@@ -1,0 +1,36 @@
+# Migrating to NEXT
+
+golib removes the forms v0.66.0 replaced, now that no repository uses them: `httpf.NewRouter`,
+`grpcf.NewServer`, `otelpresets.OTLP.UntracedPaths`, `httpf.ServiceTokenMiddleware`, the two
+`grpcf` service token interceptors, `grpcf.RegisterEchoServers`, the `grpcf` credentials providers,
+`postgres.TransferContext`, `postgres.RunMigrationsContext`, `postgres.ContextKey` and
+`config.Must`.
+
+## Do I need to act?
+
+**No, in every service.** Each one moved to the v0.66.0 replacements. Check a repository from its
+root:
+
+```bash
+grep -rnE 'httpf\.(NewRouter|ServiceTokenMiddleware)|grpcf\.(NewServer|ServiceTokenUnaryInterceptor|ServiceTokenStreamInterceptor|RegisterEchoServers|CredentialsProvider|LocalCredentialsProvider|ServiceTokenCredentialsProvider)\b|UntracedPaths|postgres\.(TransferContext|RunMigrationsContext|ContextKey)|config\.Must\b' --include='*.go' .
+```
+
+No output means nothing to do. Code that still uses one stops compiling.
+
+## Replace what remains
+
+The [v0.66.0 guide](./v0.66.0.md) shows each replacement before and after.
+
+| Removed                                                                                    | Replacement                                                                          |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `httpf.NewRouter`                                                                          | `httpf.NewMux`, without the tracing argument                                         |
+| `grpcf.NewServer`                                                                          | `grpcf.NewGRPCServer`, without the tracing argument                                  |
+| `otelpresets.OTLP.UntracedPaths`                                                           | Nothing: `httpf.NewMux` leaves the liveness path untraced                            |
+| `httpf.ServiceTokenMiddleware`                                                             | `httpf.ServiceTokenGate`                                                             |
+| `grpcf.ServiceTokenUnaryInterceptor`, `ServiceTokenStreamInterceptor`                      | `grpcf.ServiceTokenGate`                                                             |
+| `grpcf.RegisterEchoServers`                                                                | `grpcf.RegisterHealth`                                                               |
+| `grpcf.CredentialsProvider`, `LocalCredentialsProvider`, `ServiceTokenCredentialsProvider` | `grpcf.ClientConfig.DialOptions`, from `grpcf.LoadClientConfig`                      |
+| `postgres.TransferContext`                                                                 | A nil `baseContext` on `grpcf.NewGRPCServer`, and `context.WithoutCancel` for a task |
+| `postgres.RunMigrationsContext`                                                            | `postgres.RunMigrations`, with the pool of the migrations job's `postgres.Config`    |
+| `postgres.ContextKey`                                                                      | `postgres.WithTx` to put a connection on a context, `postgres.GetContext` to read it |
+| `config.Must`                                                                              | `lo.Must` from `github.com/samber/lo`                                                |

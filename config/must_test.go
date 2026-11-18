@@ -22,23 +22,6 @@ func unmarshalValid(data []byte, v any) error {
 	return nil
 }
 
-func TestMust(t *testing.T) {
-	t.Parallel()
-
-	fn1 := func() (string, error) {
-		return "foo", nil
-	}
-
-	fn2 := func() (string, error) {
-		return "", errPanic
-	}
-
-	require.Equal(t, "foo", config.Must(fn1()))
-	require.PanicsWithValue(t, errPanic, func() {
-		config.Must(fn2())
-	})
-}
-
 func TestMustUnmarshal(t *testing.T) {
 	t.Parallel()
 

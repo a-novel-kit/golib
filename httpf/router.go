@@ -73,12 +73,6 @@ func NewMux(config ServerConfig, logger logging.HTTPConfig, downtimeStart *time.
 	return router
 }
 
-// NewRouter is [NewMux] with a tracing argument it ignores, for the callers written before NewMux.
-// Prefer NewMux; a later release removes NewRouter once no consumer calls it.
-func NewRouter(config ServerConfig, _ otel.Config, logger logging.HTTPConfig, downtimeStart *time.Time) *chi.Mux {
-	return NewMux(config, logger, downtimeStart)
-}
-
 // traceRequests opens the server span of each request, under the global tracer provider, except for
 // requests to liveness, which run under a parent span that is not sampled.
 func traceRequests(liveness string) func(http.Handler) http.Handler {

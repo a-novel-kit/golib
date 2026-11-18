@@ -29,9 +29,6 @@ var keepEveryTrace = sdktrace.ParentBased(
 // service. The preset sets no exporter option of its own, so moving to another backend changes
 // variables only.
 type OTLP struct {
-	// UntracedPaths does nothing: httpf.NewMux leaves its liveness path untraced under every
-	// preset. Leave it unset; a later release removes it once no consumer sets it.
-	UntracedPaths []string `json:"untracedPaths" yaml:"untracedPaths"`
 	// FlushTimeout bounds how long Flush waits for buffered data to drain. Zero waits indefinitely.
 	FlushTimeout time.Duration `json:"flushTimeout" yaml:"flushTimeout"`
 

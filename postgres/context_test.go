@@ -24,11 +24,6 @@ func TestNewContext(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, pool, db)
 
-	// A detached context, such as a background task's, reaches the same pool once transferred.
-	db, err = postgres.GetContext(postgres.TransferContext(ctx, t.Context()))
-	require.NoError(t, err)
-	require.Same(t, pool, db)
-
 	_, err = postgres.GetContext(t.Context())
 	require.ErrorIs(t, err, postgres.ErrNoIDBInContext)
 }
