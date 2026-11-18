@@ -2,6 +2,7 @@
 
 A golib release that asks something of its consumers ships a guide here, named after its version.
 
+- [v0.67.0](./v0.67.0.md): golib removes the forms v0.66.0 replaced, now that no repository uses them: `httpf.NewRouter`, `grpcf.NewServer`, `otelpresets.OTLP.UntracedPaths`, `httpf.ServiceTokenMiddleware`, the two `grpcf` service token interceptors, `grpcf.RegisterEchoServers`, the `grpcf` credentials providers, `postgres.TransferContext`, `postgres.RunMigrationsContext`, `postgres.ContextKey` and `config.Must`.
 - [v0.66.0](./v0.66.0.md): golib takes over the boilerplate every service copied: the service token gate, the ping and health handlers, the telemetry and Postgres presets read from the environment, the gRPC client configuration, the job root span and the SQLSTATE reader. It also removes the exports no repository uses, and drops lipgloss and samber/lo from its dependencies.
 - [v0.61.0](./v0.61.0.md): `sentryf` and `grpcf.GcloudCredentialsProvider` are removed.
 - [v0.59.0](./v0.59.0.md): `httpf.ServiceTokenCaller` returns a request's verified caller, which `Verifier.Verify` now returns.
