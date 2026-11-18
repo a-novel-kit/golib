@@ -23,7 +23,6 @@ import (
 	"github.com/a-novel-kit/golib/logging"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
 	"github.com/a-novel-kit/golib/otel"
-	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 )
 
 //nolint:paralleltest // Swaps the process-wide tracer provider.
@@ -341,20 +340,6 @@ func TestNewMuxLiveness(t *testing.T) {
 	spans := recorder.Ended()
 	require.Len(t, spans, 1)
 	require.Equal(t, "GET /items", spans[0].Name())
-}
-
-// NewRouter builds the router NewMux does, whatever tracing argument it gets.
-func TestNewRouter(t *testing.T) {
-	t.Parallel()
-
-	router := httpf.NewRouter(httpf.ServerConfigDefault, &otelpresets.Disabled{}, nil, nil)
-	router.Get(httpf.ServerConfigDefault.Liveness, httpf.Ping)
-
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequestWithContext(
-		t.Context(), http.MethodGet, httpf.ServerConfigDefault.Liveness, nil,
-	))
-	require.Equal(t, "pong", response.Body.String())
 }
 
 func TestEndOnShutdown(t *testing.T) {

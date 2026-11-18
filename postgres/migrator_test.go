@@ -75,40 +75,6 @@ func appliedMigrations(t *testing.T, db *bun.DB) []string {
 	return names
 }
 
-func TestRunMigrationsContext(t *testing.T) {
-	t.Parallel()
-
-	migrations := migrationFiles(map[string]string{"20260101000000_probe": "CREATE TABLE probe (id int);"})
-
-	t.Run("Success", func(t *testing.T) {
-		t.Parallel()
-
-		db := migrationDB(t, time.Second)
-
-		// WithTx stores any bun.IDB: here the pool, as NewContext does in a migrations job.
-		ctx := postgres.WithTx(t.Context(), db)
-		require.NoError(t, postgres.RunMigrationsContext(ctx, migrations))
-		require.Equal(t, []string{"20260101000000"}, appliedMigrations(t, db))
-	})
-
-	t.Run("Error/NoDB", func(t *testing.T) {
-		t.Parallel()
-
-		require.ErrorIs(t, postgres.RunMigrationsContext(t.Context(), migrations), postgres.ErrNoIDBInContext)
-	})
-
-	t.Run("Error/Transaction", func(t *testing.T) {
-		t.Parallel()
-
-		ctx := postgres.WithTx(t.Context(), migrationDB(t, time.Second))
-
-		err := postgres.WithinTx(ctx, nil, func(ctx context.Context) error {
-			return postgres.RunMigrationsContext(ctx, migrations)
-		})
-		require.ErrorIs(t, err, postgres.ErrNoDBInContext)
-	})
-}
-
 func TestRunMigrations(t *testing.T) {
 	t.Parallel()
 

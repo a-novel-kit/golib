@@ -146,22 +146,3 @@ func lockTimedOut(err error) bool {
 
 	return code == lockNotAvailable
 }
-
-// RunMigrationsContext runs all the migrations found in the provided filesystem,
-// using the database connection from the context.
-//
-// Prefer [RunMigrations] with the pool of the migrations job's Config, which v0.65.0 already has. A
-// later release removes RunMigrationsContext once no consumer calls it.
-func RunMigrationsContext(ctx context.Context, migrations fs.FS) error {
-	tx, err := GetContext(ctx)
-	if err != nil {
-		return fmt.Errorf("get db from context: %w", err)
-	}
-
-	db, ok := tx.(*bun.DB)
-	if !ok {
-		return ErrNoDBInContext
-	}
-
-	return RunMigrations(ctx, db, migrations)
-}

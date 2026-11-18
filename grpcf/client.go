@@ -78,44 +78,6 @@ func (client ClientConfig) DialOptions() []grpc.DialOption {
 	}
 }
 
-// CredentialsProvider supplies the gRPC dial options of a connection.
-//
-// Prefer [ClientConfig.DialOptions], which [LoadClientConfig] configures from the environment. A
-// later release removes the interface once no consumer uses it.
-type CredentialsProvider interface {
-	// Options returns the dial options to pass when creating the client.
-	Options(ctx context.Context) ([]grpc.DialOption, error)
-}
-
-// LocalCredentialsProvider dials without transport security, for plaintext connections to a service
-// on a trusted local network.
-//
-// Prefer the [ClientConfig.DialOptions] of a ClientConfig without a TokenPath.
-// A later release removes it once no consumer uses it.
-type LocalCredentialsProvider struct{}
-
-// Options returns the dial options of a ClientConfig without a TokenPath.
-func (provider *LocalCredentialsProvider) Options(_ context.Context) ([]grpc.DialOption, error) {
-	return ClientConfig{}.DialOptions(), nil
-}
-
-// ServiceTokenCredentialsProvider dials a service in the same Kubernetes cluster with the caller's
-// service token, as [ClientConfig.DialOptions] describes.
-//
-// Prefer the [ClientConfig.DialOptions] of a ClientConfig with a TokenPath.
-// A later release removes it once no consumer uses it.
-type ServiceTokenCredentialsProvider struct {
-	// ServiceTokenPath is the file the kubelet projects the caller's service token into.
-	ServiceTokenPath string
-	// TLS dials TLS 1.3. False dials plaintext.
-	TLS bool
-}
-
-// Options returns the dial options of a ClientConfig with this token path and TLS flag.
-func (provider *ServiceTokenCredentialsProvider) Options(_ context.Context) ([]grpc.DialOption, error) {
-	return ClientConfig{TokenPath: provider.ServiceTokenPath, TLS: provider.TLS}.DialOptions(), nil
-}
-
 // inClusterServiceConfig balances the calls of a connection with a service token round robin, and
 // retries every method on Unavailable. The retry throttle holds 10 tokens. Each refused attempt
 // spends one and each success earns a tenth back, and retries stop while 5 or fewer remain.

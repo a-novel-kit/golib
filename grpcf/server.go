@@ -22,7 +22,6 @@ import (
 	"github.com/a-novel-kit/golib/downtime"
 	golibproto "github.com/a-novel-kit/golib/grpcf/proto/gen"
 	"github.com/a-novel-kit/golib/logging"
-	"github.com/a-novel-kit/golib/otel"
 	"github.com/a-novel-kit/golib/servertls"
 )
 
@@ -92,19 +91,6 @@ func NewGRPCServer(
 	}
 
 	return grpc.NewServer(slices.Concat(options, extra)...)
-}
-
-// NewServer is [NewGRPCServer] with a tracing argument it ignores, for the callers written before
-// NewGRPCServer. Prefer NewGRPCServer; a later release removes NewServer once no consumer calls it.
-func NewServer(
-	ctx context.Context,
-	_ otel.Config,
-	logger logging.RPCConfig,
-	downtimeStart *time.Time,
-	baseContext func(ctx context.Context) context.Context,
-	extra ...grpc.ServerOption,
-) *grpc.Server {
-	return NewGRPCServer(ctx, logger, downtimeStart, baseContext, extra...)
 }
 
 // endStreamsInterceptor ends a stream once ctx is done, which marks the start of shutdown.

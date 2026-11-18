@@ -48,21 +48,16 @@ func ServiceTokenGate(
 		return nil, servicetoken.ErrIssuerRequired
 	}
 
-	return ServiceTokenMiddleware(servicetoken.NewVerifier(config, client), logger, open...), nil
+	return serviceTokenMiddleware(servicetoken.NewVerifier(config, client), logger, open...), nil
 }
 
-// ServiceTokenMiddleware refuses a request unless verifier accepts its one service token, which a
-// client sends in the [servicetoken.Header] header. The handlers then read the token's caller with
-// [ServiceTokenCaller]. A request to a path listed in open passes unchecked, such as the liveness
-// route the kubelet probes without a token. [HandleError] answers each refusal and logs it through
-// logger.
+// serviceTokenMiddleware refuses a request unless verifier accepts its one service token, which a
+// client sends in the [servicetoken.Header] header. A request to a path listed in open passes
+// unchecked. [HandleError] answers each refusal and logs it through logger.
 //
 // A refused token answers 401 with the WWW-Authenticate challenge RFC 9110 §15.5.2 requires, which
 // [serviceTokenChallenge] describes.
-//
-// Prefer [ServiceTokenGate], which builds the verifier and fails closed without an issuer.
-// A later release removes it once no consumer uses it.
-func ServiceTokenMiddleware(
+func serviceTokenMiddleware(
 	verifier *servicetoken.Verifier, logger logging.Log, open ...string,
 ) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

@@ -26,23 +26,13 @@ func (handler *echo) UnaryEcho(context.Context, *golibproto.UnaryEchoRequest) (*
 // The health service reports SERVING until ctx is done, then NOT_SERVING, so a client stops sending
 // calls to a server that drains. Pass the context the server drains under.
 func RegisterHealth(ctx context.Context, server *grpc.Server) {
-	healthcheck := RegisterEchoServers(server)
+	healthcheck := health.NewServer()
+	healthpb.RegisterHealthServer(server, healthcheck)
+	golibproto.RegisterEchoServiceServer(server, &echo{})
+
 	healthcheck.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
 	context.AfterFunc(ctx, func() {
 		healthcheck.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
 	})
-}
-
-// RegisterEchoServers registers the built-in echo service and the standard health service on
-// server. It returns the health server, through which the caller reports its serving status.
-//
-// Prefer [RegisterHealth], which also reports the serving status. A later release removes it once no consumer uses it.
-func RegisterEchoServers(server *grpc.Server) *health.Server {
-	healthcheck := health.NewServer()
-	healthpb.RegisterHealthServer(server, healthcheck)
-
-	golibproto.RegisterEchoServiceServer(server, &echo{})
-
-	return healthcheck
 }

@@ -28,7 +28,6 @@ import (
 	"github.com/a-novel-kit/golib/internal/oteltest"
 	"github.com/a-novel-kit/golib/internal/tlstest"
 	loggingpresets "github.com/a-novel-kit/golib/logging/presets"
-	otelpresets "github.com/a-novel-kit/golib/otel/presets"
 	"github.com/a-novel-kit/golib/servertls"
 )
 
@@ -516,30 +515,6 @@ func faultStream(srv any, stream grpc.ServerStream) error {
 // panicCall panics with a value that holds caller input.
 func panicCall(context.Context) error {
 	panic("secret")
-}
-
-// NewServer builds the server NewGRPCServer does, whatever tracing argument it gets.
-func TestNewServer(t *testing.T) {
-	t.Parallel()
-
-	server := grpcf.NewServer(t.Context(), &otelpresets.Disabled{}, &loggingpresets.GRPCLocal{}, nil, nil)
-	grpcf.RegisterHealth(t.Context(), server)
-
-	address, config := freeGRPCServer(t, time.Second)
-	go func() { _ = grpcf.ListenAndServe(t.Context(), config, server) }()
-
-	waitForGRPCServer(t, address)
-
-	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-
-	ctx, cancel := context.WithTimeout(t.Context(), grpcServerTestTimeout)
-	t.Cleanup(cancel)
-
-	response, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{})
-	require.NoError(t, err)
-	require.Equal(t, healthpb.HealthCheckResponse_SERVING, response.GetStatus())
 }
 
 // driverError stands for an error type of a dependency, whose message holds caller input.
