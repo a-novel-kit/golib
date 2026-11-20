@@ -33,7 +33,7 @@ databases and schemas on it, so point them at a throwaway server.
 ```bash
 POSTGRES_PASSWORD="postgres"
 podman run -d --name golib-postgres -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-  -p 5432:5432 docker.io/library/postgres:18
+  -p 5432:5432 docker.io/library/postgres:19
 export POSTGRES_DSN="postgres://postgres:$POSTGRES_PASSWORD@localhost:5432/postgres?sslmode=disable"
 a-novel test --type=go -y
 ```
