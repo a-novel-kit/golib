@@ -12,7 +12,7 @@ require (
 	github.com/go-chi/httprate-redis v0.7.0
 	github.com/go-playground/validator/v10 v10.30.6
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.4
-	github.com/redis/go-redis/v9 v9.23.0
+	github.com/redis/go-redis/v9 v9.24.0
 	github.com/stretchr/testify v1.12.1
 	github.com/uptrace/bun v1.3.0
 	github.com/uptrace/bun/dialect/pgdialect v1.3.0
