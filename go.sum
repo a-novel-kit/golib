@@ -1,5 +1,5 @@
-github.com/a-novel-kit/jwt/v2 v2.7.0 h1:JUXqgXAvvuvcuuyIpxm8b1ZA0g7S4hnOKyLS99Lq17Q=
-github.com/a-novel-kit/jwt/v2 v2.7.0/go.mod h1:f2i8dJYYdIxTZbT+UOy9awRSZz/YsRHgCxCbnC/coGY=
+github.com/a-novel-kit/jwt/v2 v2.8.0 h1:6vIg2bJHDWMUr3W1kKl20hY69Z8sIVgs5YoBGgA2ykc=
+github.com/a-novel-kit/jwt/v2 v2.8.0/go.mod h1:f2i8dJYYdIxTZbT+UOy9awRSZz/YsRHgCxCbnC/coGY=
 github.com/alicebob/miniredis/v2 v2.40.0 h1:6IgTQbvm2JiMYZ8yur/acNJzVjtSOWCelxXbk/LUBXc=
 github.com/alicebob/miniredis/v2 v2.40.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=

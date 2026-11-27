@@ -3,7 +3,7 @@ module github.com/a-novel-kit/golib
 go 1.27.4
 
 require (
-	github.com/a-novel-kit/jwt/v2 v2.7.0
+	github.com/a-novel-kit/jwt/v2 v2.8.0
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/felixge/httpsnoop v1.1.0
 	github.com/go-chi/chi/v5 v5.5.0
